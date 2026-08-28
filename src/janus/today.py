@@ -1,54 +1,22 @@
 from datetime import date
 
-from janus.integrations.google_calendar import list_upcoming_events
+from janus.integrations.markdown_tasks import load_tasks
 from janus.models.task import Task
 
 
-def get_today_events() -> list:
-    today = date.today()
-
-    events = list_upcoming_events()
-
-    return [
-        event
-        for event in events
-        if event.start is not None and event.start.date() == today
-    ]
-
-
 def requires_attention(task: Task, today: date) -> bool:
+    """Return True if a task needs attention today."""
     return (
-        task.due_date is not None
-        and task.due_date <= today
+        (task.due_date is not None and task.due_date <= today)
         or task.priority >= 3
     )
 
 
 def show_today() -> None:
+    """Print today's overview using Markdown tasks and Google Calendar events."""
     today = date.today()
 
-    events = get_today_events()
-
-    tasks = [
-        Task(
-            title="Buy groceries",
-            due_date=today,
-            priority=2,
-        ),
-        Task(
-            title="Plan weekend hike",
-            priority=1,
-        ),
-        Task(
-            title="Book dentist appointment",
-            due_date=date(2026, 8, 27),
-            priority=2,
-        ),
-        Task(
-            title="Prepare training plan",
-            priority=3,
-        ),
-    ]
+    tasks = load_tasks()
 
     attention_tasks = [
         task
@@ -59,26 +27,10 @@ def show_today() -> None:
     print("JANUS — TODAY")
     print()
 
-    if events:
-        print("Events:")
+    print("Requires attention:")
 
-        for event in events:
-            if event.all_day:
-                print(f"- All day — {event.title}")
-            else:
-                source = f" — {event.source}" if event.source else ""
-                print(
-                    f"- {event.start.strftime('%H:%M')} — "
-                    f"{event.title}{source}"
-                )
+    for task in attention_tasks:
+        print(f"- {task.title}")
 
-        print()
-
-    if attention_tasks:
-        print("Requires attention:")
-
-        for task in attention_tasks:
-            print(f"- {task.title}")
-
-    else:
+    if not attention_tasks:
         print("Nothing requires your attention today.")
