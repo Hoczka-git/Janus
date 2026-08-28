@@ -1,4 +1,5 @@
-from datetime import date, datetime
+import tomllib
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -43,7 +44,8 @@ def get_calendar_service():
         credentials=credentials,
     )
 
-def parse_event(event: dict) -> Event:
+
+def parse_event(event: dict, source: str | None = None) -> Event:
     start_data = event["start"]
     end_data = event.get("end", {})
 
@@ -56,23 +58,46 @@ def parse_event(event: dict) -> Event:
         ) if "dateTime" in end_data else None
 
         return Event(
-            title=event.get("summary", "Untitled event"),
+            title=(event.get("summary") or "Untitled event"),
             start=start,
             end=end,
             all_day=False,
+            source=source,
         )
 
     return Event(
-        title=event.get("summary", "Untitled event"),
+        title=(event.get("summary") or "Untitled event"),
         start=datetime.combine(
             date.fromisoformat(start_data["date"]),
             datetime.min.time(),
+            tzinfo=timezone.utc,
         ),
         end=None,
         all_day=True,
+        source=source,
     )
 
-def list_upcoming_events() -> list[Event]:
+
+def _load_config() -> list[tuple[str, str]]:
+    config_path = PROJECT_ROOT / "config" / "config.toml"
+    if not config_path.exists():
+        return []
+
+    with config_path.open("rb") as f:
+        data = tomllib.load(f)
+
+    calendars: list[tuple[str, str]] = []
+    gc = data.get("google_calendar", {})
+    for entry in gc.get("calendars", []):
+        calendar_id = entry.get("id", "")
+        calendar_name = entry.get("name", calendar_id)
+        if calendar_id:
+            calendars.append((calendar_id, calendar_name))
+
+    return calendars
+
+
+def list_events(calendar_id: str) -> list[Event]:
     service = get_calendar_service()
 
     now = datetime.now().astimezone().isoformat()
@@ -80,7 +105,7 @@ def list_upcoming_events() -> list[Event]:
     result = (
         service.events()
         .list(
-            calendarId="primary",
+            calendarId=calendar_id,
             timeMin=now,
             maxResults=10,
             singleEvents=True,
@@ -90,20 +115,30 @@ def list_upcoming_events() -> list[Event]:
     )
 
     return [
-      parse_event(event)
-      for event in result.get("items", [])
+        parse_event(event)
+        for event in result.get("items", [])
     ]
 
-def main() -> None:
-    events = list_upcoming_events()
 
-    if not events:
-        print("No upcoming events.")
-        return
+def list_upcoming_events() -> list[Event]:
+    calendars = _load_config()
 
-    for event in events:
-        print(f"{event.start} — {event.title}")
+    if not calendars:
+        return []
+
+    all_events: list[Event] = []
+
+    for calendar_id, calendar_name in calendars:
+        events = list_events(calendar_id)
+        for event in events:
+            event.source = calendar_name
+        all_events.extend(events)
+
+    all_events.sort(key=lambda e: (
+        e.start is None or e.all_day,
+        e.start or datetime.min.replace(tzinfo=timezone.utc),
+    ))
+
+    return all_events
 
 
-if __name__ == "__main__":
-    main()

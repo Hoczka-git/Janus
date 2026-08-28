@@ -3,7 +3,8 @@ from datetime import date
 from janus.integrations.google_calendar import list_upcoming_events
 from janus.models.task import Task
 
-def get_today_events():
+
+def get_today_events() -> list:
     today = date.today()
 
     events = list_upcoming_events()
@@ -65,9 +66,10 @@ def show_today() -> None:
             if event.all_day:
                 print(f"- All day — {event.title}")
             else:
+                source = f" — {event.source}" if event.source else ""
                 print(
                     f"- {event.start.strftime('%H:%M')} — "
-                    f"{event.title}"
+                    f"{event.title}{source}"
                 )
 
         print()

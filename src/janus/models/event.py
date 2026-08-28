@@ -8,3 +8,4 @@ class Event:
     start: datetime | None = None
     end: datetime | None = None
     all_day: bool = False
+    source: str | None = None
