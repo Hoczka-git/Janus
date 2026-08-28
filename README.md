@@ -6,8 +6,8 @@ Personal chief of staff assistant focused on proactive personal life management.
 
 - Google Calendar read-only integration
 - Multiple configured calendars (Job, Personal, and more)
-- Unified daily view with events from all configured calendars
-- `janus today` command for daily overview
+- Unified event stream across all configured calendars
+- Daily briefing via `janus today`
 
 ## Setup
 
@@ -23,9 +23,10 @@ Personal chief of staff assistant focused on proactive personal life management.
 uv sync
 ```
 
-### Configuration
+### Google Calendar setup
 
-Copy `config/config.example.toml` to `config/config.toml` and fill in your calendar IDs:
+1. Place `credentials.json` (OAuth client secrets) in the project root.
+2. Copy `config/config.example.toml` to `config/config.toml` and fill in your calendar IDs:
 
 ```toml
 [google_calendar]
@@ -38,17 +39,9 @@ id = "PERSONAL_CALENDAR_ID"
 name = "Personal"
 ```
 
-**Do not commit `config/config.toml`** — it is listed in `.gitignore`. The example file is safe to commit.
+3. Run `uv run janus today` — OAuth token is generated automatically on first run.
 
-### Google Calendar OAuth
-
-1. Create a project in Google Cloud Console
-2. Enable the Calendar API
-3. Create OAuth 2.0 credentials (Desktop app)
-4. Download `credentials.json` and place it in the project root
-5. Run `uv run janus today` — the OAuth token is generated automatically
-
-### Usage
+### Run
 
 ```bash
 uv run janus today
@@ -68,42 +61,15 @@ Requires attention:
 - Prepare training plan
 ```
 
-## Development
-
-### Running tests
+### Tests
 
 ```bash
 uv run pytest
 ```
 
-### Project structure
-
-```
-janus/
-├── src/janus/
-│   ├── __init__.py        # CLI entry point
-│   ├── today.py           # Today command
-│   ├── models/
-│   │   ├── event.py       # Event model
-│   │   └── task.py        # Task model
-│   └── integrations/
-│       ├── __init__.py
-│       └── google_calendar.py
-├── tests/
-│   ├── test_today.py
-│   └── test_google_calendar.py
-├── config/
-│   ├── config.example.toml  # Template (committed)
-│   └── config.toml          # Your config (not committed)
-├── pyproject.toml
-└── .gitignore
-```
-
 ## Security
 
-- `credentials.json` — OAuth client secrets (not committed)
-- `token.json` — OAuth access/refresh tokens (not committed)
-- `config/config.toml` — calendar IDs (not committed)
-- Read-only scope: `https://www.googleapis.com/auth/calendar.readonly`
-
-## License
+- `credentials.json` — not committed
+- `token.json` — not committed
+- `config/config.toml` — not committed
+- Google Calendar access is read-only (`calendar.readonly` scope)
