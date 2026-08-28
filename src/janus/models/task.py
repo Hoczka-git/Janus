@@ -6,4 +6,4 @@ from datetime import date
 class Task:
     title: str
     due_date: date | None = None
-    priority: int = 0
+    priority: int = 1
