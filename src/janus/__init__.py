@@ -1,6 +1,6 @@
 import sys
 
-from janus.today import show_today
+from janus.today import show_today, show_telegram
 
 
 def main() -> None:
@@ -12,5 +12,7 @@ def main() -> None:
 
     if command == "today":
         show_today()
+    elif command == "telegram":
+        show_telegram()
     else:
         print(f"Unknown command: {command}")

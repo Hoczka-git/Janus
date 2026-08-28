@@ -2,6 +2,7 @@ from datetime import date
 
 from janus.integrations.google_calendar import list_upcoming_events
 from janus.integrations.markdown_tasks import load_tasks
+from janus.integrations.telegram import send_briefing
 from janus.models.event import Event
 from janus.services.daily_briefing import create_daily_briefing
 
@@ -66,3 +67,18 @@ def show_today() -> None:
         for i, task in enumerate(briefing.suggested_focus, 1):
             print(f"{i}. {task.title}")
         print()
+
+
+def show_telegram() -> None:
+    today = date.today()
+
+    all_events = list_upcoming_events()
+    today_events: list[Event] = [
+        e for e in all_events
+        if e.start is not None and e.start.date() == today
+    ]
+
+    tasks = load_tasks()
+    briefing = create_daily_briefing(today_events, tasks, today)
+
+    send_briefing(briefing)
