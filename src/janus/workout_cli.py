@@ -1,9 +1,9 @@
-"""CLI command handler for 'janus workout add' and 'janus workout show'."""
+"""CLI command handler for 'janus workout add', 'janus workout show', and 'janus workout summary'."""
 
 
 import sys
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from janus.models.workout import Exercise, RunningWorkout, Set, StrengthWorkout, WorkoutType
 from janus.integrations.workout_md import (
@@ -13,6 +13,11 @@ from janus.integrations.workout_md import (
     find_workouts_by_date_range,
     load_workouts,
     save_workout,
+)
+from janus.services.workout_analytics import (
+    compute_exercise_summary,
+    compute_overall_summary,
+    compute_running_summary,
 )
 
 
@@ -29,7 +34,6 @@ def _generate_id(workout_type: WorkoutType) -> str:
             except (ValueError, IndexError):
                 pass
     return f"{prefix}-{max_num + 1:03d}"
-
 
 
 def _parse_date(s: Optional[str]) -> date:
@@ -400,3 +404,85 @@ def handle_workout_show(args: list[str]) -> None:
             else:
                 print(f"  {w.id} | {w.date.date().isoformat()} | "
                       f"Unknown type ({w.workout_type.value})")
+
+
+def handle_workout_summary(args: list[str]) -> None:
+    """Parse 'janus workout summary' arguments and display summary.
+
+    Usage:
+        janus workout summary              # overall summary
+        janus workout summary --running   # running-specific summary
+        janus workout summary --exercise "Back Squat"  # per-exercise summary
+    """
+    show_running = False
+    exercise_name = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+
+        if arg == "--running":
+            show_running = True
+        elif arg == "--exercise":
+            i += 1
+            if i >= len(args):
+                print("Error: --exercise requires a value", file=sys.stderr)
+                sys.exit(1)
+            exercise_name = args[i]
+        else:
+            print(f"Error: unknown argument: {arg}", file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    if show_running and exercise_name:
+        print("Error: --running and --exercise are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+
+    workouts = load_workouts()
+
+    if exercise_name:
+        summary = compute_exercise_summary(workouts, exercise_name)
+        if summary.workout_count == 0:
+            print(f"No workouts found for exercise: {exercise_name}")
+            return
+        print(f"Summary for exercise: {exercise_name}")
+        print("-" * 40)
+        print(f"  Workouts: {summary.workout_count}")
+        if summary.latest_sets_description:
+            print(f"  Latest sets: {summary.latest_sets_description}")
+        if summary.highest_weight_kg is not None:
+            print(f"  Highest weight: {summary.highest_weight_kg}kg")
+        print(f"  Highest workout volume: {summary.highest_workout_volume_kg}kg")
+        print()
+        print("  Chronological progression:")
+        for point in summary.chronological_progression:
+            max_w = f"{point.max_weight_kg}kg" if point.max_weight_kg is not None else "bodyweight"
+            print(f"    {point.date.date().isoformat()} | max: {max_w} | volume: {point.total_volume_kg}kg")
+    elif show_running:
+        summary = compute_running_summary(workouts)
+        if summary.run_count == 0:
+            print("No running workouts found")
+            return
+        print("Running summary:")
+        print("-" * 40)
+        print(f"  Total runs: {summary.run_count}")
+        print(f"  Total distance: {summary.total_distance_km}km")
+        print(f"  Total duration: {summary.total_duration_min}min")
+        if summary.avg_pace_min_per_km is not None:
+            print(f"  Avg pace: {summary.avg_pace_min_per_km:.2f} min/km")
+        if summary.best_pace_min_per_km is not None:
+            print(f"  Best pace: {summary.best_pace_min_per_km:.2f} min/km")
+        if summary.avg_hr_bpm_when_available is not None:
+            print(f"  Avg HR: {summary.avg_hr_bpm_when_available:.0f}bpm ({summary.runs_with_hr}/{summary.run_count} runs)")
+        print(f"  Longest run: {summary.longest_run_km}km")
+    else:
+        summary = compute_overall_summary(workouts)
+        print("Overall workout summary:")
+        print("-" * 40)
+        print(f"  Total workouts: {summary.total_workouts}")
+        print(f"  Strength workouts: {summary.strength_count}")
+        print(f"  Running workouts: {summary.running_count}")
+        if summary.most_recent_workout_id:
+            print(f"  Most recent: {summary.most_recent_workout_id} ({summary.most_recent_date.date().isoformat()})")
+        if summary.total_workouts == 0:
+            print("  No workouts found")
