@@ -3,6 +3,7 @@ import sys
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
 from janus.tasks_cli import handle_task_add, handle_task_complete
+from janus.workout_cli import handle_workout_add, handle_workout_show
 
 
 def main() -> None:
@@ -29,6 +30,19 @@ def main() -> None:
             print(f"Unknown task subcommand: {subcommand}")
             print("Usage: janus task add <title> [--due YYYY-MM-DD] [--priority N]")
             print("       janus task complete <title>")
+    elif command == "workout":
+        if len(sys.argv) < 3:
+            print("Usage: janus workout <add|show> ...")
+            return
+        subcommand = sys.argv[2]
+        if subcommand == "add":
+            handle_workout_add(sys.argv[3:])
+        elif subcommand == "show":
+            handle_workout_show(sys.argv[3:])
+        else:
+            print(f"Unknown workout subcommand: {subcommand}")
+            print("Usage: janus workout add --type strength|running [options]")
+            print("       janus workout show [--last N] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--running] [--exercise NAME]")
     elif command == "weekly":
         show_weekly()
     else:
