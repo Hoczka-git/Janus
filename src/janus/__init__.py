@@ -14,6 +14,8 @@ def main() -> None:
 
     if command == "today":
         show_today()
+    elif command == "telegram":
+        show_telegram()
     elif command == "task":
         if len(sys.argv) < 3:
             print("Usage: janus task <add|complete> ...")
