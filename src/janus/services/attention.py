@@ -134,7 +134,7 @@ def get_attention_items(
         # All existing related tasks are completed (none open).
         items.append(AttentionItem(
             title=goal.title,
-            reason="All linked tasks are completed. No next action is defined.",
+            reason="All linked tasks are completed. Define the next milestone, add a new action, or mark the goal as complete.",
             score=40,
             category="goal_stalled",
         ))

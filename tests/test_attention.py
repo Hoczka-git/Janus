@@ -174,10 +174,11 @@ class TestGoalStagnation:
         tasks = []  # no open tasks
         items = get_attention_items([], tasks, goals, FIXED_TODAY)
         assert len(items) == 1
-        assert items[0].title == "Endurance challenge"
-        assert items[0].category == "goal_stalled"
-        assert items[0].score == 40
-        assert "All linked tasks are completed" in items[0].reason
+        item = items[0]
+        assert item.title == "Endurance challenge"
+        assert item.category == "goal_stalled"
+        assert item.score == 40
+        assert item.reason == "All linked tasks are completed. Define the next milestone, add a new action, or mark the goal as complete."
 
     def test_inactive_goal_ignored(self):
         goals = [_make_goal("Paused goal", "inactive", ["Some task"])]
@@ -276,3 +277,12 @@ class TestDailyBriefingWithAttention:
         briefing = create_daily_briefing(events, tasks, goals, FIXED_TODAY)
         assert len(briefing.events) == 1
         assert briefing.events[0].title == "Team meeting"
+
+    def test_goal_stalled_can_be_suggested_focus(self):
+        """A stalled active goal with the highest attention score may become suggested_focus."""
+        goals = [_make_goal("Training", "active", ["Prepare training plan"])]
+        briefing = create_daily_briefing([], [], goals, FIXED_TODAY)
+        assert briefing.suggested_focus is not None
+        assert briefing.suggested_focus.category == "goal_stalled"
+        assert briefing.suggested_focus.title == "Training"
+        assert "Define the next milestone" in briefing.suggested_focus.reason
