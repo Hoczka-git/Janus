@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from datetime import date
 
-from janus.models.task import Task
+from janus.models.task import Task, ALLOWED_STATES
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -41,11 +41,17 @@ def _parse_task_line(line: str, line_num: int) -> Task | None:
     title, metadata = _split_title_metadata(content)
     due_date = _parse_due_date(metadata, line_num)
     priority = _parse_priority(metadata, line_num)
+    state = _parse_state(metadata, line_num)
+    progress = _parse_progress(metadata, line_num)
+    extra_metadata = _extract_unknown_metadata(metadata)
 
     return Task(
         title=title,
         due_date=due_date,
         priority=priority,
+        state=state,
+        progress=progress,
+        extra_metadata=_extract_unknown_metadata(metadata),
     )
 
 
@@ -86,3 +92,100 @@ def _parse_priority(metadata: str, line_num: int) -> int:
         raise ValueError(
             f"Invalid priority in task at line {line_num}: {priority_str}"
         )
+
+
+def _parse_state(metadata: str, line_num: int) -> str | None:
+    """Parse state from metadata. Returns None if not present.
+
+    Odrzuca 'done' jako invalid — jedynym autorytetem jest checkbox [x].
+    """
+    match = re.search(r"state:\s*(\S+)", metadata)
+    if not match:
+        return None
+
+    state_str = match.group(1)
+    if state_str not in ALLOWED_STATES:
+        raise ValueError(
+            f"Invalid task state at line {line_num}: {state_str!r}. "
+            f"Allowed values: {', '.join(sorted(ALLOWED_STATES))}"
+        )
+
+    return state_str
+
+
+def _parse_progress(metadata: str, line_num: int) -> int | None:
+    """Parse progress from metadata. Returns None if not present.
+
+    Progress must be an integer between 0 and 100.
+    """
+    match = re.search(r"progress:\s*(\S+)", metadata)
+    if not match:
+        return None
+
+    progress_str = match.group(1)
+    try:
+        progress = int(progress_str)
+    except ValueError:
+        raise ValueError(
+            f"Invalid progress at line {line_num}: {progress_str!r}. "
+            f"Must be an integer between 0 and 100"
+        )
+
+    if not (0 <= progress <= 100):
+        raise ValueError(
+            f"Progress must be between 0 and 100 at line {line_num}: {progress}"
+        )
+
+    return progress
+
+
+def _extract_unknown_metadata(metadata: str) -> list[str]:
+    """Extract unknown metadata fields that should be preserved.
+
+    Znane pola (due, priority, state, progress) są parsowane i usuwane z
+    metadanych; pozostałe pola są zachowywane jako lista stringów.
+    """
+    known_patterns = [
+        r"due:\s*\S+",
+        r"priority:\s*\S+",
+        r"state:\s*\S+",
+        r"progress:\s*\S+",
+    ]
+
+    remaining = metadata
+    for pattern in known_patterns:
+        remaining = re.sub(pattern, "", remaining)
+
+    parts = [p.strip() for p in remaining.split("|") if p.strip()]
+    return parts
+
+
+def _format_task_line(task: Task) -> str:
+    """Format a Task back to a markdown line.
+
+    Format: - [ ] Title | due: ... | priority: ... | state: ... | progress: ...
+
+    Known fields are normalized. Unknown fields (extra_metadata) are appended
+    after known fields to preserve them.
+    """
+    parts = [f"- [ ] {task.title}"]
+
+    if task.due_date is not None:
+        parts.append(f"due: {task.due_date.isoformat()}")
+
+    if task.priority != 1:
+        parts.append(f"priority: {task.priority}")
+
+    if task.state is not None:
+        parts.append(f"state: {task.state}")
+
+    if task.progress is not None:
+        parts.append(f"progress: {task.progress}")
+
+    if task.extra_metadata:
+        parts.extend(task.extra_metadata)
+
+    if len(parts) > 1:
+        return " | ".join(parts)
+
+    return parts[0]

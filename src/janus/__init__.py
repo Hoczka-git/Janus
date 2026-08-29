@@ -2,7 +2,7 @@ import sys
 
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
-from janus.tasks_cli import handle_task_add, handle_task_complete
+from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress
 from janus.workout_cli import handle_workout_add, handle_workout_show
 
 
@@ -19,17 +19,23 @@ def main() -> None:
         show_telegram()
     elif command == "task":
         if len(sys.argv) < 3:
-            print("Usage: janus task <add|complete> ...")
+            print("Usage: janus task <add|complete|state|progress> ...")
             return
         subcommand = sys.argv[2]
         if subcommand == "add":
             handle_task_add(sys.argv[3:])
         elif subcommand == "complete":
             handle_task_complete(sys.argv[3:])
+        elif subcommand == "state":
+            handle_task_state(sys.argv[3:])
+        elif subcommand == "progress":
+            handle_task_progress(sys.argv[3:])
         else:
             print(f"Unknown task subcommand: {subcommand}")
             print("Usage: janus task add <title> [--due YYYY-MM-DD] [--priority N]")
             print("       janus task complete <title>")
+            print("       janus task state <title> --state <todo|in_progress|blocked>")
+            print("       janus task progress <title> --pct <0-100>")
     elif command == "workout":
         if len(sys.argv) < 3:
             print("Usage: janus workout <add|show> ...")

@@ -20,3 +20,13 @@ workout_type = running
 distance_km = 10.0
 duration_minutes = 30.0
 
+## Workout:
+id = rw-003
+date = 2026-08-29T00:00:00+00:00
+workout_type = running
+source = manual
+distance_km = 8.03
+duration_minutes = 62.92
+avg_hr_bpm = 151.0
+elevation_m = 69.9
+

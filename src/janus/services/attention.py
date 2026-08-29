@@ -76,13 +76,26 @@ def get_attention_items(
         if task.priority == 2 and score > 0:
             score += 20
 
+        # ── State-based scoring ────────────────────────────────────────────
+        if task.state == "blocked":
+            score += 30
+            reasons.append("Blocked task requiring attention")
+        elif task.state == "in_progress":
+            # In-progress tasks get moderate attention to surface as
+            # potential suggested focus candidates. Score is added even
+            # when no other criteria triggered (score == 0).
+            score += 30
+            reasons.append("In-progress task")
+
         if score > 0:
             items.append(AttentionItem(
                 title=task.title,
                 reason="; ".join(reasons) if reasons else "Requires attention",
                 score=score,
-                category="overdue_task" if (task.due_date is not None and task.due_date < today)
+                category="blocked_task" if task.state == "blocked"
                           else "due_today" if (task.due_date is not None and task.due_date == today)
+                          else "overdue_task" if (task.due_date is not None and task.due_date < today)
+                          else "in_progress_task" if task.state == "in_progress"
                           else "high_priority_task",
             ))
 
