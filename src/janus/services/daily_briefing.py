@@ -1,7 +1,13 @@
+"""Daily Briefing service for Janus — creates DailyBriefing from events, tasks, and goals.
+
+Delegates attention prioritization to the Attention Engine.
+"""
+
 from datetime import date
 from typing import TYPE_CHECKING
 
 from janus.models.daily_briefing import DailyBriefing
+from janus.models.goal import Goal
 
 if TYPE_CHECKING:
     from janus.models.event import Event
@@ -11,40 +17,20 @@ if TYPE_CHECKING:
 def create_daily_briefing(
     events: list["Event"],
     tasks: list["Task"],
+    goals: list[Goal],
     today: date,
 ) -> DailyBriefing:
-    """Create a daily briefing from today's events and all tasks."""
-    overdue: list["Task"] = []
-    due_today: list["Task"] = []
-    high_priority: list["Task"] = []
+    """Create a daily briefing from today's events, tasks, and goals.
 
-    for task in tasks:
-        if task.due_date is not None and task.due_date < today:
-            overdue.append(task)
-        elif task.due_date is not None and task.due_date == today:
-            due_today.append(task)
-        elif task.priority >= 3:
-            high_priority.append(task)
+    Delegates attention prioritization to the Attention Engine.
+    """
+    from janus.services.attention import get_attention_items
 
-    seen_ids = set()
-    suggested_focus: list["Task"] = []
-
-    for group in (overdue, due_today, high_priority):
-        sorted_group = sorted(group, key=lambda t: (-t.priority))
-        for task in sorted_group:
-            if len(suggested_focus) >= 3:
-                break
-            if id(task) in seen_ids:
-                continue
-            seen_ids.add(id(task))
-            suggested_focus.append(task)
-        if len(suggested_focus) >= 3:
-            break
+    attention_items = get_attention_items(events, tasks, goals, today)
+    suggested_focus = attention_items[0] if attention_items else None
 
     return DailyBriefing(
         events=events,
-        overdue_tasks=overdue,
-        due_today_tasks=due_today,
-        high_priority_tasks=high_priority,
+        attention_items=attention_items,
         suggested_focus=suggested_focus,
     )

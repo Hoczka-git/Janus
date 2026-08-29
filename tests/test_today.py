@@ -1,7 +1,8 @@
 """Tests for today.py presentation layer — rendering behavior only.
 
-These tests verify that show_today() renders events, tasks, and focus
-correctly. Business logic (classification, ordering) is covered in
+These tests verify that show_today() renders events, tasks, goals, and focus
+correctly with the new Attention Engine integration. Business logic
+(classification, ordering, scoring) is covered in test_attention.py and
 test_daily_briefing.py and must not be duplicated here.
 """
 
@@ -13,6 +14,7 @@ import pytest
 
 from janus.models.event import Event
 from janus.models.task import Task
+from janus.models.goal import Goal
 from janus.services.daily_briefing import create_daily_briefing
 from janus.today import show_today
 
@@ -36,10 +38,17 @@ def _make_task(title: str, due: date | None, priority: int) -> Task:
     return Task(title=title, due_date=due, priority=priority)
 
 
-def _capture_show_today(events, tasks, today=FIXED_TODAY):
+def _make_goal(title: str, status: str = "active",
+               related_tasks: list[str] | None = None) -> Goal:
+    return Goal(title=title, status=status,
+                related_tasks=related_tasks or [])
+
+
+def _capture_show_today(events, tasks, goals, today=FIXED_TODAY):
     """Run show_today() with mocked dependencies and return printed output."""
     with patch("janus.today.list_upcoming_events", return_value=events), \
          patch("janus.today.load_tasks", return_value=tasks), \
+         patch("janus.today.load_goals", return_value=goals), \
          patch("janus.today.date") as mock_date:
         mock_date.today.return_value = today
         mock_date.__eq__ = lambda self, other: self.toordinal() == other.toordinal()
@@ -56,7 +65,8 @@ class TestTimedEventRendering:
     def test_single_timed_event(self):
         events = [_make_event("Team standup", 9, 30, "Job")]
         tasks = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "SCHEDULE" in output
         assert "Team standup" in output
@@ -68,7 +78,8 @@ class TestAllDayEventRendering:
     def test_all_day_event_format(self):
         events = [_make_all_day_event("Company holiday", "Personal")]
         tasks = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "SCHEDULE" in output
         assert "Company holiday" in output
@@ -83,12 +94,12 @@ class TestEventSourceRendering:
             _make_event("Janus event", 18, 0, "Janus"),
         ]
         tasks = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "Job event" in output
         assert "Personal event" in output
         assert "Janus event" in output
-        # Each source label must appear next to its event title
         assert "Job" in output
         assert "Personal" in output
         assert "Janus" in output
@@ -98,29 +109,32 @@ class TestRequiresAttentionRendering:
     def test_overdue_section(self):
         tasks = [_make_task("Overdue task", date(2026, 8, 25), 1)]
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "REQUIRES ATTENTION" in output
-        assert "Overdue:" in output
         assert "Overdue task" in output
+        assert "Overdue by" in output
 
     def test_due_today_section(self):
         tasks = [_make_task("Due today task", FIXED_TODAY, 1)]
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "REQUIRES ATTENTION" in output
-        assert "Due today:" in output
         assert "Due today task" in output
+        assert "Due today" in output
 
     def test_high_priority_section(self):
         tasks = [_make_task("High priority task", date(2026, 9, 10), 3)]
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "REQUIRES ATTENTION" in output
-        assert "High priority:" in output
         assert "High priority task" in output
+        assert "High priority" in output
 
     def test_mixed_attention_sections(self):
         tasks = [
@@ -129,14 +143,26 @@ class TestRequiresAttentionRendering:
             _make_task("High priority", date(2026, 9, 10), 3),
         ]
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
-        assert "Overdue:" in output
-        assert "Due today:" in output
-        assert "High priority:" in output
         assert "Overdue" in output
         assert "Due today" in output
         assert "High priority" in output
+        # Each item should have its reason shown
+        assert "Overdue by" in output
+        assert "Due today" in output
+        assert "High priority" in output
+
+    def test_goal_stalled_in_attention(self):
+        tasks = []
+        goals = [_make_goal("Training goal", "active",
+                            related_tasks=["Prepare training plan"])]
+        output = _capture_show_today([], tasks, goals)
+
+        assert "REQUIRES ATTENTION" in output
+        assert "Training goal" in output
+        assert "All linked tasks are completed" in output
 
 
 class TestSuggestedFocusRendering:
@@ -147,20 +173,17 @@ class TestSuggestedFocusRendering:
             _make_task("Task three", date(2026, 9, 10), 3),
         ]
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "SUGGESTED FOCUS" in output
-        assert "1." in output
-        assert "Task one" in output
-        assert "2." in output
-        assert "Task two" in output
-        assert "3." in output
-        assert "Task three" in output
+        assert "Task one" in output  # highest score (overdue = 100)
 
     def test_focus_empty_when_no_tasks(self):
         tasks = []
         events = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "SUGGESTED FOCUS" not in output
 
@@ -169,7 +192,8 @@ class TestEmptyStateRendering:
     def test_no_events_no_tasks(self):
         events = []
         tasks = []
-        output = _capture_show_today(events, tasks)
+        goals = []
+        output = _capture_show_today(events, tasks, goals)
 
         assert "SCHEDULE" in output
         assert "No events scheduled today." in output

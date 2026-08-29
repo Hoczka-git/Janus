@@ -4,7 +4,6 @@ import json
 import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
-
 import tomllib
 
 from janus.models.daily_briefing import DailyBriefing
@@ -12,6 +11,7 @@ from janus.models.daily_briefing import DailyBriefing
 if TYPE_CHECKING:
     from janus.models.event import Event
     from janus.models.task import Task
+    from janus.models.attention import AttentionItem
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.toml"
@@ -56,30 +56,17 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
                 lines.append(f"{time_str} {event.title}{source}")
         lines.append("")
 
-    attention_parts: list[str] = []
-    if briefing.overdue_tasks:
-        attention_parts.append(
-            "Overdue: " + ", ".join(t.title for t in briefing.overdue_tasks)
-        )
-    if briefing.due_today_tasks:
-        attention_parts.append(
-            "Due today: " + ", ".join(t.title for t in briefing.due_today_tasks)
-        )
-    if briefing.high_priority_tasks:
-        attention_parts.append(
-            "High priority: " + ", ".join(t.title for t in briefing.high_priority_tasks)
-        )
-
-    if attention_parts:
-        lines.append("⚠ ATTENTION")
-        for part in attention_parts:
-            lines.append(f"• {part}")
+    if briefing.attention_items:
+        lines.append("⚠ REQUIRES ATTENTION")
+        for i, item in enumerate(briefing.attention_items[:3], 1):
+            lines.append(f"• {i}. {item.title}")
+            lines.append(f"  {item.reason}")
         lines.append("")
 
     if briefing.suggested_focus:
-        lines.append("🎯 FOCUS")
-        for i, task in enumerate(briefing.suggested_focus, 1):
-            lines.append(f"{i}. {task.title}")
+        lines.append("🎯 SUGGESTED FOCUS")
+        lines.append(f"• {briefing.suggested_focus.title}")
+        lines.append(f"  {briefing.suggested_focus.reason}")
         lines.append("")
 
     if lines and lines[-1] == "":

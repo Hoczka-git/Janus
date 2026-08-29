@@ -12,6 +12,7 @@ import pytest
 from janus.models.daily_briefing import DailyBriefing
 from janus.models.event import Event
 from janus.models.task import Task
+from janus.models.goal import Goal
 from janus.services.daily_briefing import create_daily_briefing
 from janus.integrations.telegram import (
     _load_telegram_config,
@@ -49,61 +50,65 @@ class TestFormatTelegramMessage:
             _make_task("Book dentist appointment", date(2026, 8, 25), 1),
             _make_task("Prepare training plan", date(2026, 9, 10), 3),
         ]
-        briefing = create_daily_briefing(events, tasks, FIXED_TODAY)
+        goals = []
+        briefing = create_daily_briefing(events, tasks, goals, FIXED_TODAY)
         text = format_telegram_message(briefing)
 
         assert text.startswith("JANUS — TODAY")
         assert "📅 SCHEDULE" in text
         assert "09:00 Daily standup — Job" in text
         assert "18:00 Training — Personal" in text
-        assert "⚠ ATTENTION" in text
-        assert "Overdue: Book dentist appointment" in text
-        assert "High priority: Prepare training plan" in text
-        assert "🎯 FOCUS" in text
-        assert "1. Book dentist appointment" in text
-        assert "2. Prepare training plan" in text
+        assert "⚠ REQUIRES ATTENTION" in text
+        assert "Book dentist appointment" in text
+        assert "Overdue by 3 days" in text
+        assert "Prepare training plan" in text
+        assert "High priority task" in text
+        assert "🎯 SUGGESTED FOCUS" in text
+        assert "Book dentist appointment" in text
 
     def test_all_day_event(self):
         events = [_make_all_day_event("Company holiday", "Personal")]
         tasks = []
-        briefing = create_daily_briefing(events, tasks, FIXED_TODAY)
+        goals = []
+        briefing = create_daily_briefing(events, tasks, goals, FIXED_TODAY)
         text = format_telegram_message(briefing)
 
         assert "📅 SCHEDULE" in text
         assert "• All day — Company holiday" in text
-        assert "⚠ ATTENTION" not in text
-        assert "🎯 FOCUS" not in text
+        assert "⚠ REQUIRES ATTENTION" not in text
+        assert "🎯 SUGGESTED FOCUS" not in text
 
     def test_empty_briefing(self):
-        briefing = create_daily_briefing([], [], FIXED_TODAY)
+        briefing = create_daily_briefing([], [], [], FIXED_TODAY)
         text = format_telegram_message(briefing)
 
         assert text == "JANUS — TODAY"
 
     def test_only_events(self):
         events = [_make_event("Meeting", 14, 30, "Janus")]
-        briefing = create_daily_briefing(events, [], FIXED_TODAY)
+        briefing = create_daily_briefing(events, [], [], FIXED_TODAY)
         text = format_telegram_message(briefing)
 
         assert "📅 SCHEDULE" in text
         assert "14:30 Meeting — Janus" in text
-        assert "⚠ ATTENTION" not in text
-        assert "🎯 FOCUS" not in text
+        assert "⚠ REQUIRES ATTENTION" not in text
+        assert "🎯 SUGGESTED FOCUS" not in text
 
     def test_only_tasks(self):
         tasks = [_make_task("Buy groceries", FIXED_TODAY, 1)]
-        briefing = create_daily_briefing([], tasks, FIXED_TODAY)
+        briefing = create_daily_briefing([], tasks, [], FIXED_TODAY)
         text = format_telegram_message(briefing)
 
         assert "JANUS — TODAY" in text
         assert "📅 SCHEDULE" not in text
-        assert "⚠ ATTENTION" in text
-        assert "Due today: Buy groceries" in text
-        assert "🎯 FOCUS" in text
-        assert "1. Buy groceries" in text
+        assert "⚠ REQUIRES ATTENTION" in text
+        assert "Due today" in text
+        assert "Buy groceries" in text
+        assert "🎯 SUGGESTED FOCUS" in text
+        assert "Buy groceries" in text
 
     def test_no_trailing_newline(self):
-        briefing = create_daily_briefing([], [], FIXED_TODAY)
+        briefing = create_daily_briefing([], [], [], FIXED_TODAY)
         text = format_telegram_message(briefing)
         assert not text.endswith("\n")
 
@@ -174,7 +179,7 @@ class TestSendBriefing:
         mock_response.__exit__ = lambda s, *a: False
 
         with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
-            briefing = create_daily_briefing([], [], FIXED_TODAY)
+            briefing = create_daily_briefing([], [], [], FIXED_TODAY)
             send_briefing(briefing)
 
             assert mock_urlopen.call_count == 1
@@ -205,6 +210,6 @@ class TestSendBriefing:
         mock_response.__exit__ = lambda s, *a: False
 
         with patch("urllib.request.urlopen", return_value=mock_response):
-            briefing = create_daily_briefing([], [], FIXED_TODAY)
+            briefing = create_daily_briefing([], [], [], FIXED_TODAY)
             with pytest.raises(RuntimeError, match="Telegram API error"):
                 send_briefing(briefing)
