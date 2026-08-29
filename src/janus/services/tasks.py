@@ -25,6 +25,40 @@ def add_task(title: str, due_date: date | None = None, priority: int = 1) -> Tas
     return task
 
 
+def complete_task(title: str) -> Task:
+    """Find an open task by exact title, mark it completed, and return it.
+
+    Raises:
+        ValueError: if no matching open task is found, if multiple match,
+                     or if the matching task is already completed.
+    """
+    _validate_title(title)
+
+    lines = TASKS_PATH.read_text().splitlines()
+    matches: list[int] = []
+
+    for i, line in enumerate(lines):
+        if not line.startswith("- [ ] "):
+            continue
+        content = line[len("- [ ] "):]
+        task_title = content.split(" | ", 1)[0] if " | " in content else content
+        if task_title == title:
+            matches.append(i)
+
+    if not matches:
+        raise ValueError(f"Task not found: {title}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple open tasks found with title: {title}")
+
+    idx = matches[0]
+    line = lines[idx]
+    lines[idx] = "- [x] " + line[len("- [ ] "):]
+
+    TASKS_PATH.write_text("\n".join(lines) + "\n")
+
+    return Task(title=title)
+
+
 def _validate_title(title: str) -> None:
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")

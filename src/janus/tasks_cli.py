@@ -1,9 +1,9 @@
-"""CLI command handler for 'janus task add'."""
+"""CLI command handler for 'janus task add' and 'janus task complete'."""
 
 from datetime import date
 import sys
 
-from janus.services.tasks import add_task
+from janus.services.tasks import add_task, complete_task
 
 
 def handle_task_add(args: list[str]) -> None:
@@ -64,3 +64,24 @@ def handle_task_add(args: list[str]) -> None:
 
     print("Added task:")
     print(f"{task.title}{due_str}{priority_str}")
+
+
+def handle_task_complete(args: list[str]) -> None:
+    """Parse 'janus task complete' arguments and mark a task as completed.
+
+    Usage:
+        janus task complete "Title"
+    """
+    if not args:
+        print("Error: task title is required", file=sys.stderr)
+        sys.exit(1)
+
+    title = " ".join(args)
+
+    try:
+        complete_task(title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Completed task: {title}")
