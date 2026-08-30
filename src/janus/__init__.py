@@ -4,6 +4,13 @@ from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary
+from janus.goals_cli import (
+    handle_goal_list,
+    handle_goal_show,
+    handle_goal_add,
+    handle_goal_update,
+    handle_goal_complete,
+)
 
 
 def main() -> None:
@@ -52,6 +59,28 @@ def main() -> None:
             print("Usage: janus workout add --type strength|running [options]")
             print("       janus workout show [--last N] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--running] [--exercise NAME]")
             print("       janus workout summary [--running] [--exercise NAME]")
+    elif command == "goal":
+        if len(sys.argv) < 3:
+            print("Usage: janus goal <list|show|add|update|complete> ...")
+            return
+        subcommand = sys.argv[2]
+        if subcommand == "list":
+            handle_goal_list(sys.argv[3:])
+        elif subcommand == "show":
+            handle_goal_show(sys.argv[3:])
+        elif subcommand == "add":
+            handle_goal_add(sys.argv[3:])
+        elif subcommand == "update":
+            handle_goal_update(sys.argv[3:])
+        elif subcommand == "complete":
+            handle_goal_complete(sys.argv[3:])
+        else:
+            print(f"Unknown goal subcommand: {subcommand}")
+            print("Usage: janus goal list")
+            print("       janus goal show <title>")
+            print("       janus goal add <title> [options]")
+            print("       janus goal update <title> [options]")
+            print("       janus goal complete <title>")
     elif command == "weekly":
         show_weekly()
     else:

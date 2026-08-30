@@ -120,12 +120,12 @@ class TestMarkdownGoalsParsing:
         with pytest.raises(ValueError, match="Invalid goal status"):
             load_goals()
 
-    def test_missing_goals_file_raises(self, monkeypatch):
-        nonexistent = Path("/tmp/nonexistent_goals_test.md")
+    def test_missing_goals_file_returns_empty(self, monkeypatch):
+        nonexistent = Path("/tmp/nonexistent_goals_test_xyz.md")
         monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", nonexistent)
 
-        with pytest.raises(FileNotFoundError):
-            load_goals()
+        goals = load_goals()
+        assert goals == []
 
     def test_goal_without_description(self, tmp_path, monkeypatch):
         goals_file = _write_goals_file(tmp_path, "# Goals\n\n## Goal: Minimal\nStatus: active\n")
@@ -138,7 +138,7 @@ class TestMarkdownGoalsParsing:
         goals_file = _write_goals_file(tmp_path, "# Goals\n\n## Goal:   \nStatus: active\n")
         monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
 
-        with pytest.raises(ValueError, match="Goal missing title"):
+        with pytest.raises(ValueError, match="missing title"):
             load_goals()
 
 
@@ -163,7 +163,7 @@ class TestWeeklyReviewService:
 
         review = create_weekly_review()
         assert len(review.goals) == 1
-        assert review.goals[0].progress is True
+        assert review.goals[0].progress == 100.0
         assert "Prepare training plan" in review.goals[0].completed_related_tasks
 
     def test_open_related_task_reported_as_remaining(self, tmp_path, monkeypatch):
@@ -180,7 +180,7 @@ class TestWeeklyReviewService:
         monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
 
         review = create_weekly_review()
-        assert review.goals[0].progress is False
+        assert review.goals[0].progress == 0.0
         assert review.goals[0].completed_related_tasks == []
         assert review.goals[0].suggested_next_step == "Prepare training plan"
 
@@ -279,7 +279,7 @@ class TestWeeklyReviewService:
         monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
 
         review = create_weekly_review()
-        assert review.goals[0].progress is True
+        assert review.goals[0].progress == 100.0
         assert "Prepare training plan" in review.goals[0].completed_related_tasks
         assert "prepare training plan" not in review.goals[0].completed_related_tasks
 
@@ -313,8 +313,8 @@ class TestWeeklyReviewService:
         assert len(review.goals) == 2
         training = next(g for g in review.goals if g.goal.title == "Training")
         groceries = next(g for g in review.goals if g.goal.title == "Groceries")
-        assert training.progress is True
-        assert groceries.progress is False
+        assert training.progress == 100.0
+        assert groceries.progress == 0.0
         assert groceries.suggested_next_step == "Buy groceries"
 
     def test_completed_tasks_list(self, tmp_path, monkeypatch):
@@ -405,7 +405,8 @@ class TestWeeklyCLIRendering:
 
         out = capsys.readouterr().out
         assert "Goal: My Goal" in out
-        assert "✓ Progress made" in out
+        assert "Progress: 100.0%" in out
+        assert "1/1 tasks completed" in out
         assert "Completed task" in out
 
     def test_weekly_output_includes_goal_without_progress(self, capsys, tmp_path, monkeypatch):
@@ -423,7 +424,7 @@ class TestWeeklyCLIRendering:
 
         out = capsys.readouterr().out
         assert "Goal: My Goal" in out
-        assert "⚠ No progress recorded" in out
+        assert "Progress: 0.0%" in out
         assert "Suggested next step:" in out
         assert "Open task" in out
 

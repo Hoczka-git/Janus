@@ -1,13 +1,49 @@
 from dataclasses import dataclass
 
-
 @dataclass
 class Goal:
-    title: str
+    # Required
+    title: str                              # persistence identity, immutable in MVP
+
+    # Optional descriptive
     description: str = ""
-    status: str = "active"
-    related_tasks: list[str] = None
+    status: str = "active"                  # active | completed | inactive
+    deadline: str | None = None             # ISO date YYYY-MM-DD
+
+    # Optional metric fields (7 new)
+    metric_name: str | None = None          # e.g. "Body fat %"
+    metric_unit: str | None = None          # e.g. "%", "PLN", "kg"
+    start_value: float | None = None        # baseline
+    current_value: float | None = None      # latest
+    target_value: float | None = None       # desired outcome
+    direction: str | None = None            # "increase" | "decrease"
+
+    # Task relationship
+    related_tasks: list[str] = None         # supporting task titles (deduped, ordered)
 
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
+        # Dedup preserving order
+        self.related_tasks = self._dedup_related_tasks(self.related_tasks)
+        if self.status not in ("active", "completed", "inactive"):
+            raise ValueError(
+                f"Invalid goal status: {self.status!r}. "
+                f"Allowed: active, completed, inactive"
+            )
+        if self.direction is not None and self.direction not in ("increase", "decrease"):
+            raise ValueError(
+                f"Invalid direction: {self.direction!r}. "
+                f"Allowed: increase, decrease"
+            )
+
+    @staticmethod
+    def _dedup_related_tasks(tasks: list[str]) -> list[str]:
+        """Deduplicate preserving order."""
+        seen = set()
+        result = []
+        for t in tasks:
+            if t not in seen:
+                seen.add(t)
+                result.append(t)
+        return result

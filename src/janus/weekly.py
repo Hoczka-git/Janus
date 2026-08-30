@@ -30,16 +30,15 @@ def show_weekly() -> None:
         for gr in review.goals:
             print(f"Goal: {gr.goal.title}")
             print()
-            if gr.progress:
-                if gr.completed_related_tasks:
-                    print("✓ Progress made")
-                    for completed in gr.completed_related_tasks:
-                        print(f"- {completed}")
+            if gr.progress is not None:
+                print(f"Progress: {gr.progress:.1f}%")
+                if gr.progress_detail:
+                    print(f"  {gr.progress_detail}")
             else:
-                print("⚠ No progress recorded")
-                if gr.suggested_next_step:
-                    print("Suggested next step:")
-                    print(f"- {gr.suggested_next_step}")
+                print("Progress: N/A")
+            if gr.suggested_next_step:
+                print("Suggested next step:")
+                print(f"- {gr.suggested_next_step}")
             if gr.all_related_tasks_completed:
                 print("✓ All currently linked tasks completed")
             if gr.missing_related_tasks:

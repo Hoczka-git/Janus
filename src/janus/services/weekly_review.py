@@ -1,11 +1,15 @@
-"""Weekly review service — deterministic logic only."""
+"""Weekly review service — deterministic logic only.
+
+Delegates goal progress computation to compute_goal_progress (central service).
+Does not duplicate metric-vs-task priority logic.
+"""
 
 from pathlib import Path
 
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.markdown_tasks import load_tasks
-
+from janus.services.goal_progress import compute_goal_progress
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
@@ -56,10 +60,24 @@ def create_weekly_review() -> WeeklyReview:
             else:
                 review.missing_related_tasks.append(related_title)
 
-        if review.completed_related_tasks:
-            review.progress = True
+        # Delegate ALL progress computation to central service
+        prog = compute_goal_progress(goal, completed_task_titles=completed_titles)
+        review.progress = prog
+
+        if prog is not None:
+            if goal.metric_name:
+                review.progress_detail = (
+                    f"{goal.current_value} → {goal.target_value}, {goal.direction}"
+                )
+            else:
+                completed_count = sum(
+                    1 for rt in goal.related_tasks if rt in completed_titles
+                )
+                review.progress_detail = (
+                    f"{completed_count}/{len(goal.related_tasks)} tasks completed"
+                )
         else:
-            review.progress = False
+            review.progress_detail = "N/A"
 
         # Suggested next step: first open related task
         if goal.related_tasks:
