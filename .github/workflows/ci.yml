@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master", "main", "wt/*" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Verify repository — run test suite
+        run: uv run pytest tests/ -v

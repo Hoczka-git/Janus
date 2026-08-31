@@ -10,3 +10,4 @@ dist/
 build/
 janus-cron.log
 insights/
+reports/
