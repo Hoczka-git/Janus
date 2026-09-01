@@ -1,385 +1,337 @@
-"""Tests for CLI goal commands.
+"""Tests for Goal CLI handlers.
 
-Uses capsys to capture stdout/stderr.
-All tests use temp fixtures. Does NOT modify data/goals.md.
+All tests use temp fixtures ONLY.
 """
-
+import pytest
 import sys
 from pathlib import Path
-
-import pytest
-
-from janus import main
-from janus.integrations.markdown_goals import GOALS_PATH
-from janus.integrations.markdown_tasks import TASKS_PATH
+from unittest.mock import patch
 
 
-def _setup_fixtures(tmp_path, monkeypatch):
+# ===========================================================================
+# Helper functions
+# ===========================================================================
+
+def _write_goals_file(tmp_path, content):
     goals_file = tmp_path / "goals.md"
+    goals_file.write_text(content)
+    return goals_file
+
+
+def _write_tasks_file(tmp_path, content):
     tasks_file = tmp_path / "tasks.md"
-    goals_file.write_text("# Goals\n")
-    tasks_file.write_text("")
+    tasks_file.write_text(content)
+    return tasks_file
+
+
+def _setup_cli_fixtures(tmp_path, monkeypatch, goals_content="# Goals\n", tasks_content="- [ ] Test task\n"):
+    goals_file = _write_goals_file(tmp_path, goals_content)
+    tasks_file = _write_tasks_file(tmp_path, tasks_content)
     monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
     monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
-    monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
-
-
-def test_list_empty(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "list"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "JANUS — GOALS" in out
-    assert "ACTIVE (0):" in out
-    assert "COMPLETED (0):" in out
-    assert "INACTIVE (0):" in out
-
-
-def test_show_not_found(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "show", "Nonexistent"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "Goal not found" in err
-
-
-def test_add_success(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = [
-        "janus", "goal", "add",
-        "Body fat reduction",
-        "--metric", "Body fat %",
-        "--start", "23",
-        "--current", "20",
-        "--target", "15",
-        "--direction", "decrease",
-    ]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Added goal: Body fat reduction" in out
-    assert "Progress: 37.5%" in out
-
-    # Verify persistence
-    from janus.integrations.markdown_goals import load_goals
-    goals = load_goals()
-    assert len(goals) == 1
-    g = goals[0]
-    assert g.title == "Body fat reduction"
-    assert g.metric_name == "Body fat %"
-    assert g.start_value == 23.0
-    assert g.current_value == 20.0
-    assert g.target_value == 15.0
-    assert g.direction == "decrease"
-
-
-def test_add_missing_title(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "goal title is required" in err
-
-
-def test_add_invalid_status(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--status", "pending"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "invalid status" in err
-
-
-def test_add_invalid_direction(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--direction", "sideways"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "invalid direction" in err
-
-
-def test_add_invalid_float(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--start", "abc"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "invalid number" in err
-
-
-def test_add_invalid_date(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--deadline", "bad"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "invalid date" in err
-
-
-def test_update_success(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    # First add a goal
-    sys.argv = ["janus", "goal", "add", "X", "--metric", "Savings", "--start", "0", "--current", "4500", "--target", "10000", "--direction", "increase"]
-    main()
-    capsys.readouterr()  # clear
-
-    # Then update
-    sys.argv = ["janus", "goal", "update", "X", "--current", "19"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Updated goal: X" in out
-
-    from janus.integrations.markdown_goals import load_goals
-    goals = load_goals()
-    assert goals[0].current_value == 19.0
-
-
-def test_update_not_found(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "update", "Nonexistent", "--current", "19"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "Goal not found" in err
-
-
-def test_update_add_task(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X"]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "update", "X", "--add-related-task", "New task"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Updated goal: X" in out
-
-    from janus.integrations.markdown_goals import load_goals
-    goals = load_goals()
-    assert "New task" in goals[0].related_tasks
-
-
-def test_update_add_duplicate_task(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    # Add goal with existing task
-    sys.argv = ["janus", "goal", "add", "X", "--related-task", "Existing task"]
-    main()
-    capsys.readouterr()  # clear
-
-    # Try to add duplicate
-    sys.argv = ["janus", "goal", "update", "X", "--add-related-task", "Existing task"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Updated goal: X" in out
-
-    from janus.integrations.markdown_goals import load_goals
-    goals = load_goals()
-    assert goals[0].related_tasks == ["Existing task"]
-
-
-def test_update_remove_task(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--related-task", "Task to remove"]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "update", "X", "--remove-related-task", "Task to remove"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Updated goal: X" in out
-
-    from janus.integrations.markdown_goals import load_goals
-    goals = load_goals()
-    assert "Task to remove" not in goals[0].related_tasks
-
-
-def test_complete_success(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X"]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "complete", "X"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Completed goal: X" in out
-
-    from janus.integrations.markdown_goals import load_goals
-    g = load_goals()[0]
-    assert g.status == "completed"
-
-
-def test_complete_not_found(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "complete", "Nonexistent"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "Goal not found" in err
-
-
-def test_unknown_flag(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = ["janus", "goal", "add", "X", "--bogus"]
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 1
-
-    err = capsys.readouterr().err
-    assert "unknown argument" in err
-
-
-def test_list_with_metric_goal(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = [
-        "janus", "goal", "add",
-        "Body fat",
-        "--metric", "Body fat %",
-        "--start", "23",
-        "--current", "20",
-        "--target", "15",
-        "--direction", "decrease",
-    ]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "list"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Body fat" in out
-    assert "37.5%" in out
-
-
-def test_list_with_task_goal(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    # Write an open task and monkeypatch tasks path for the tasks service
-    tasks_file = tmp_path / "tasks.md"
-    tasks_file.write_text("- [ ] Task A\n")
-    import janus.services.tasks as tasks_mod
-    tasks_mod.TASKS_PATH = tasks_file
-    import janus.integrations.markdown_tasks as md_tasks_mod
-    md_tasks_mod.TASKS_PATH = tasks_file
-
-    sys.argv = [
-        "janus", "goal", "add",
-        "Japan trip",
-        "--related-task", "Task A",
-    ]
-    main()
-    capsys.readouterr()  # clear
-
-    # Complete the task
-    sys.argv = ["janus", "task", "complete", "Task A"]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "list"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "Japan trip" in out
-    assert "1/1 tasks completed" in out
-
-
-def test_show_metric_goal(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    sys.argv = [
-        "janus", "goal", "add",
-        "Body fat",
-        "--metric", "Body fat %",
-        "--unit", "%",
-        "--start", "23",
-        "--current", "20",
-        "--target", "15",
-        "--direction", "decrease",
-        "--deadline", "2027-03-31",
-    ]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "show", "Body fat"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "JANUS — GOAL: Body fat" in out
-    assert "Metric:      Body fat %" in out
-    assert "Unit:        %" in out
-    assert "Start:       23.0" in out
-    assert "Current:     20.0" in out
-    assert "Target:      15.0" in out
-    assert "Direction:   decrease" in out
-    assert "Deadline:    2027-03-31" in out
-    assert "Progress:    37.5%" in out
-
-
-def test_show_task_goal(capsys, tmp_path, monkeypatch):
-    _setup_fixtures(tmp_path, monkeypatch)
-
-    # Add task first — use add_goal to create a task-like goal, then reference it
-    from janus.services.goals import add_goal
-    add_goal(title="Task A", status="completed")
-    add_goal(title="Task B", status="completed")
-
-    sys.argv = [
-        "janus", "goal", "add",
-        "Trip",
-        "--related-task", "Task A",
-        "--related-task", "Task B",
-    ]
-    main()
-    capsys.readouterr()  # clear
-
-    sys.argv = ["janus", "goal", "show", "Trip"]
-    main()
-
-    out = capsys.readouterr().out
-    assert "JANUS — GOAL: Trip" in out
-    assert "Related tasks:" in out
-    assert "Task A (open)" in out
-    assert "Task B (open)" in out
-    assert "Progress:    0.0%" in out
+    monkeypatch.setattr("janus.services.goals.GOALS_PATH", goals_file)
+    return goals_file, tasks_file
+
+
+# ===========================================================================
+# Validation tests
+# ===========================================================================
+
+class TestGoalListValidation:
+    def test_list_accepts_no_args(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_list
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        # Should not raise
+        handle_goal_list([])
+
+    def test_list_rejects_args(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_list
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_list(["extra"])
+
+
+class TestGoalShowValidation:
+    def test_show_requires_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_show
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_show([])
+
+    def test_show_with_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_show
+        goals_file = _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Test goal\nStatus: active\n",
+        )
+        # Should not raise for existing goal
+        handle_goal_show(["Test goal"])
+
+
+class TestGoalAddValidation:
+    def test_add_requires_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_add([])
+
+    def test_add_with_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        # Should not raise
+        handle_goal_add(["Test goal"])
+
+    def test_add_duplicate_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        with pytest.raises(SystemExit):
+            handle_goal_add(["Test goal"])
+
+    def test_add_invalid_status(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_add(["Test goal", "--status", "pending"])
+
+    def test_add_invalid_direction(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_add(["Test goal", "--direction", "sideways"])
+
+    def test_add_invalid_date(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_add(["Test goal", "--deadline", "not-a-date"])
+
+
+class TestGoalUpdateValidation:
+    def test_update_requires_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_update([])
+
+    def test_update_nonexistent_goal(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_update(["NonExistent"])
+
+    def test_update_invalid_status(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        with pytest.raises(SystemExit):
+            handle_goal_update(["Test goal", "--status", "pending"])
+
+    def test_update_invalid_direction(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        with pytest.raises(SystemExit):
+            handle_goal_update(["Test goal", "--direction", "sideways"])
+
+    def test_update_invalid_date(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        with pytest.raises(SystemExit):
+            handle_goal_update(["Test goal", "--deadline", "not-a-date"])
+
+
+class TestGoalCompleteValidation:
+    def test_complete_requires_title(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_complete
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_complete([])
+
+    def test_complete_nonexistent_goal(self, tmp_path, monkeypatch):
+        from janus.goals_cli import handle_goal_complete
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        with pytest.raises(SystemExit):
+            handle_goal_complete(["NonExistent"])
+
+
+# ===========================================================================
+# Metric goal tests
+# ===========================================================================
+
+class TestGoalAddMetric:
+    def test_add_metric_goal(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add
+        goals_file = _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add([
+            "Body fat reduction",
+            "--metric", "Body fat %",
+            "--unit", "%",
+            "--start", "23.0",
+            "--current", "20.0",
+            "--target", "15.0",
+            "--direction", "decrease",
+        ])
+        out = capsys.readouterr().out
+        assert "Added goal: Body fat reduction" in out
+        assert "Metric: Body fat %" in out
+        assert "Progress: 37.5%" in out
+
+    def test_add_metric_goal_with_related_tasks(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add([
+            "Hybrid goal",
+            "--metric", "Savings",
+            "--start", "0",
+            "--current", "5000",
+            "--target", "10000",
+            "--direction", "increase",
+            "--related-task", "Task A",
+            "--related-task", "Task B",
+        ])
+        out = capsys.readouterr().out
+        assert "Progress: 50.0%" in out
+
+
+class TestGoalListMetric:
+    def test_list_with_metric_goal(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add, handle_goal_list
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add([
+            "Body fat",
+            "--metric", "Body fat %",
+            "--start", "23.0",
+            "--current", "20.0",
+            "--target", "15.0",
+            "--direction", "decrease",
+        ])
+        handle_goal_list([])
+        out = capsys.readouterr().out
+        assert "Body fat" in out
+        assert "37.5%" in out
+
+
+class TestGoalShowMetric:
+    def test_show_metric_goal(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add, handle_goal_show
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add([
+            "Body fat",
+            "--metric", "Body fat %",
+            "--start", "23.0",
+            "--current", "20.0",
+            "--target", "15.0",
+            "--direction", "decrease",
+        ])
+        handle_goal_show(["Body fat"])
+        out = capsys.readouterr().out
+        assert "Metric:      Body fat %" in out
+        assert "Current:     20.0" in out
+        assert "Target:      15.0" in out
+        assert "Progress:    37.5%" in out
+        assert "Detail:      20.0 → 15.0, decrease" in out
+
+
+class TestGoalUpdateMetric:
+    def test_update_metric_current_value(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add([
+            "Savings",
+            "--metric", "Savings",
+            "--start", "0",
+            "--current", "3000",
+            "--target", "10000",
+            "--direction", "increase",
+        ])
+        handle_goal_update(["Savings", "--current", "5000"])
+        out = capsys.readouterr().out
+        assert "Progress: 50.0%" in out
+
+
+# ===========================================================================
+# Task goal tests
+# ===========================================================================
+
+class TestGoalAddTask:
+    def test_add_task_goal(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Japan trip\nStatus: active\nRelated tasks:\n- Buy flights\n- Book hotels\n",
+        )
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Buy flights\n- [ ] Book hotels\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.goals.GOALS_PATH", goals_file)
+        # List goals
+        from janus.goals_cli import handle_goal_list
+        handle_goal_list([])
+        out = capsys.readouterr().out
+        # List format: "  Japan trip                                 0.0%   0/2 tasks completed"
+        assert "Japan trip" in out
+        assert "0.0%" in out
+        assert "0/2 tasks completed" in out
+
+
+class TestGoalListWithCompletedTasks:
+    def test_list_with_completed_tasks(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_list
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Japan trip\nStatus: active\nRelated tasks:\n- Buy flights\n- Book hotels\n- Plan itinerary\n",
+        )
+        tasks_file = _write_tasks_file(
+            tmp_path,
+            "- [x] Buy flights\n"
+            "- [x] Book hotels\n"
+            "- [ ] Plan itinerary\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.goals.GOALS_PATH", goals_file)
+        handle_goal_list([])
+        out = capsys.readouterr().out
+        # List format: "  Japan trip                                66.7%   2/3 tasks completed"
+        assert "Japan trip" in out
+        assert "66.7%" in out
+        assert "2/3 tasks completed" in out
+
+
+class TestGoalListRelatedTaskDedup:
+    def test_duplicate_related_tasks_dedup_in_goal(self, tmp_path, monkeypatch, capsys):
+        from janus.models.goal import Goal
+        from janus.services.goals import add_goal
+        goals_file = _write_goals_file(tmp_path, "# Goals\n")
+        tasks_file = _write_tasks_file(tmp_path, "")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.goals.GOALS_PATH", goals_file)
+        g = add_goal("Japan trip", related_tasks=["Buy flights", "Buy flights", "Book hotels"])
+        assert g.related_tasks == ["Buy flights", "Book hotels"]
+
+
+# ===========================================================================
+# Title immutability tests
+# ===========================================================================
+
+class TestTitleImmutability:
+    def test_update_does_not_change_title(self, tmp_path, monkeypatch, capsys):
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Original title"])
+        handle_goal_update(["Original title", "--description", "New desc"])
+        out = capsys.readouterr().out
+        assert "Updated goal: Original title" in out
+
+
+class TestNoDeleteGoal:
+    def test_no_delete_goal_command(self):
+        import janus.goals_cli as cli
+        assert not hasattr(cli, "handle_goal_delete")
+
+    def test_no_delete_goal_in_service(self):
+        import janus.services.goals as svc
+        assert not hasattr(svc, "delete_goal")

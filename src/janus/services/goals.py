@@ -5,7 +5,7 @@ No delete_goal — goals can be set to inactive.
 """
 
 from janus.models.goal import Goal
-from janus.integrations.markdown_goals import load_goals, save_goal, update_goal
+from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
 
 
 def add_goal(
@@ -24,7 +24,8 @@ def add_goal(
     """Validate and persist a new Goal.
 
     Title is the persistence identity — immutable in MVP.
-    Raises ValueError on validation failure (via Goal constructor).
+    Raises ValueError on validation failure (via Goal constructor)
+    or if a goal with this title already exists.
     """
     goal = Goal(
         title=title,
@@ -39,6 +40,10 @@ def add_goal(
         direction=direction,
         related_tasks=related_tasks,
     )
+    # Check for duplicate title before saving
+    existing = load_goals()
+    if any(g.title == title for g in existing):
+        raise ValueError(f"Goal already exists: {title!r}")
     save_goal(goal)
     return goal
 

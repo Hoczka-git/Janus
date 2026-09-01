@@ -18,7 +18,7 @@ class TestDailyBriefing:
         briefing = create_daily_briefing(events, tasks, goals, today)
 
         assert briefing.attention_items == []
-        assert briefing.suggested_focus is None
+        assert briefing.suggested_focus == []
 
     def test_overdue_task(self):
         today = date(2026, 8, 28)
@@ -38,7 +38,9 @@ class TestDailyBriefing:
         assert item.score == 100
         assert "Overdue by 3 days" in item.reason
         assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Book dentist appointment"
+        assert len(briefing.suggested_focus) == 1
+        assert briefing.suggested_focus[0].title == "Book dentist appointment"
+        assert briefing.suggested_focus[0].focus is True
 
     def test_due_today_task(self):
         today = date(2026, 8, 28)
@@ -115,13 +117,13 @@ class TestDailyBriefing:
         briefing = create_daily_briefing([], tasks, goals, today)
 
         assert len(briefing.attention_items) == 3
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Overdue"  # 100 > 80 > 50
+        assert len(briefing.suggested_focus) == 3  # all 3 are focus
+        assert briefing.suggested_focus[0].title == "Overdue"  # 100 > 80 > 50
         assert [item.title for item in briefing.attention_items] == \
                ["Overdue", "Due today", "High priority future"]
 
     def test_suggested_focus_max_3_in_briefing(self):
-        """Daily Briefing carries all items; renderer limits to 3."""
+        """Daily Briefing carries all items; focus is capped at 3."""
         today = date(2026, 8, 28)
         tasks = [
             Task(title=f"Task {i}", due_date=date(2026, 8, 24 - i),
@@ -131,8 +133,12 @@ class TestDailyBriefing:
         goals = []
         briefing = create_daily_briefing([], tasks, goals, today)
 
-        # Engine returns all 5; renderer will show 3.
+        # Engine returns all 5; focus is capped at 3.
         assert len(briefing.attention_items) == 5
+        assert len(briefing.suggested_focus) == 3
+        # The top 3 by score are flagged as focus.
+        for item in briefing.suggested_focus:
+            assert item.focus is True
 
     def test_goal_stalled_attracts_attention(self):
         today = date(2026, 8, 28)
@@ -170,3 +176,33 @@ class TestDailyBriefing:
 
         assert len(briefing.attention_items) == 1
         assert briefing.attention_items[0].title == "G1"
+
+    def test_max_9_attention_items_cap(self):
+        """When more than 9 attention items exist, the briefing is capped at 9."""
+        today = date(2026, 8, 28)
+        tasks = [
+            Task(title=f"Task {i}", due_date=date(2026, 8, 24 - i),
+                 priority=1)
+            for i in range(12)
+        ]
+        goals = []
+        briefing = create_daily_briefing([], tasks, goals, today)
+
+        assert len(briefing.attention_items) == 9
+
+    def test_exactly_3_items_marked_as_focus(self):
+        """The top 3 attention items are flagged as focus."""
+        today = date(2026, 8, 28)
+        tasks = [
+            Task(title=f"Task {i}", due_date=date(2026, 8, 24 - i),
+                 priority=1)
+            for i in range(6)
+        ]
+        goals = []
+        briefing = create_daily_briefing([], tasks, goals, today)
+
+        focus_items = [item for item in briefing.attention_items if item.focus]
+        assert len(focus_items) == 3
+        # First 3 are focus, rest are not.
+        for i, item in enumerate(briefing.attention_items):
+            assert item.focus == (i < 3)

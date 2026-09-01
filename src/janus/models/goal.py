@@ -36,6 +36,8 @@ class Goal:
                 f"Invalid direction: {self.direction!r}. "
                 f"Allowed: increase, decrease"
             )
+        if not self.title or not self.title.strip():
+            raise ValueError("Goal title must not be empty")
 
     @staticmethod
     def _dedup_related_tasks(tasks: list[str]) -> list[str]:
