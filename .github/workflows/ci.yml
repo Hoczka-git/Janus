@@ -21,5 +21,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
+      - name: Verify production dependencies (no dev)
+        run: |
+          uv sync
+          uv run python -c "import yaml; import googleapiclient; import google_auth_oauthlib; print('Production dependencies OK')"
+
       - name: Verify repository — run test suite
         run: uv run pytest tests/ -v
