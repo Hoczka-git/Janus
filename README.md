@@ -81,7 +81,7 @@ chat_id = "YOUR_CHAT_ID"
 uv run janus today
 ```
 
-Example output (attention items are ranked by the Attention Engine and shown top 3; the highest-scoring item is surfaced as the suggested focus):
+Example output:
 
 ```
 JANUS — TODAY
@@ -91,12 +91,9 @@ SCHEDULE
 - 18:00 — Gym session — Personal
 
 REQUIRES ATTENTION
-1. Prepare training plan
+1. Prepare training plan [FOCUS]
    Metric progress: 0% — linked to goal
-2. Book dentist appointment
-   Overdue by 3 days
-3. Buy groceries
-   Due today
+and 1 more
 
 SUGGESTED FOCUS
 1. Prepare training plan
@@ -114,7 +111,6 @@ Sends the daily briefing to the configured Telegram chat.
 ### Tasks
 
 ```bash
-janus task list
 janus task add "Prepare training plan" --priority 3
 janus task add "Book dentist appointment" --due 2026-08-30 --priority 2
 janus task complete "Prepare training plan"
@@ -129,8 +125,6 @@ Task lines in `data/tasks.md` use the format:
 ```
 
 Only `- [ ]` (open) and `- [x]` (completed) tasks are tracked. `state: done` is not accepted — completion is authoritative via the checkbox.
-
-`janus task list` displays all open tasks with their metadata; completed tasks are excluded from the list.
 
 ### Goals
 
@@ -239,21 +233,23 @@ uv run pytest tests/ -v
 
 ```text
 src/janus/
-├── __init__.py          # CLI entry point — dispatches commands
-├── today.py             # Daily briefing renderer
-├── weekly.py            # Weekly review renderer
+├── __init__.py              # CLI entry point — dispatches commands
+├── today.py                 # Daily briefing renderer
+├── weekly.py                # Weekly review renderer
 ├── telegram_weekly_cli.py
-├── tasks_cli.py         # janus task <add|complete|list|state|progress>
-├── workout_cli.py       # janus workout <add|show|summary>
-├── goals_cli.py         # janus goal <list|show|add|update|complete>
-├── verification.py      # Implementation contract verification pipeline
-├── integrations/        # External integrations (Google Calendar, Telegram, markdown persistence)
-├── models/              # Domain models (Task, Goal, Workout, Event, AttentionItem, DailyBriefing)
-├── services/            # Business logic (briefing, goals, tasks, workouts, weekly review)
-data/                    # Tracked markdown data files
-config/                  # Per-user configuration (gitignored)
-docs/                    # Design docs, decisions, roadmap, verification pipeline
-scripts/                 # Utility scripts (e.g. CI validation)
+├── tasks_cli.py             # janus task <add|complete|state|progress>
+├── workout_cli.py           # janus workout <add|show|summary>
+├── goals_cli.py             # janus goal <list|show|add|update|complete>
+├── verification.py          # Implementation contract verification pipeline
+├── integrations/            # External integrations (Google Calendar, Telegram, markdown persistence)
+├── models/                  # Domain models (Task, Goal, Workout, Event, AttentionItem, DailyBriefing,
+│                              Source, Finding, ResearchArtifact, TopicBlock, KnowledgeSummary)
+├── services/                # Business logic (briefing, goals, tasks, workouts, weekly review,
+│                              knowledge pipeline — validation + summary generation)
+data/                        # Tracked markdown data files
+config/                      # Per-user configuration (gitignored)
+docs/                        # Design docs, decisions, roadmap, verification pipeline
+scripts/                     # Utility scripts (e.g. CI validation)
 ```
 
 See [`docs/vision.md`](docs/vision.md) for the Hermes/Janus system model and [`docs/roadmap.md`](docs/roadmap.md) for strategic direction.
