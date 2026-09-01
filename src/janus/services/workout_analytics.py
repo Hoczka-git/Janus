@@ -44,6 +44,8 @@ class RunningSummary:
     best_pace_min_per_km: Optional[float] = None
     avg_hr_bpm_when_available: Optional[float] = None
     longest_run_km: float = 0.0
+    total_elevation_m: float = 0.0
+    runs_with_elevation: int = 0
     run_count: int = 0
     runs_with_hr: int = 0
 
@@ -139,6 +141,14 @@ def compute_running_summary(workouts: List[Workout]) -> RunningSummary:
     if hr_values:
         result.avg_hr_bpm_when_available = sum(hr_values) / len(hr_values)
         result.runs_with_hr = len(hr_values)
+
+    # Total elevation gain from runs that have elevation data
+    elev_values = [
+        w.elevation_m for w in running_ws if w.elevation_m is not None
+    ]
+    if elev_values:
+        result.total_elevation_m = sum(elev_values)
+        result.runs_with_elevation = len(elev_values)
 
     return result
 

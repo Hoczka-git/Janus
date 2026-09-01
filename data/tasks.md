@@ -1,6 +1,16 @@
 # Tasks
 
-- [ ] Buy groceries
-- [ ] Book dentist appointment | due: 2026-08-30 | priority: 2
+- [x] Buy groceries
+- [x] Book dentist appointment | due: 2026-08-30 | priority: 2
 - [ ] Prepare training plan | priority: 3
 - [x] Old completed task | priority: 1
+- [x] Siłownia | due: 2026-08-30
+- [x] Ogolić się | due: 2026-08-30
+- [ ] Posprzątać łazienkę | due: 2026-08-30
+- [x] Spacer | due: 2026-08-30
+- [x] Umówić szczepienie | due: 2026-08-30 | priority: 2
+- [ ] Podróż do Memmingen | due: 2026-08-30 | priority: 2
+- [x] Wystawić fakturę | due: 2026-08-31
+- [ ] Odebrać pakiet | due: 2026-08-31
+- [ ] Zaplanować sprzątanie garażu
+- [ ] Zaplanować konserwację rowerów

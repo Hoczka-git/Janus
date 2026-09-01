@@ -30,3 +30,29 @@ duration_minutes = 62.92
 avg_hr_bpm = 151.0
 elevation_m = 69.9
 
+## Workout:
+id = sw-002
+date = 2026-08-30T00:00:00+00:00
+workout_type = strength
+notes = "Bridge workout przed nowym planem w środę. Całość raczej średnio, bez upadku. Ciężka 3 seria na hit trust i DB bench."
+
+## Workout:
+id = rw-004
+date = 2026-08-30T00:00:00+00:00
+workout_type = running
+source = manual
+distance_km = 8.74
+duration_minutes = 69.77
+elevation_m = 69.4
+notes = Tempo 7'59"/km, cadence 153 bpm, aerobic load 3.1, strefa 2
+
+## Workout:
+id = rw-005
+date = 2026-08-31T00:00:00+00:00
+workout_type = running
+source = manual
+distance_km = 8.74
+duration_minutes = 69.77
+elevation_m = 69.4
+notes = Tempo 7'59"/km, cadence 153 bpm, aerobic load 3.1, strefa 2
+

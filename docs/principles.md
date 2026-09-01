@@ -1,11 +1,3 @@
-
----
-
-# `docs/principles.md`
-
-To jest moim zdaniem jeden z najważniejszych dokumentów dla Hermesa.
-
-```md
 # Hermes / Janus Principles
 
 These principles guide both system design and agent behavior.

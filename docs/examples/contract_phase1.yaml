@@ -1,0 +1,59 @@
+version: 1
+task_id: "test-phase1-vertical-slice"
+created: "2026-08-30T12:00:00Z"
+created_by: "verification-pipeline-test"
+description: "Test contract for Phase 1 verification pipeline vertical slice."
+
+files:
+  create:
+    - path: "tests/test_verification_phase1.py"
+      description: "Phase 1 verification tests"
+  modify:
+    - path: "src/janus/__init__.py"
+      description: "Add verification module to janus"
+  immutable:
+    - path: "data/goals.md"
+      reason: "Production data must not change"
+  forbidden:
+    - path: "tests/test_delete_goal.py"
+      type: exists
+      reason: "Delete goal functionality is out of scope"
+
+required_symbols:
+  - module: "janus.verification"
+    symbols:
+      - "ImplementationContract"
+      - "CheckResult"
+      - "VerificationReport"
+      - "run_verification"
+      - "check_files_create"
+      - "check_files_immutable"
+      - "check_commands"
+
+forbidden_symbols:
+  - "\\bdelete_goal\\b"
+
+verification_commands:
+  - label: "Python syntax check"
+    command: "python -m py_compile src/janus/verification.py"
+    expected_exit_code: 0
+    timeout: 30
+
+scope_constraints:
+  allowed_paths:
+    - "src/"
+    - "tests/"
+  excluded_paths:
+    - "data/"
+  max_new_files: 5
+  max_lines_added: 1000
+
+completion_gates:
+  - label: "All CREATE files exist"
+    type: mechanical
+  - label: "All immutable files unchanged"
+    type: mechanical
+  - label: "All verification commands pass"
+    type: mechanical
+  - label: "Human approval obtained"
+    type: human

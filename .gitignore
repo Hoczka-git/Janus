@@ -1,6 +1,12 @@
+# Secrets and credentials
 credentials.json
 token.json
 config/config.toml
+.env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -8,6 +14,24 @@ __pycache__/
 *.egg
 dist/
 build/
+.venv/
+venv/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
 janus-cron.log
+*.log
+
+# Local runtime data
 insights/
-reports/
+
+# Local Hermes worktrees
+.worktrees/
+
+# OS
+.DS_Store
+Thumbs.db

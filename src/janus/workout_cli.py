@@ -474,6 +474,8 @@ def handle_workout_summary(args: list[str]) -> None:
             print(f"  Best pace: {summary.best_pace_min_per_km:.2f} min/km")
         if summary.avg_hr_bpm_when_available is not None:
             print(f"  Avg HR: {summary.avg_hr_bpm_when_available:.0f}bpm ({summary.runs_with_hr}/{summary.run_count} runs)")
+        if summary.total_elevation_m > 0:
+            print(f"  Total elevation: {summary.total_elevation_m:.0f}m ({summary.runs_with_elevation}/{summary.run_count} runs)")
         print(f"  Longest run: {summary.longest_run_km}km")
     else:
         summary = compute_overall_summary(workouts)
