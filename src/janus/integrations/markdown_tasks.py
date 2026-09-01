@@ -11,14 +11,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
 
 
-def load_tasks() -> list[Task]:
-    """Load open tasks from data/tasks.md."""
-    if not TASKS_PATH.exists():
-        raise FileNotFoundError(f"Task file not found: {TASKS_PATH}")
+def load_tasks(path: Path | None = None) -> list[Task]:
+    """Load open tasks from data/tasks.md.
+
+    Args:
+        path: Optional explicit file path. When omitted, the module-level
+            ``TASKS_PATH`` is used. Callers that own their own path constant
+            (e.g. ``janus.services.tasks``) should pass it explicitly so that
+            monkeypatching at the service layer is respected.
+    """
+    tasks_path = path if path is not None else TASKS_PATH
+    if not tasks_path.exists():
+        raise FileNotFoundError(f"Task file not found: {tasks_path}")
 
     tasks: list[Task] = []
 
-    with TASKS_PATH.open() as f:
+    with tasks_path.open() as f:
         for line_num, line in enumerate(f, start=1):
             line = line.strip()
 
@@ -51,7 +59,7 @@ def _parse_task_line(line: str, line_num: int) -> Task | None:
         priority=priority,
         state=state,
         progress=progress,
-        extra_metadata=_extract_unknown_metadata(metadata),
+        extra_metadata=extra_metadata,
     )
 
 

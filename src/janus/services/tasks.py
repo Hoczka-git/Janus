@@ -84,6 +84,22 @@ def _validate_due_date(due_date: date | None) -> None:
 ALLOWED_STATES = frozenset({"todo", "in_progress", "blocked"})
 
 
+def list_tasks() -> list[Task]:
+    """Return all open (incomplete) tasks from data/tasks.md, in file order.
+
+    Open tasks are those with an unchecked checkbox (``- [ ]``). Completed
+    tasks (``- [x]``) are excluded and remain the sole responsibility of
+    ``complete_task``.
+
+    Uses the service-layer ``TASKS_PATH`` constant so that monkeypatching
+    ``janus.services.tasks.TASKS_PATH`` (as tests and the CLI handler do) is
+    respected.
+    """
+    from janus.integrations.markdown_tasks import load_tasks
+
+    return load_tasks(TASKS_PATH)
+
+
 def set_task_state(title: str, state: str) -> Task:
     """Update the state of an open task, preserving all other metadata.
 

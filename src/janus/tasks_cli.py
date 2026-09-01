@@ -8,11 +8,44 @@ import sys
 from janus.services.tasks import (
     add_task,
     complete_task,
+    list_tasks,
     set_task_state,
     set_task_progress,
 )
 
 ALLOWED_STATES = frozenset({"todo", "in_progress", "blocked"})
+
+
+def handle_task_list(args: list[str]) -> None:
+    """Display all open tasks.
+
+    Usage:
+        janus task list
+    """
+    if args:
+        print("Error: 'task list' does not accept arguments", file=sys.stderr)
+        sys.exit(1)
+
+    tasks = list_tasks()
+    if not tasks:
+        print("No open tasks.")
+        return
+
+    print("Open tasks:")
+    print("-" * 40)
+    for task in tasks:
+        parts: list[str] = [task.title]
+        if task.due_date is not None:
+            parts.append(f"due: {task.due_date.isoformat()}")
+        if task.priority != 1:
+            parts.append(f"priority: {task.priority}")
+        if task.state is not None:
+            parts.append(f"state: {task.state}")
+        if task.progress is not None:
+            parts.append(f"progress: {task.progress}%")
+        if task.extra_metadata:
+            parts.extend(task.extra_metadata)
+        print(" | ".join(parts))
 
 
 def handle_task_add(args: list[str]) -> None:
