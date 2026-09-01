@@ -7,6 +7,11 @@ Exports:
     WeeklyReview
     DailyBriefing
     AttentionItem
+    Source
+    Finding
+    ResearchArtifact
+    TopicBlock
+    KnowledgeSummary
 """
 
 from janus.models.task import Task
@@ -14,6 +19,8 @@ from janus.models.goal import Goal
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.models.daily_briefing import DailyBriefing
 from janus.models.attention import AttentionItem
+from janus.models.research_artifact import Finding, ResearchArtifact, Source
+from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
 
 __all__ = [
     "Task",
@@ -22,4 +29,9 @@ __all__ = [
     "WeeklyReview",
     "DailyBriefing",
     "AttentionItem",
+    "Source",
+    "Finding",
+    "ResearchArtifact",
+    "TopicBlock",
+    "KnowledgeSummary",
 ]
