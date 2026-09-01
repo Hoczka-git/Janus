@@ -2,6 +2,7 @@ import sys
 
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
+from janus.telegram_weekly_cli import send_weekly_telegram
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary
 from janus.goals_cli import (
@@ -83,5 +84,13 @@ def main() -> None:
             print("       janus goal complete <title>")
     elif command == "weekly":
         show_weekly()
+    elif command == "telegram-weekly":
+        send_weekly_telegram()
+    elif command == "verify-contract":
+        from janus.verification import run_verification_cli
+        if len(sys.argv) < 3:
+            print("Usage: janus verify-contract <contract.yaml>")
+            sys.exit(1)
+        sys.exit(run_verification_cli(sys.argv[2]))
     else:
         print(f"Unknown command: {command}")
