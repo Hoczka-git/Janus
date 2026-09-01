@@ -22,24 +22,6 @@ Status definitions:
 
 # Next
 
-## Repository and Delivery Reliability
-
-### [ready] Require repository synchronization before task completion
-
-Ensure repository-backed implementation tasks commit and push relevant
-changes before transitioning to DONE.
-
-Requirements:
-
-- detect repository-backed tasks,
-- commit relevant implementation changes,
-- push completion commits to configured remote,
-- verify remote synchronization,
-- prevent DONE when required push fails,
-- leave non-repository tasks unaffected.
-
----
-
 # Product Capabilities
 
 ## [ready] Configure roadmap-driven replenishment for Janus
