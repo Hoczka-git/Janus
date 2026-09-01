@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 import tomllib
 
-from janus.models.daily_briefing import DailyBriefing, MAX_ATTENTION_ITEMS
+from janus.models.daily_briefing import DailyBriefing
 
 if TYPE_CHECKING:
     from janus.models.event import Event
@@ -58,22 +58,15 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
 
     if briefing.attention_items:
         lines.append("⚠ REQUIRES ATTENTION")
-        displayed = briefing.attention_items[:MAX_ATTENTION_ITEMS]
-        for i, item in enumerate(displayed, 1):
-            focus_tag = " [FOCUS]" if item.focus else ""
-            lines.append(f"• {i}. {item.title}{focus_tag}")
+        for i, item in enumerate(briefing.attention_items[:3], 1):
+            lines.append(f"• {i}. {item.title}")
             lines.append(f"  {item.reason}")
-
-        hidden_count = len(briefing.attention_items) - len(displayed)
-        if hidden_count > 0:
-            lines.append(f"• and {hidden_count} more")
         lines.append("")
 
     if briefing.suggested_focus:
         lines.append("🎯 SUGGESTED FOCUS")
-        for i, item in enumerate(briefing.suggested_focus, 1):
-            lines.append(f"• {i}. {item.title}")
-            lines.append(f"  {item.reason}")
+        lines.append(f"• {briefing.suggested_focus.title}")
+        lines.append(f"  {briefing.suggested_focus.reason}")
         lines.append("")
 
     if lines and lines[-1] == "":

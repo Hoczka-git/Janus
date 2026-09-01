@@ -15,7 +15,6 @@ from janus.integrations.markdown_tasks import load_tasks
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.telegram import send_briefing
 from janus.services.daily_briefing import create_daily_briefing
-from janus.models.daily_briefing import MAX_ATTENTION_ITEMS
 from janus.models.event import Event
 from janus.models.task import Task
 from janus.models.goal import Goal
@@ -63,17 +62,10 @@ def show_today() -> None:
     print("REQUIRES ATTENTION")
     has_attention = False
 
-    displayed = briefing.attention_items[:MAX_ATTENTION_ITEMS]
-    for i, item in enumerate(displayed, 1):
+    for i, item in enumerate(briefing.attention_items[:3], 1):
         has_attention = True
-        focus_marker = " [FOCUS]" if item.focus else ""
-        print(f"{i}. {item.title}{focus_marker}")
+        print(f"{i}. {item.title}")
         print(f"   {item.reason}")
-
-    hidden_count = len(briefing.attention_items) - len(displayed)
-    if hidden_count > 0:
-        has_attention = True
-        print(f"and {hidden_count} more")
 
     if not has_attention:
         print("Nothing requires your attention today.")
@@ -81,12 +73,32 @@ def show_today() -> None:
 
     if briefing.suggested_focus:
         print("SUGGESTED FOCUS")
-        for i, item in enumerate(briefing.suggested_focus, 1):
-            print(f"{i}. {item.title}")
-            print(f"   {item.reason}")
+        print(f"1. {briefing.suggested_focus.title}")
+        print(f"   {briefing.suggested_focus.reason}")
         print()
 
 
 def show_telegram() -> None:
     briefing = _build_today_briefing()
     send_briefing(briefing)
+
+
+def _capture_show_today(events, tasks, goals, today=date(2026, 8, 28)):
+    """Run show_today() with mocked dependencies and return printed output.
+
+    This helper is used by tests to capture CLI output without making
+    real Google Calendar or file-system calls.
+    """
+    with patch("janus.today.list_upcoming_events", return_value=events), \
+         patch("janus.today.load_tasks", return_value=tasks), \
+         patch("janus.today.load_goals", return_value=goals), \
+         patch("janus.today.date") as mock_date:
+        mock_date.today.return_value = today
+        mock_date.__eq__ = lambda self, other: self.toordinal() == other.toordinal()
+        mock_date.__hash__ = lambda self: hash(self.toordinal())
+        mock_date.isoformat.return_value = today.isoformat()
+
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            show_today()
+        return buf.getvalue()
