@@ -263,7 +263,7 @@ class TestDailyBriefingWithAttention:
         briefing = create_daily_briefing([], tasks, [], FIXED_TODAY)
         assert len(briefing.suggested_focus) == 2
         assert briefing.suggested_focus[0].title == "Overdue"
-        assert briefing.suggested_focus.score == 100
+        assert briefing.suggested_focus[0].score == 100
 
     def test_empty_attention_state(self):
         briefing = create_daily_briefing([], [], [], FIXED_TODAY)
@@ -284,5 +284,5 @@ class TestDailyBriefingWithAttention:
         briefing = create_daily_briefing([], [], goals, FIXED_TODAY)
         assert len(briefing.suggested_focus) == 1
         assert briefing.suggested_focus[0].category == "goal_stalled"
-        assert briefing.suggested_focus.title == "Training"
-        assert "Define the next milestone" in briefing.suggested_focus.reason
+        assert briefing.suggested_focus[0].title == "Training"
+        assert "Define the next milestone" in briefing.suggested_focus[0].reason
