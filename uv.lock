@@ -446,12 +446,12 @@ dependencies = [
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
-    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -459,13 +459,11 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.199.0" },
     { name = "google-auth-httplib2", specifier = ">=0.4.2" },
     { name = "google-auth-oauthlib", specifier = ">=1.4.1" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "oauthlib"
