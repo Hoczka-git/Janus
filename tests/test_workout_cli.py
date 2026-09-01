@@ -11,6 +11,7 @@ import pytest
 
 from janus.models.workout import Exercise, RunningWorkout, Set, StrengthWorkout, WorkoutType
 from janus.workout_cli import (
+    _format_set_weight,
     _generate_id,
     _parse_date,
     _parse_datetime,
@@ -132,6 +133,22 @@ class TestSetsParsing:
             _parse_sets("5x80kg@notanumber")
         err = capsys.readouterr().err
         assert "invalid RPE" in err
+
+
+# ---------------------------------------------------------------------------
+# Weight formatting
+# ---------------------------------------------------------------------------
+
+
+class TestFormatSetWeight:
+    def test_format_weighted_set(self):
+        assert _format_set_weight(80.0) == "80.0kg"
+
+    def test_format_int_weight(self):
+        assert _format_set_weight(60) == "60kg"
+
+    def test_format_bodyweight_set(self):
+        assert _format_set_weight(None) == "bodyweight"
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +405,22 @@ class TestWorkoutShowCLI:
         assert "History for exercise: Back Squat" in out
         assert "sw-001" in out
         assert "sw-002" in out
+
+    def test_show_exercise_bodyweight_displays_bodyweight(self, capsys):
+        with patch("janus.workout_cli.find_history_by_exercise") as mock_find:
+            mock_find.return_value = [
+                StrengthWorkout(
+                    id="sw-001",
+                    date=_dt_full(2026, 9, 1, 10, 0),
+                    workout_type=WorkoutType.STRENGTH,
+                    exercises=[Exercise(name="Push-up", sets=[Set(reps=15, weight_kg=None)])],
+                ),
+            ]
+            handle_workout_show(["--exercise", "Push-up"])
+
+        out = capsys.readouterr().out
+        assert "bodyweight" in out
+        assert "Nonekg" not in out
 
     def test_show_date_range(self, capsys):
         with patch("janus.workout_cli.find_workouts_by_date_range") as mock_find:

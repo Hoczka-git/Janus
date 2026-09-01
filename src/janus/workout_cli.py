@@ -272,6 +272,13 @@ def handle_workout_add(args: list[str]) -> None:
         print(f"  Notes: {workout.notes}")
 
 
+def _format_set_weight(weight_kg: float | None) -> str:
+    """Format a set's weight for display, handling bodyweight (None)."""
+    if weight_kg is None:
+        return "bodyweight"
+    return f"{weight_kg}kg"
+
+
 def handle_workout_show(args: list[str]) -> None:
     """Parse 'janus workout show' arguments and display workouts.
 
@@ -351,8 +358,9 @@ def handle_workout_show(args: list[str]) -> None:
         print(f"History for exercise: {exercise_name}")
         print("-" * 40)
         for w in workouts:
+            weight_str = _format_set_weight(w.exercises[0].sets[0].weight_kg)
             print(f"  {w.id} | {w.date.date().isoformat()} | "
-                  f"{w.exercises[0].name} x {w.exercises[0].sets[0].reps} reps x {w.exercises[0].sets[0].weight_kg}kg")
+                  f"{w.exercises[0].name} x {w.exercises[0].sets[0].reps} reps x {weight_str}")
     elif show_running:
         workouts = find_running_workouts()
         if not workouts:
@@ -474,8 +482,6 @@ def handle_workout_summary(args: list[str]) -> None:
             print(f"  Best pace: {summary.best_pace_min_per_km:.2f} min/km")
         if summary.avg_hr_bpm_when_available is not None:
             print(f"  Avg HR: {summary.avg_hr_bpm_when_available:.0f}bpm ({summary.runs_with_hr}/{summary.run_count} runs)")
-        if summary.total_elevation_m > 0:
-            print(f"  Total elevation: {summary.total_elevation_m:.0f}m ({summary.runs_with_elevation}/{summary.run_count} runs)")
         print(f"  Longest run: {summary.longest_run_km}km")
     else:
         summary = compute_overall_summary(workouts)
