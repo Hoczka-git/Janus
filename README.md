@@ -20,9 +20,8 @@ Key subsystems:
 
 ## Current capabilities
 
-- **Daily briefing** (`janus today`) — upcoming calendar events (Google Calendar, read-only scope), open tasks, active goals, deterministic attention ranking, and suggested focus.
-- **Attention Engine** — surfaces the highest-scoring items as `[FOCUS]` and recommends a focused next-step set.
-- **Task management** (`janus task`) — add, complete, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
+- **Daily briefing** (`janus today`) — upcoming calendar events (Google Calendar, read-only scope), open tasks, active goals, deterministic attention ranking (top 3), and a single recommended suggested-focus item.
+- **Task management** (`janus task`) — list, add, complete, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
 - **Goal tracking** (`janus goal`) — goals with optional metrics (`--metric`, `--unit`, `--start`, `--current`, `--target`, `--direction`), deadlines, status (`active`/`completed`/`inactive`), and links to related tasks.
 - **Fitness tracking** (`janus workout`) — strength workouts (exercises, sets, weights, RPE) and running workouts (distance, duration, heart rate, elevation). Analytics: overall, running-specific, and per-exercise progression.
 - **Weekly review** (`janus weekly`) — completed tasks, open/needs-attention tasks, and goal progress with next-step suggestions.
@@ -82,7 +81,7 @@ chat_id = "YOUR_CHAT_ID"
 uv run janus today
 ```
 
-Example output:
+Example output (attention items are ranked by the Attention Engine and shown top 3; the highest-scoring item is surfaced as the suggested focus):
 
 ```
 JANUS — TODAY
@@ -92,9 +91,12 @@ SCHEDULE
 - 18:00 — Gym session — Personal
 
 REQUIRES ATTENTION
-1. Prepare training plan [FOCUS]
+1. Prepare training plan
    Metric progress: 0% — linked to goal
-and 1 more
+2. Book dentist appointment
+   Overdue by 3 days
+3. Buy groceries
+   Due today
 
 SUGGESTED FOCUS
 1. Prepare training plan
@@ -112,6 +114,7 @@ Sends the daily briefing to the configured Telegram chat.
 ### Tasks
 
 ```bash
+janus task list
 janus task add "Prepare training plan" --priority 3
 janus task add "Book dentist appointment" --due 2026-08-30 --priority 2
 janus task complete "Prepare training plan"
@@ -126,6 +129,8 @@ Task lines in `data/tasks.md` use the format:
 ```
 
 Only `- [ ]` (open) and `- [x]` (completed) tasks are tracked. `state: done` is not accepted — completion is authoritative via the checkbox.
+
+`janus task list` displays all open tasks with their metadata; completed tasks are excluded from the list.
 
 ### Goals
 
@@ -238,7 +243,7 @@ src/janus/
 ├── today.py             # Daily briefing renderer
 ├── weekly.py            # Weekly review renderer
 ├── telegram_weekly_cli.py
-├── tasks_cli.py         # janus task <add|complete|state|progress>
+├── tasks_cli.py         # janus task <add|complete|list|state|progress>
 ├── workout_cli.py       # janus workout <add|show|summary>
 ├── goals_cli.py         # janus goal <list|show|add|update|complete>
 ├── verification.py      # Implementation contract verification pipeline
