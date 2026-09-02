@@ -73,7 +73,21 @@ Persistent Data
 ├── Operational Data
 ├── Structured Domain Data
 └── Curated Knowledge
-        │
+│
         ▼
      Obsidian
 ```
+
+---
+
+# Planned Work
+
+The items below are the active planning backlog consumed by the Hermes
+replenishment plugin (see `~/.hermes/hermes-agent/plugins/replenishment`).
+When a `[plan]`-prefixed task completes on the JANUS board, the plugin pulls
+the first unchecked item here as a new `[plan]` task into the `triage` column,
+checks the item off, and parents the new task on the completed one.
+
+- [x] Instrument JANUS daily briefing with structured observability logs
+- [x] Add canonical review topology test coverage for reviewer-child rejection
+- [ ] Document the Phase 3 adversarial verification workflow
