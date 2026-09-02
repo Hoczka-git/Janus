@@ -1,7 +1,6 @@
 # Janus Product Backlog
 
-This document contains concrete product capabilities that are candidates
-for future implementation.
+This document contains concrete product capabilities that are candidates for future implementation.
 
 It complements:
 
@@ -45,6 +44,27 @@ Requirements:
 
 ---
 
+## [ready] Goal execution planning
+
+Extend the Goal System from tracking toward execution planning.
+
+Capabilities:
+
+- break goals into actionable milestones,
+- derive next actions,
+- detect stalled goals,
+- connect goal actions with tasks,
+- surface relevant calendar context,
+- preserve backward compatibility with existing goals.
+
+Deferred:
+
+- task dependency graph,
+- historical progress tracking,
+- calendar write-back.
+
+---
+
 ## [planned] Calendar-aware planning
 
 Improve Janus daily and weekly planning using calendar availability.
@@ -56,31 +76,24 @@ Potential capabilities:
 - account for upcoming events when suggesting tasks,
 - recommend realistic task placement.
 
----
+Dependencies:
 
-## [planned] Goal execution planning
-
-Extend the Goal System from tracking toward execution planning.
-
-Potential capabilities:
-
-- break goals into actionable milestones,
-- suggest next actions,
-- detect stalled goals,
-- connect goal actions with tasks and calendar availability.
+- Google Calendar read-side integration,
+- Goal execution planning.
 
 ---
 
 ## [planned] Research knowledge pipeline
 
-Formalize research output and long-term knowledge capture.
+Formalize how Janus turns research into durable knowledge.
 
 Potential capabilities:
 
 - structured research artifacts,
 - source provenance,
-- knowledge summaries,
-- promotion of durable insights into Obsidian.
+- research summaries,
+- promotion of durable insights into Obsidian,
+- explicit distinction between transient research and curated knowledge.
 
 ---
 
