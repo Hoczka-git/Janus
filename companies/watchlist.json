@@ -1,0 +1,102 @@
+{
+  "version": "2026-08-28",
+  "description": "Obserwowane spółki GPW — lista z tickers, folderami, opisem i datą ostatniego researchu.",
+  "companies": [
+    {
+      "ticker": "CDR",
+      "folder": "CDR",
+      "name": "CD Projekt SA",
+      "name_pl": "CD Projekt",
+      "isin": "PLCPRCDPRO002",
+      "sector": "Video Games / Interactive Entertainment",
+      "last_research": "2026-09-02",
+      "status": "researched"
+    },
+    {
+      "ticker": "XTB",
+      "folder": "XTB",
+      "name": "XTB SA",
+      "name_pl": "XTB",
+      "isin": "PLXTBRK00002",
+      "sector": "Fintech / CFD & Forex Broker",
+      "last_research": "2026-08-27",
+      "status": "researched"
+    },
+    {
+      "ticker": "CBF",
+      "folder": "CBF",
+      "name": "Cyber_Folks S.A.",
+      "name_pl": "Cyber_Folks",
+      "isin": "PLCPRCYBR00015",
+      "sector": "IT Services / Hosting & SaaS / Telecom",
+      "last_research": "2026-08-31",
+      "status": "researched"
+    },
+    {
+      "ticker": "KRU",
+      "folder": "KRU",
+      "name": "Kruk SA",
+      "name_pl": "Kruk",
+      "isin": "PLKREK00001",
+      "sector": "Financial Services / Debt Management",
+      "last_research": "2026-09-02",
+      "status": "researched"
+    },
+    {
+      "ticker": "BFT",
+      "folder": "BST",
+      "name": "Benefit Systems SA",
+      "name_pl": "Benefit Systems",
+      "isin": "PLBNFTS00018",
+      "sector": "Consumer Discretionary / Sports & Recreation Benefits",
+      "last_research": "2026-08-31",
+      "status": "researched",
+      "note": "folder BST, ticker BFT"
+    },
+    {
+      "ticker": "CRI",
+      "folder": "CRI",
+      "name": "Creotech Instruments SA",
+      "name_pl": "Creotech Instruments",
+      "isin": "PLCRICO00017",
+      "sector": "Technology / Space & Electronics / Defense",
+      "last_research": "2026-09-01",
+      "status": "researched"
+    },
+    {
+      "ticker": "ACP",
+      "folder": "ACP",
+      "name": "Asseco Poland SA",
+      "name_pl": "Asseco Poland",
+      "isin": "PLASSEC00018",
+      "sector": "Information Technology / IT Services & Consulting",
+      "last_research": "2026-08-31",
+      "status": "researched"
+    },
+    {
+      "ticker": "SNT",
+      "folder": "SNT",
+      "name": "Synektik Sp. z o.o. Akcyjna",
+      "name_pl": "Synektik",
+      "isin": "PLSNKTK00019",
+      "sector": "Healthcare Technology / Medical Devices",
+      "last_research": "2026-08-27",
+      "status": "researched"
+    }
+  ],
+  "market": {
+    "name": "GPW — Giełda Papierów Wartościowych w Warszawie",
+    "ticker": "GPW",
+    "isin": "PLGPW0000017",
+    "name_pl": "Giełda Papierów Wartościowych w Warszawie SA",
+    "sector": "Financial Exchange / Infrastructure",
+    "last_research": null,
+    "status": "not_researched",
+    "note": "GPW to giełda — nie spółka, tylko infrastruktura giełdowa / operator rynku. Dodano jako osobny entry dla pełnego wglądu."
+  },
+  "notes": {
+    "folder_naming": "Nazwa folderu nie zawsze pokrywa się z tickerem (np. Benefit Systems: folder BST, ticker BFT). W polu 'folder' podano nazwę katalogu, w 'ticker' — zaś ticker giełdowy.",
+    "removals": "PGN (PGNiG SA) i folder PGN usunięte — PGNiG zostało scalone z PKN ORLEN, listowanie likwidowane, folder PGN bez researchu i przestarzały. PKN Orlen nie ma folderu w companies/ (nie dotyczy tego watchlista).",
+    "updates": "data 'last_research' aktualizowana przy każdym nowym researchu (zapisanie raportu w reports/YYYY-MM-DD.md i aktualizacja knowledge.md)."
+  }
+}
