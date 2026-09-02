@@ -21,11 +21,19 @@ class Goal:
     # Task relationship
     related_tasks: list[str] = None         # supporting task titles (deduped, ordered)
 
+    # Execution planning (optional)
+    # Stored as list[dict] (not list[Milestone]) to avoid import cycle and
+    # keep markdown serialization simple. The service layer constructs
+    # Milestone objects from the dicts when needed.
+    milestones: list[dict] | None = None     # list of milestone dicts (see spec)
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
         # Dedup preserving order
         self.related_tasks = self._dedup_related_tasks(self.related_tasks)
+        if self.milestones is None:
+            self.milestones = []
         if self.status not in ("active", "completed", "inactive"):
             raise ValueError(
                 f"Invalid goal status: {self.status!r}. "

@@ -10,6 +10,8 @@ from janus.goals_cli import (
     handle_goal_add,
     handle_goal_update,
     handle_goal_complete,
+    handle_goal_next,
+    handle_goal_milestone,
 )
 
 
@@ -64,7 +66,7 @@ def main() -> None:
             print("       janus workout summary [--running] [--exercise NAME]")
     elif command == "goal":
         if len(sys.argv) < 3:
-            print("Usage: janus goal <list|show|add|update|complete> ...")
+            print("Usage: janus goal <list|show|add|update|complete|milestone|next> ...")
             return
         subcommand = sys.argv[2]
         if subcommand == "list":
@@ -77,6 +79,10 @@ def main() -> None:
             handle_goal_update(sys.argv[3:])
         elif subcommand == "complete":
             handle_goal_complete(sys.argv[3:])
+        elif subcommand == "milestone":
+            handle_goal_milestone(sys.argv[3:])
+        elif subcommand == "next":
+            handle_goal_next(sys.argv[3:])
         else:
             print(f"Unknown goal subcommand: {subcommand}")
             print("Usage: janus goal list")
@@ -84,6 +90,8 @@ def main() -> None:
             print("       janus goal add <title> [options]")
             print("       janus goal update <title> [options]")
             print("       janus goal complete <title>")
+            print("       janus goal milestone <add|list|show|complete|update> <goal> ...")
+            print("       janus goal next <title>")
     elif command == "weekly":
         show_weekly()
     else:

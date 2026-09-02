@@ -96,6 +96,7 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         target_value=goal.target_value,
         direction=goal.direction,
         related_tasks=goal.related_tasks,
+        milestones=goal.milestones,
     )
 
     update_goal(goal)

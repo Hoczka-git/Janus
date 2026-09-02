@@ -13,6 +13,14 @@ from janus.services.goals import (
     update_goal_fields,
 )
 from janus.services.goal_progress import compute_goal_progress
+from janus.services.milestones import (
+    add_milestone_for_goal,
+    get_milestone,
+    get_milestones_for_goal,
+    update_milestone,
+    complete_milestone,
+)
+from janus.services.next_action import derive_next_action
 from janus.integrations.markdown_tasks import (
     TASKS_PATH,
     load_tasks,
@@ -182,6 +190,21 @@ def handle_goal_show(args: list[str]) -> None:
             print(f"    - {rt} ({state})")
     else:
         print("\n  No related tasks.")
+    if goal.milestones:
+        from janus.services.milestones import get_milestones_for_goal
+        milestones = get_milestones_for_goal(goal.title)
+        if milestones:
+            print("\n  Milestones:")
+            for ms in milestones:
+                print(f"    [{ms.status}] (order: {ms.order}) {ms.title}")
+                if ms.deadline:
+                    print(f"        Deadline: {ms.deadline}")
+                if ms.description:
+                    print(f"        Description: {ms.description}")
+                if ms.related_tasks:
+                    print(f"        Related tasks: {', '.join(ms.related_tasks)}")
+    else:
+        print("\n  No milestones.")
 
 
 def handle_goal_add(args: list[str]) -> None:
@@ -479,3 +502,307 @@ def handle_goal_complete(args: list[str]) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     print(f"Completed goal: {goal.title}")
+
+
+# ===========================================================================
+# Milestone CLI handlers
+# ===========================================================================
+
+_VALID_MILESTONE_STATUSES = ("open", "in_progress", "completed", "skipped")
+
+
+def handle_goal_milestone_list(args: list[str]) -> None:
+    """janus goal milestone list <goal_title>
+    Display ordered milestones for a goal.
+    """
+    if not args:
+        print("Error: goal title is required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = " ".join(args)
+    try:
+        milestones = get_milestones_for_goal(goal_title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"JANUS — MILESTONES: {goal_title}")
+    print("=" * 60)
+    if not milestones:
+        print("  No milestones defined.")
+        return
+    for ms in milestones:
+        print(f"  [{ms.status}] (order: {ms.order}) {ms.title}")
+        if ms.deadline:
+            print(f"      Deadline: {ms.deadline}")
+        if ms.description:
+            print(f"      Description: {ms.description}")
+        if ms.related_tasks:
+            print(f"      Related tasks: {', '.join(ms.related_tasks)}")
+
+
+def handle_goal_milestone_show(args: list[str]) -> None:
+    """janus goal milestone show <goal_title> <milestone_title>
+    Display full details for a single milestone.
+    """
+    if len(args) < 2:
+        print("Error: goal title and milestone title are required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = args[0]
+    ms_title = " ".join(args[1:])
+    try:
+        ms = get_milestone(goal_title, ms_title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"JANUS — MILESTONE: {ms.title}")
+    print("=" * 60)
+    print(f"  Goal:      {ms.goal_title}")
+    print(f"  Status:    {ms.status}")
+    if ms.deadline:
+        print(f"  Deadline:  {ms.deadline}")
+    else:
+        print("  Deadline:  not set")
+    if ms.description:
+        print(f"  Description: {ms.description}")
+    else:
+        print("  Description: (none)")
+    print(f"  Order:     {ms.order}")
+    if ms.related_tasks:
+        print("\n  Related tasks:")
+        for t in ms.related_tasks:
+            print(f"    - {t}")
+    else:
+        print("\n  No related tasks.")
+
+
+def handle_goal_milestone_add(args: list[str]) -> None:
+    """janus goal milestone add <goal_title> <title> [--description D] [--deadline D] [--status S] [--related-task T]
+    Create a new milestone for a goal.
+    """
+    if len(args) < 2:
+        print("Error: goal title and milestone title are required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = args[0]
+    title_parts: list[str] = []
+    description: str = ""
+    deadline: str | None = None
+    status: str = "open"
+    related_tasks: list[str] = []
+
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--"):
+            if arg == "--description":
+                i += 1
+                if i >= len(args):
+                    print("Error: --description requires a value", file=sys.stderr)
+                    sys.exit(1)
+                description = args[i]
+            elif arg == "--deadline":
+                i += 1
+                if i >= len(args):
+                    print("Error: --deadline requires a value (YYYY-MM-DD)", file=sys.stderr)
+                    sys.exit(1)
+                deadline = args[i]
+                _ = _parse_date(deadline)
+            elif arg == "--status":
+                i += 1
+                if i >= len(args):
+                    print("Error: --status requires a value", file=sys.stderr)
+                    sys.exit(1)
+                status = args[i]
+                if status not in _VALID_MILESTONE_STATUSES:
+                    print(
+                        f"Error: invalid status {status!r}. "
+                        f"Allowed: {', '.join(_VALID_MILESTONE_STATUSES)}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            elif arg == "--related-task":
+                i += 1
+                if i >= len(args):
+                    print("Error: --related-task requires a value", file=sys.stderr)
+                    sys.exit(1)
+                related_tasks.append(args[i])
+            else:
+                print(f"Error: unknown argument: {arg}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            title_parts.append(arg)
+        i += 1
+
+    if not title_parts:
+        print("Error: milestone title is required", file=sys.stderr)
+        sys.exit(1)
+    ms_title = " ".join(title_parts)
+
+    try:
+        ms = add_milestone_for_goal(
+            goal_title, ms_title,
+            description=description, deadline=deadline,
+            status=status, related_tasks=related_tasks or None,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Added milestone: {ms.title} (order: {ms.order})")
+    print(f"  Goal: {ms.goal_title}")
+    print(f"  Status: {ms.status}")
+    if ms.deadline:
+        print(f"  Deadline: {ms.deadline}")
+
+
+def handle_goal_milestone_complete(args: list[str]) -> None:
+    """janus goal milestone complete <goal_title> <milestone_title>
+    Mark a milestone as completed.
+    """
+    if len(args) < 2:
+        print("Error: goal title and milestone title are required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = args[0]
+    ms_title = " ".join(args[1:])
+    try:
+        ms = complete_milestone(goal_title, ms_title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Completed milestone: {ms.title}")
+    print(f"  Goal: {ms.goal_title}")
+
+
+def handle_goal_milestone_update(args: list[str]) -> None:
+    """janus goal milestone update <goal_title> <milestone_title> [options]
+    Update fields of an existing milestone.
+    """
+    if len(args) < 2:
+        print("Error: goal title and milestone title are required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = args[0]
+    ms_title = args[1]
+    remaining = args[2:]
+
+    updates: dict = {}
+    add_tasks: list[str] = []
+    remove_tasks: list[str] = []
+    i = 0
+    while i < len(remaining):
+        arg = remaining[i]
+        if arg == "--description":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --description requires a value", file=sys.stderr)
+                sys.exit(1)
+            updates["description"] = remaining[i]
+        elif arg == "--deadline":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --deadline requires a value (YYYY-MM-DD)", file=sys.stderr)
+                sys.exit(1)
+            updates["deadline"] = remaining[i]
+            _ = _parse_date(updates["deadline"])
+        elif arg == "--status":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --status requires a value", file=sys.stderr)
+                sys.exit(1)
+            status = remaining[i]
+            if status not in _VALID_MILESTONE_STATUSES:
+                print(
+                    f"Error: invalid status {status!r}. "
+                    f"Allowed: {', '.join(_VALID_MILESTONE_STATUSES)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            updates["status"] = status
+        elif arg == "--title":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --title requires a value", file=sys.stderr)
+                sys.exit(1)
+            updates["title"] = remaining[i]
+        elif arg == "--add-related-task":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --add-related-task requires a value", file=sys.stderr)
+                sys.exit(1)
+            add_tasks.append(remaining[i])
+        elif arg == "--remove-related-task":
+            i += 1
+            if i >= len(remaining):
+                print("Error: --remove-related-task requires a value", file=sys.stderr)
+                sys.exit(1)
+            remove_tasks.append(remaining[i])
+        else:
+            print(f"Error: unknown argument: {arg}", file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    for t in add_tasks:
+        updates["add_related_task"] = t
+    for t in remove_tasks:
+        updates["remove_related_task"] = t
+
+    try:
+        ms = update_milestone(goal_title, ms_title, **updates)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Updated milestone: {ms.title}")
+    print(f"  Status: {ms.status}")
+    if ms.deadline:
+        print(f"  Deadline: {ms.deadline}")
+
+
+def handle_goal_milestone(args: list[str]) -> None:
+    """janus goal milestone <add|list|show|complete|update> <goal> ..."""
+    if not args:
+        print("Usage: janus goal milestone <add|list|show|complete|update> <goal> ...")
+        sys.exit(1)
+    subcommand = args[0]
+    rest = args[1:]
+    if subcommand == "list":
+        handle_goal_milestone_list(rest)
+    elif subcommand == "show":
+        handle_goal_milestone_show(rest)
+    elif subcommand == "add":
+        handle_goal_milestone_add(rest)
+    elif subcommand == "complete":
+        handle_goal_milestone_complete(rest)
+    elif subcommand == "update":
+        handle_goal_milestone_update(rest)
+    else:
+        print(f"Unknown milestone subcommand: {subcommand}")
+        print("Usage: janus goal milestone <add|list|show|complete|update> <goal> ...")
+        sys.exit(1)
+
+
+def handle_goal_next(args: list[str]) -> None:
+    """janus goal next <title>
+    Print the derived next action for a goal, with its reason.
+    """
+    if not args:
+        print("Error: goal title is required", file=sys.stderr)
+        sys.exit(1)
+    goal_title = " ".join(args)
+    try:
+        goal = get_goal(goal_title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    tasks = load_tasks()
+    from janus.services.weekly_review import _read_completed_task_titles
+    completed_titles = set(_read_completed_task_titles())
+    from datetime import date
+    today = date.today()
+
+    action = derive_next_action(goal, tasks, completed_titles, today)
+    if action is None:
+        print("No next action.")
+        return
+    print(f"Next action: {action.title} ({action.kind})")
+    print(f"  Reason: {action.reason}")
+    print(f"  Goal: {action.goal_title}")

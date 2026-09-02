@@ -16,6 +16,7 @@ Exports:
 
 from janus.models.task import Task
 from janus.models.goal import Goal
+from janus.models.milestone import Milestone
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.models.daily_briefing import DailyBriefing
 from janus.models.attention import AttentionItem
@@ -25,6 +26,7 @@ from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
 __all__ = [
     "Task",
     "Goal",
+    "Milestone",
     "GoalReview",
     "WeeklyReview",
     "DailyBriefing",

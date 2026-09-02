@@ -170,3 +170,37 @@ class TestDailyBriefing:
 
         assert len(briefing.attention_items) == 1
         assert briefing.attention_items[0].title == "G1"
+
+    def test_goal_deadline_today_becomes_suggested_focus(self):
+        """A goal deadline-today signal (score 90) can be the suggested focus
+        when it outranks all other attention items (§6 integration contract).
+        """
+        today = date(2026, 8, 28)
+        tasks = []
+        goals = [Goal(title="Launch campaign", status="active",
+                      deadline="2026-08-28", related_tasks=[])]
+        briefing = create_daily_briefing([], tasks, goals, today)
+
+        assert len(briefing.attention_items) == 1
+        item = briefing.attention_items[0]
+        assert item.title == "Launch campaign"
+        assert item.category == "goal_deadline_today"
+        assert item.score == 90
+        assert briefing.suggested_focus is not None
+        assert briefing.suggested_focus.title == "Launch campaign"
+        assert briefing.suggested_focus.score == 90
+
+    def test_goal_overdue_outranks_regular_task(self):
+        """Goal overdue (score 100) and overdue task (score 100) tie;
+        goal overdue should still appear and be eligible as focus."""
+        today = date(2026, 8, 28)
+        tasks = [Task(title="Overdue task", due_date=date(2026, 8, 25), priority=1)]
+        goals = [Goal(title="Overdue goal", status="active",
+                      deadline="2026-08-25", related_tasks=[])]
+        briefing = create_daily_briefing([], tasks, goals, today)
+
+        titles = {i.title for i in briefing.attention_items}
+        assert "Overdue task" in titles
+        assert "Overdue goal" in titles
+        # Goal overdue (100) ties with task overdue (100); both present
+        assert briefing.suggested_focus is not None

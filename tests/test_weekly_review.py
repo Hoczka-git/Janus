@@ -264,6 +264,79 @@ class TestWeeklyReviewService:
         review = create_weekly_review()
         assert review.goals[0].suggested_next_step == "Task A"
 
+    def test_suggested_next_step_with_milestone(self, tmp_path, monkeypatch):
+        """Weekly review uses derive_next_action with milestones (R1)."""
+        tasks_file = _write_tasks_file(
+            tmp_path,
+            "- [ ] Task A\n"
+        )
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: G\n"
+            "Status: active\n"
+            "Related tasks:\n"
+            "- Task A\n"
+            "\n"
+            "## Milestones\n"
+            "\n"
+            "### Milestone: M1  (order: 0)\n"
+            "Related tasks:\n"
+            "- Task A\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert review.goals[0].suggested_next_step == "Task A"
+
+    def test_suggested_next_step_milestone_as_action(self, tmp_path, monkeypatch):
+        """Weekly review: no open tasks, next milestone is the action (R3)."""
+        tasks_file = _write_tasks_file(tmp_path, "")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: G\n"
+            "Status: active\n"
+            "\n"
+            "## Milestones\n"
+            "\n"
+            "### Milestone: M1  (order: 0)\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert review.goals[0].suggested_next_step == "M1"
+
+    def test_suggested_next_step_all_completed(self, tmp_path, monkeypatch):
+        """Weekly review: all tasks done, all milestones completed → None."""
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Task A\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: G\n"
+            "Status: active\n"
+            "Related tasks:\n"
+            "- Task A\n"
+            "\n"
+            "## Milestones\n"
+            "\n"
+            "### Milestone: M1  (order: 0)\n"
+            "Status: completed\n"
+            "Related tasks:\n"
+            "- Task A\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert review.goals[0].suggested_next_step is None
+        assert review.goals[0].all_related_tasks_completed is True
+
     def test_exact_title_matching(self, tmp_path, monkeypatch):
         tasks_file = _write_tasks_file(
             tmp_path,

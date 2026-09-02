@@ -6,10 +6,13 @@ Does not duplicate metric-vs-task priority logic.
 
 from pathlib import Path
 
+from datetime import date
+
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.markdown_tasks import load_tasks
 from janus.services.goal_progress import compute_goal_progress
+from janus.services.next_action import derive_next_action
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
@@ -38,6 +41,7 @@ def create_weekly_review() -> WeeklyReview:
     """
     goals = load_goals()
     tasks = load_tasks()
+    today = date.today()
 
     # Build lookup structures
     completed_titles = _read_completed_task_titles()
@@ -79,18 +83,19 @@ def create_weekly_review() -> WeeklyReview:
         else:
             review.progress_detail = "N/A"
 
-        # Suggested next step: first open related task
-        if goal.related_tasks:
-            first_open: str | None = None
-            for rt in goal.related_tasks:
-                if rt in open_task_map:
-                    first_open = rt
-                    break
-            if first_open:
-                review.suggested_next_step = first_open
-            else:
-                # All related tasks either completed or missing
-                if not review.missing_related_tasks and review.completed_related_tasks:
+        # Suggested next step: use rules-based derive_next_action
+        next_action = derive_next_action(
+            goal, tasks, set(completed_titles), today,
+        )
+        if next_action is not None:
+            review.suggested_next_step = next_action.title
+        else:
+            # No next action. If all related tasks are completed and none
+            # are missing, mark all_related_tasks_completed.
+            if goal.related_tasks:
+                if not review.missing_related_tasks \
+                        and all(rt in completed_titles
+                                for rt in goal.related_tasks):
                     review.all_related_tasks_completed = True
 
         goal_reviews.append(review)
