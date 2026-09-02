@@ -14,3 +14,4 @@
 - [ ] Odebrać pakiet | due: 2026-08-31
 - [ ] Zaplanować sprzątanie garażu
 - [ ] Zaplanować konserwację rowerów
+- [ ] Valid due | due: 2026-12-31
