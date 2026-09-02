@@ -16,7 +16,10 @@ class StallSignal:
     """A single stall-detection signal for a goal.
 
     Multiple signals can fire for the same goal; the highest-scoring
-    signal wins for the attention item.
+    signal wins for the attention item. Goal-level deadline signals
+    always take precedence over milestone deadline signals: when a goal
+    deadline signal fires, milestone deadline signals are suppressed
+    (milestone deadlines are treated as subordinate to goal deadlines).
     """
 
     signal: str          # signal identifier (category)
@@ -88,6 +91,7 @@ def assess_goal_stall(
 
     # --- Deadline signals ---
     goal_deadline = _parse_deadline(goal.deadline)
+    goal_deadline_signal_fired = False
 
     if goal_deadline is not None:
         if goal_deadline < today:
@@ -98,20 +102,24 @@ def assess_goal_stall(
                     score=100,
                     reason="Goal deadline has passed with no open tasks",
                 ), "goal_overdue"))
+                goal_deadline_signal_fired = True
         elif goal_deadline == today:
             signals.append((StallSignal(
                 signal="goal_deadline_today",
                 score=90,
                 reason="Goal deadline is today",
             ), "goal_deadline_today"))
+            goal_deadline_signal_fired = True
         elif (goal_deadline - today).days <= 7:
             signals.append((StallSignal(
                 signal="goal_deadline_soon",
                 score=60,
                 reason=f"Goal deadline in {(goal_deadline - today).days} days",
             ), "goal_deadline_soon"))
+            goal_deadline_signal_fired = True
 
     # --- Milestone slipped ---
+<<<<<<< HEAD
     for m in milestones:
         m_deadline = _parse_deadline(m.deadline)
         if m_deadline is not None and m_deadline < today and m.status != "completed":
@@ -129,6 +137,24 @@ def assess_goal_stall(
                 score=55,
                 reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
             ), "milestone_deadline_soon"))
+=======
+    # Milestone deadlines are SUBORDINATE to goal deadlines. When a goal
+    # deadline signal has already fired for this goal, milestone deadline
+    # signals are suppressed — the goal-level deadline takes precedence and
+    # the milestone deadline is treated as derived from / subservient to it.
+    if not goal_deadline_signal_fired:
+        for m in milestones:
+            m_deadline = _parse_deadline(m.deadline)
+            if (m_deadline is not None
+                    and m_deadline < today
+                    and m.status != "completed"
+                    and m.status != "skipped"):
+                signals.append((StallSignal(
+                    signal="milestone_slipped",
+                    score=50,
+                    reason=f"Milestone '{m.title}' deadline has passed",
+                ), "milestone_slipped"))
+>>>>>>> dd79ea4 (feat: enforce goal deadline precedence over milestone deadlines)
 
     # --- No recent activity (heuristic) ---
     # Fires when: all related tasks completed (no open), no future milestone
@@ -295,7 +321,10 @@ def get_attention_items(
         if not signals:
             continue
 
-        # Pick the highest-scoring signal.
+        # Pick the highest-scoring signal. Goal deadline signals always
+        # take precedence over milestone deadline signals — this is enforced
+        # in assess_goal_stall by suppressing milestone_deadline signals
+        # when a goal deadline signal fires. Score is the tiebreaker.
         best = max(signals, key=lambda s: s[0].score)
         signal, category = best
         items.append(AttentionItem(
