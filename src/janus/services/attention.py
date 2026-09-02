@@ -147,7 +147,6 @@ def assess_goal_stall(
                     reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
                 ), "milestone_deadline_soon"))
 
-
     # --- No recent activity (heuristic) ---
     # Fires when: all related tasks completed (no open), no future milestone
     # deadline, no future goal deadline → goal looks inert.
