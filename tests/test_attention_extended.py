@@ -132,7 +132,7 @@ class TestMilestoneSlipped:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -145,7 +145,7 @@ class TestMilestoneSlipped:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "completed",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -223,7 +223,7 @@ class TestGoalInactiveSignal:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": None, "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -241,7 +241,7 @@ class TestMilestoneDeadlineSoon:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -255,7 +255,7 @@ class TestMilestoneDeadlineSoon:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-10-15", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -345,7 +345,7 @@ class TestGoalAttentionItems:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         items = get_attention_items([], [], [goal], FIXED_TODAY)
         assert len(items) == 1

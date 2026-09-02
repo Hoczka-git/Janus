@@ -1,4 +1,9 @@
-"""Tests for the Milestone dataclass validation."""
+"""Tests for the Milestone dataclass validation.
+
+Task-to-milestone membership is NOT stored on the Milestone model — it is
+derived dynamically at query/planning time (see services/next_action.py,
+``derive_milestone_tasks``).
+"""
 
 import pytest
 
@@ -13,7 +18,6 @@ class TestMilestoneModel:
         assert m.description == ""
         assert m.deadline is None
         assert m.status == "open"
-        assert m.related_tasks == []
         assert m.order == 0
 
     def test_all_fields(self):
@@ -23,13 +27,11 @@ class TestMilestoneModel:
             description="Sign up for event",
             deadline="2026-09-30",
             status="in_progress",
-            related_tasks=["Buy shoes", "Book hotel"],
             order=1,
         )
         assert m.description == "Sign up for event"
         assert m.deadline == "2026-09-30"
         assert m.status == "in_progress"
-        assert m.related_tasks == ["Buy shoes", "Book hotel"]
         assert m.order == 1
 
     def test_empty_title_raises(self):
@@ -49,13 +51,6 @@ class TestMilestoneModel:
             m = Milestone(title="X", goal_title="G", status=s)
             assert m.status == s
 
-    def test_dedup_preserves_order(self):
-        m = Milestone(
-            title="X", goal_title="G",
-            related_tasks=["A", "B", "A", "C", "B"],
-        )
-        assert m.related_tasks == ["A", "B", "C"]
-
-    def test_related_tasks_none_defaults_to_empty(self):
-        m = Milestone(title="X", goal_title="G", related_tasks=None)
-        assert m.related_tasks == []
+    def test_order_defaults_to_zero(self):
+        m = Milestone(title="X", goal_title="G")
+        assert m.order == 0

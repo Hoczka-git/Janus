@@ -1,4 +1,11 @@
-"""Tests for the next-action derivation engine (R1-R5)."""
+"""Tests for the next-action derivation engine (R1-R5).
+
+Task-to-milestone membership is derived dynamically (not stored) per
+ADR-003 Q3: a shared task "belongs to" whichever non-terminal milestone
+is earliest in ``order``. All tasks in goal.related_tasks are shared
+across milestones — they belong to the earliest non-terminal milestone
+at derivation time.
+"""
 
 import pytest
 
@@ -7,6 +14,7 @@ from datetime import date
 from janus.models.goal import Goal
 from janus.models.task import Task
 from janus.services.next_action import derive_next_action, NextAction
+
 
 FIXED_TODAY = date(2026, 8, 28)
 
@@ -23,10 +31,10 @@ def _make_goal(title: str, related_tasks: list[str], milestones=None) -> Goal:
 
 class TestR1_OpenTaskInCurrentMilestone:
     def test_r1_returns_task_in_current_milestone(self):
+        """R1: open task in the earliest non-terminal milestone is picked."""
         goal = _make_goal("G", ["Task A", "Task B"], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
-            "deadline": None, "status": "open",
-            "related_tasks": ["Task A"], "order": 0,
+            "deadline": None, "status": "open", "order": 0,
         }])
         tasks = [_make_task("Task A")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -35,30 +43,28 @@ class TestR1_OpenTaskInCurrentMilestone:
         assert action.title == "Task A"
         assert "M1" in action.reason
 
-    def test_r1_skips_tasks_in_future_milestone(self):
-        """R1 should NOT select a task that's only in a future (completed) milestone."""
+    def test_r1_skips_tasks_in_completed_milestone(self):
+        """R1 should NOT select the current active milestone (M1 is completed,
+        M2 is open — tasks belong to M2 dynamically)."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "completed",
-             "related_tasks": [], "order": 0},
+             "deadline": None, "status": "completed", "order": 0},
             {"title": "M2", "goal_title": "G", "description": "",
-             "deadline": None, "status": "open",
-             "related_tasks": ["Task A"], "order": 1},
+             "deadline": None, "status": "open", "order": 1},
         ])
         tasks = [_make_task("Task A")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
-        # Task A is in M2 (current open milestone), so R1 should pick it
+        # Task A is shared — belongs to M2 (earliest non-terminal milestone)
         assert action is not None
         assert action.title == "Task A"
         assert "M2" in action.reason
 
-    def test_r1_prefers_current_milestone_task_over_goal_task(self):
-        """If a task is in both the current milestone and goal.related_tasks,
-        R1 picks it as a milestone task, not as a bare goal task."""
+    def test_r1_picks_first_open_task_in_related_tasks_order(self):
+        """R1 picks the first open task from goal.related_tasks (in order)
+        that belongs to the current active milestone."""
         goal = _make_goal("G", ["Task A", "Task B"], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
-            "deadline": None, "status": "open",
-            "related_tasks": ["Task A"], "order": 0,
+            "deadline": None, "status": "open", "order": 0,
         }])
         tasks = [_make_task("Task A"), _make_task("Task B")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -69,17 +75,21 @@ class TestR1_OpenTaskInCurrentMilestone:
 
 class TestR2_OpenTaskOutsideMilestone:
     def test_r2_returns_task_not_in_any_milestone(self):
-        goal = _make_goal("G", ["Task A", "Task B"], milestones=[{
+        """R2: an open task not in goal.related_tasks is not considered.
+        Only goal.related_tasks tasks are candidates. With no open
+        related tasks, R3 surfaces the next milestone."""
+        goal = _make_goal("G", ["Task A"], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
-            "deadline": None, "status": "open",
-            "related_tasks": ["Task A"], "order": 0,
+            "deadline": None, "status": "open", "order": 0,
         }])
+        # Task B is open but NOT in related_tasks — not a candidate.
         tasks = [_make_task("Task B")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
+        # No open related task → R3 returns M1 as next milestone
         assert action is not None
-        assert action.kind == "task"
-        assert action.title == "Task B"
-        assert "No milestone" in action.reason
+        assert action.kind == "milestone"
+        assert action.title == "M1"
+
 
     def test_r2_no_milestones_first_open_task(self):
         """R2 fallback when goal has no milestones at all."""
@@ -104,8 +114,7 @@ class TestR3_NextOpenMilestone:
         """No open tasks, but an open milestone exists."""
         goal = _make_goal("G", [], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
-            "deadline": None, "status": "open",
-            "related_tasks": [], "order": 0,
+            "deadline": None, "status": "open", "order": 0,
         }])
         tasks = []
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -117,11 +126,9 @@ class TestR3_NextOpenMilestone:
     def test_r3_skips_completed_milestones(self):
         goal = _make_goal("G", [], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "completed",
-             "related_tasks": [], "order": 0},
+             "deadline": None, "status": "completed", "order": 0},
             {"title": "M2", "goal_title": "G", "description": "",
-             "deadline": None, "status": "open",
-             "related_tasks": [], "order": 1},
+             "deadline": None, "status": "open", "order": 1},
         ])
         tasks = []
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -135,11 +142,9 @@ class TestR4_FirstUncompletedMilestone:
         the list beyond the completed ones."""
         goal = _make_goal("G", [], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "completed",
-             "related_tasks": [], "order": 0},
+             "deadline": None, "status": "completed", "order": 0},
             {"title": "M2", "goal_title": "G", "description": "",
-             "deadline": None, "status": "open",
-             "related_tasks": [], "order": 1},
+             "deadline": None, "status": "open", "order": 1},
         ])
         tasks = []
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -151,8 +156,7 @@ class TestR4_FirstUncompletedMilestone:
         """All milestones skipped, no open tasks → None."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "skipped",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "skipped", "order": 0},
         ])
         tasks = []
         completed = {"Task A"}
@@ -163,8 +167,7 @@ class TestR4_FirstUncompletedMilestone:
         """An in_progress milestone is also 'active' — R1/R3 use it."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "in_progress",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "in_progress", "order": 0},
         ])
         tasks = [_make_task("Task A")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
@@ -173,34 +176,35 @@ class TestR4_FirstUncompletedMilestone:
         assert action.title == "Task A"
 
     def test_shared_task_in_current_and_future_milestone(self):
-        """A task in both current and future milestone is assigned to current."""
+        """A task in the goal's related_tasks is shared across all milestones.
+        It belongs to the earliest non-terminal milestone (M1 if open)."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "open",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "open", "order": 0},
             {"title": "M2", "goal_title": "G", "description": "",
-             "deadline": None, "status": "open",
-             "related_tasks": ["Task A"], "order": 1},
+             "deadline": None, "status": "open", "order": 1},
         ])
         tasks = [_make_task("Task A")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
         assert action is not None
         assert action.title == "Task A"
-        assert "M1" in action.reason  # current milestone, not M2
+        assert "M1" in action.reason  # current (earliest non-terminal) milestone
 
-    def test_task_in_completed_milestone_not_picked_by_r2(self):
-        """A task in a completed milestone is in a milestone, so R2 skips it."""
+    def test_task_in_completed_milestone_falls_to_r2(self):
+        """When all milestones are completed/skipped, open related tasks
+        have no active milestone to belong to. They fall through to R2 as
+        'No milestone' tasks."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "completed",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "completed", "order": 0},
         ])
         tasks = [_make_task("Task A")]
         action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
-        # Task A is in M1 (completed), so R1 finds no current active milestone.
-        # R2 skips it (it IS in a milestone). R3 has no active milestone.
-        # R4 finds no open/in_progress milestone. R5 returns None.
-        assert action is None
+        # No active milestone → Task A falls to R2 as "No milestone"
+        assert action is not None
+        assert action.kind == "task"
+        assert action.title == "Task A"
+        assert "No milestone" in action.reason
 
 
 class TestR5_NoNextAction:
@@ -208,8 +212,7 @@ class TestR5_NoNextAction:
         """All milestones completed, no open tasks → None."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "completed",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "completed", "order": 0},
         ])
         tasks = []
         completed = {"Task A"}
@@ -220,8 +223,7 @@ class TestR5_NoNextAction:
         """All milestones skipped, no open tasks → None."""
         goal = _make_goal("G", ["Task A"], milestones=[
             {"title": "M1", "goal_title": "G", "description": "",
-             "deadline": None, "status": "skipped",
-             "related_tasks": ["Task A"], "order": 0},
+             "deadline": None, "status": "skipped", "order": 0},
         ])
         tasks = []
         completed = {"Task A"}

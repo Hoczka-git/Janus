@@ -42,8 +42,15 @@ def _load_all_task_titles(tasks_path: Path) -> set[str]:
 
 
 def _milestone_objs(goal: Goal) -> list[Milestone]:
-    """Construct ordered Milestone objects from goal.milestones dicts."""
-    mss = [Milestone(**dict(m)) for m in goal.milestones]
+    """Construct ordered Milestone objects from goal.milestones dicts.
+
+    Filters out any legacy ``related_tasks`` key for backward compatibility
+    with old data files (task membership is now derived dynamically).
+    """
+    mss = []
+    for d in goal.milestones:
+        filtered = {k: v for k, v in dict(d).items() if k != "related_tasks"}
+        mss.append(Milestone(**filtered))
     mss.sort(key=lambda m: m.order)
     return mss
 

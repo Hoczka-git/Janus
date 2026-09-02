@@ -55,7 +55,6 @@ class TestMilestoneAddCLI:
             "--description", "Sign up",
             "--deadline", "2026-09-30",
             "--status", "open",
-            "--related-task", "Buy shoes",
         ])
         out = capsys.readouterr().out
         assert "Added milestone: Register" in out
@@ -139,14 +138,12 @@ class TestMilestoneShowCLI:
             "add", "Test goal", "Register",
             "--description", "Sign up for event",
             "--deadline", "2026-09-30",
-            "--related-task", "Buy shoes",
         ])
         handle_goal_milestone(["show", "Test goal", "Register"])
         out = capsys.readouterr().out
         assert "MILESTONE: Register" in out
         assert "Sign up for event" in out
         assert "2026-09-30" in out
-        assert "Buy shoes" in out
 
     def test_show_nonexistent_milestone(self, tmp_path, monkeypatch):
         from janus.goals_cli import handle_goal_add, handle_goal_milestone
@@ -222,15 +219,18 @@ class TestMilestoneUpdateCLI:
             "--description", "New desc",
         ])
 
-    def test_update_add_related_task(self, tmp_path, monkeypatch):
+    def test_update_add_related_task_removed(self, tmp_path, monkeypatch):
+        """--add-related-task is no longer supported on milestone update
+        (task membership is derived dynamically, not stored)."""
         from janus.goals_cli import handle_goal_add, handle_goal_milestone
         _setup_cli_fixtures(tmp_path, monkeypatch)
         handle_goal_add(["Test goal"])
         handle_goal_milestone(["add", "Test goal", "M1"])
-        handle_goal_milestone([
-            "update", "Test goal", "M1",
-            "--add-related-task", "Task B",
-        ])
+        with pytest.raises(SystemExit):
+            handle_goal_milestone([
+                "update", "Test goal", "M1",
+                "--add-related-task", "Task B",
+            ])
 
     def test_update_invalid_status(self, tmp_path, monkeypatch):
         from janus.goals_cli import handle_goal_add, handle_goal_milestone
@@ -268,7 +268,6 @@ class TestGoalCommandsWithMilestones:
             "Test goal", "M1",
             "--description", "Sign up",
             "--deadline", "2026-10-01",
-            "--related-task", "Task A",
         ])
         handle_goal_show(["Test goal"])
         out = capsys.readouterr().out
@@ -277,7 +276,6 @@ class TestGoalCommandsWithMilestones:
         assert "M1" in out
         assert "2026-10-01" in out
         assert "Sign up" in out
-        assert "Task A" in out
 
     def test_goal_show_no_milestones(self, tmp_path, monkeypatch, capsys):
         from janus.goals_cli import handle_goal_add, handle_goal_show
