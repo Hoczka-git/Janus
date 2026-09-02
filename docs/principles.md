@@ -6,7 +6,8 @@ These principles guide both system design and agent behavior.
 
 # 1. Verify Before Assuming
 
-Do not treat previous reports, summaries or assumptions as authoritative when the underlying state can be inspected.
+Do not treat previous reports, summaries or assumptions as authoritative when
+the underlying state can be inspected.
 
 Examples:
 
@@ -21,11 +22,13 @@ Current observable state is preferred over historical claims.
 
 # 2. Repository and Data Are Sources of Truth
 
-For implementation work, the current repository state is the primary source of truth.
+For implementation work, the current repository state is the primary source of
+truth.
 
 For data analysis, the underlying data is the primary source of truth.
 
-Conversation history, previous reports and memory provide context but must not override observable evidence.
+Conversation history, previous reports and memory provide context but must not
+override observable evidence.
 
 ---
 
