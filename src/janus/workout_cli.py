@@ -11,6 +11,7 @@ from janus.integrations.workout_md import (
     find_last_n,
     find_running_workouts,
     find_workouts_by_date_range,
+    find_workout_by_id,
     load_workouts,
     save_workout,
 )
@@ -279,6 +280,31 @@ def _format_set_weight(weight_kg: float | None) -> str:
     return f"{weight_kg}kg"
 
 
+def _show_single_workout(workout) -> None:
+    """Display full details of a single workout (by ID lookup)."""
+    print(f"Workout: {workout.id}")
+    print(f"  Type: {workout.workout_type.value}")
+    print(f"  Date: {workout.date.date().isoformat()}")
+    if workout.source:
+        print(f"  Source: {workout.source}")
+    if workout.notes:
+        print(f"  Notes: {workout.notes}")
+    if isinstance(workout, StrengthWorkout):
+        for ex in workout.exercises:
+            print(f"  Exercise: {ex.name}")
+            if ex.notes:
+                print(f"    Notes: {ex.notes}")
+            for idx, s in enumerate(ex.sets, start=1):
+                weight_str = _format_set_weight(s.weight_kg)
+                rpe_str = f" @ RPE {s.rpe}" if s.rpe is not None else ""
+                print(f"    Set {idx}: {s.reps} reps x {weight_str}{rpe_str}")
+    elif isinstance(workout, RunningWorkout):
+        hr_str = f" | Avg HR: {workout.avg_hr_bpm}bpm" if workout.avg_hr_bpm else ""
+        elev_str = f" | Elevation: {workout.elevation_m}m" if workout.elevation_m else ""
+        print(f"  Distance: {workout.distance_km}km")
+        print(f"  Duration: {workout.duration_minutes}min{hr_str}{elev_str}")
+
+
 def handle_workout_show(args: list[str]) -> None:
     """Parse 'janus workout show' arguments and display workouts.
 
@@ -288,7 +314,9 @@ def handle_workout_show(args: list[str]) -> None:
         janus workout show --from 2026-09-01 --to 2026-09-30
         janus workout show --running         # only running workouts
         janus workout show --exercise "Back Squat"  # strength history
+        janus workout show <id>              # single workout by ID
     """
+    workout_id = None
     last_n = 5
     from_date = None
     to_date = None
@@ -298,6 +326,12 @@ def handle_workout_show(args: list[str]) -> None:
     i = 0
     while i < len(args):
         arg = args[i]
+
+        # If the first argument is not an option flag, treat it as a workout ID.
+        if i == 0 and not arg.startswith("--"):
+            workout_id = arg
+            i += 1
+            continue
 
         if arg == "--last":
             i += 1
@@ -347,6 +381,14 @@ def handle_workout_show(args: list[str]) -> None:
     if show_running and exercise_name:
         print("Error: --running and --exercise are mutually exclusive", file=sys.stderr)
         sys.exit(1)
+
+    if workout_id:
+        workout = find_workout_by_id(workout_id)
+        if workout is None:
+            print(f"No workout found with ID: {workout_id}")
+            return
+        _show_single_workout(workout)
+        return
 
     workouts = []
 
