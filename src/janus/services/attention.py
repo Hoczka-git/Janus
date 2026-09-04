@@ -118,43 +118,35 @@ def assess_goal_stall(
             ), "goal_deadline_soon"))
             goal_deadline_signal_fired = True
 
-    # --- Milestone slipped ---
-<<<<<<< HEAD
-    for m in milestones:
-        m_deadline = _parse_deadline(m.deadline)
-        if m_deadline is not None and m_deadline < today and m.status != "completed":
-            signals.append((StallSignal(
-                signal="milestone_slipped",
-                score=50,
-                reason=f"Milestone '{m.title}' deadline has passed",
-            ), "milestone_slipped"))
-        elif (m_deadline is not None
-                and m_deadline > today
-                and (m_deadline - today).days <= 7
-                and m.status != "completed"):
-            signals.append((StallSignal(
-                signal="milestone_deadline_soon",
-                score=55,
-                reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
-            ), "milestone_deadline_soon"))
-=======
-    # Milestone deadlines are SUBORDINATE to goal deadlines. When a goal
-    # deadline signal has already fired for this goal, milestone deadline
-    # signals are suppressed — the goal-level deadline takes precedence and
-    # the milestone deadline is treated as derived from / subservient to it.
+    # --- Milestone slipped / deadline soon ---
+    # Goal deadlines take precedence over milestone deadlines.
     if not goal_deadline_signal_fired:
         for m in milestones:
             m_deadline = _parse_deadline(m.deadline)
-            if (m_deadline is not None
-                    and m_deadline < today
-                    and m.status != "completed"
-                    and m.status != "skipped"):
+            if (
+                m_deadline is not None
+                and m_deadline < today
+                and m.status != "completed"
+                and m.status != "skipped"
+            ):
                 signals.append((StallSignal(
                     signal="milestone_slipped",
                     score=50,
                     reason=f"Milestone '{m.title}' deadline has passed",
                 ), "milestone_slipped"))
->>>>>>> dd79ea4 (feat: enforce goal deadline precedence over milestone deadlines)
+            elif (
+                m_deadline is not None
+                and m_deadline > today
+                and (m_deadline - today).days <= 7
+                and m.status != "completed"
+                and m.status != "skipped"
+            ):
+                signals.append((StallSignal(
+                    signal="milestone_deadline_soon",
+                    score=55,
+                    reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
+                ), "milestone_deadline_soon"))
+
 
     # --- No recent activity (heuristic) ---
     # Fires when: all related tasks completed (no open), no future milestone
