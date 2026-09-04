@@ -15,3 +15,5 @@
 - [ ] Zaplanować sprzątanie garażu
 - [ ] Zaplanować konserwację rowerów
 - [ ] Valid due | due: 2026-12-31
+- [ ] Valid due | due: 2026-12-31
+- [ ] Valid due | due: 2026-12-31

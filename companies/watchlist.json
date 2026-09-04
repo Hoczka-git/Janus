@@ -19,7 +19,7 @@
       "name_pl": "XTB",
       "isin": "PLXTBRK00002",
       "sector": "Fintech / CFD & Forex Broker",
-      "last_research": "2026-08-27",
+      "last_research": "2026-09-03",
       "status": "researched"
     },
     {
@@ -29,7 +29,7 @@
       "name_pl": "Cyber_Folks",
       "isin": "PLCPRCYBR00015",
       "sector": "IT Services / Hosting & SaaS / Telecom",
-      "last_research": "2026-08-31",
+      "last_research": "2026-09-04",
       "status": "researched"
     },
     {
@@ -49,7 +49,7 @@
       "name_pl": "Benefit Systems",
       "isin": "PLBNFTS00018",
       "sector": "Consumer Discretionary / Sports & Recreation Benefits",
-      "last_research": "2026-08-31",
+      "last_research": "2026-09-04",
       "status": "researched",
       "note": "folder BST, ticker BFT"
     },
@@ -58,9 +58,9 @@
       "folder": "CRI",
       "name": "Creotech Instruments SA",
       "name_pl": "Creotech Instruments",
-      "isin": "PLCRICO00017",
+      "isin": "PLCRTCH00017",
       "sector": "Technology / Space & Electronics / Defense",
-      "last_research": "2026-09-01",
+      "last_research": "2026-09-04",
       "status": "researched"
     },
     {
@@ -70,7 +70,7 @@
       "name_pl": "Asseco Poland",
       "isin": "PLASSEC00018",
       "sector": "Information Technology / IT Services & Consulting",
-      "last_research": "2026-08-31",
+      "last_research": "2026-09-03",
       "status": "researched"
     },
     {
@@ -80,7 +80,7 @@
       "name_pl": "Synektik",
       "isin": "PLSNKTK00019",
       "sector": "Healthcare Technology / Medical Devices",
-      "last_research": "2026-08-27",
+      "last_research": "2026-09-03",
       "status": "researched"
     }
   ],
