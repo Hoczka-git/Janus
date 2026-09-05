@@ -29,6 +29,9 @@ janus-cron.log
 # Local runtime data
 insights/
 
+# Data directory (runtime data)
+data/*
+
 # Local Hermes worktrees
 .worktrees/
 
