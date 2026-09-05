@@ -1,5 +1,6 @@
 import sys
 
+# Smoke test: trivial comment added in worktree wt/t_efed7b78 for task t_efed7b78.
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list
