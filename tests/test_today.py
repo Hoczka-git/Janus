@@ -154,7 +154,20 @@ class TestRequiresAttentionRendering:
         assert "Due today" in output
         assert "High priority" in output
 
-    def test_goal_stalled_in_attention(self):
+    def test_goal_stalled_in_attention(self, monkeypatch):
+        import janus.services.attention as attn
+
+        def _load_from_string(_path):
+            titles = set()
+            for line in "- [x] Prepare training plan".splitlines():
+                line = line.strip()
+                if line.startswith("- [ ]") or line.startswith("- [x]"):
+                    title = line[5:].strip().split("|", 1)[0].strip()
+                    if title:
+                        titles.add(title)
+            return titles
+
+        monkeypatch.setattr(attn, "_load_all_task_titles", _load_from_string)
         tasks = []
         goals = [_make_goal("Training goal", "active",
                             related_tasks=["Prepare training plan"])]
