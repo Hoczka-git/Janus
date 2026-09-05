@@ -253,3 +253,4 @@ scripts/                     # Utility scripts (e.g. CI validation)
 ```
 
 See [`docs/vision.md`](docs/vision.md) for the Hermes/Janus system model and [`docs/roadmap.md`](docs/roadmap.md) for strategic direction.
+# Lifecycle verification observation task t_b938f70a
