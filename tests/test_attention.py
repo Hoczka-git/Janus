@@ -243,7 +243,11 @@ class TestDailyBriefingWithAttention:
         briefing = create_daily_briefing([], tasks, goals, FIXED_TODAY)
         assert len(briefing.attention_items) == 2
 
-    def test_max_3_items_displayed_via_briefing(self):
+    def test_max_3_items_displayed_via_briefing(self, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
         # Create 4 attention items, but briefing itself doesn't limit;
         # the renderer (today.py) will limit to 3.
         tasks = [
@@ -261,14 +265,14 @@ class TestDailyBriefingWithAttention:
             _make_task("High priority future", date(2026, 9, 10), priority=3),
         ]
         briefing = create_daily_briefing([], tasks, [], FIXED_TODAY)
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Overdue"
-        assert briefing.suggested_focus.score == 100
+        assert len(briefing.suggested_focus) == 2
+        assert briefing.suggested_focus[0].title == "Overdue"
+        assert briefing.suggested_focus[0].score == 100
 
     def test_empty_attention_state(self):
         briefing = create_daily_briefing([], [], [], FIXED_TODAY)
         assert briefing.attention_items == []
-        assert briefing.suggested_focus is None
+        assert briefing.suggested_focus == []
 
     def test_schedule_rendering_still_works(self):
         events = [_make_event("Team meeting", 10, 0)]
@@ -282,7 +286,7 @@ class TestDailyBriefingWithAttention:
         """A stalled active goal with the highest attention score may become suggested_focus."""
         goals = [_make_goal("Training", "active", ["Prepare training plan"])]
         briefing = create_daily_briefing([], [], goals, FIXED_TODAY)
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.category == "goal_stalled"
-        assert briefing.suggested_focus.title == "Training"
-        assert "Define the next milestone" in briefing.suggested_focus.reason
+        assert len(briefing.suggested_focus) == 1
+        assert briefing.suggested_focus[0].category == "goal_stalled"
+        assert briefing.suggested_focus[0].title == "Training"
+        assert "Define the next milestone" in briefing.suggested_focus[0].reason

@@ -1,4 +1,12 @@
-"""Tests for milestone persistence in markdown_goals (goals.md parse/serialize)."""
+"""Tests for milestone persistence in markdown_goals (goals.md parse/serialize).
+
+Task-to-milestone membership is NOT stored on milestones — it is derived
+dynamically at query/planning time (see services/next_action.py,
+``derive_milestone_tasks``). These tests verify that milestones are parsed
+and persisted with only their own fields (title, description, deadline,
+status, order) and that legacy ``Related tasks:`` lines in milestone blocks
+are correctly ignored (backward compatibility with old data files).
+"""
 
 import pytest
 
@@ -45,8 +53,10 @@ class TestMilestoneParsing:
         assert ms["deadline"] == "2026-09-30"
         assert ms["status"] == "open"
         assert ms["order"] == 0
-        assert ms["related_tasks"] == ["Buy running shoes"]
         assert ms["goal_title"] == "Autumn challenge"
+        # related_tasks is NOT stored on milestones — it's derived dynamically.
+        # Legacy "Related tasks:" lines in milestone blocks are ignored.
+        assert "related_tasks" not in ms
 
     def test_parse_multiple_milestones(self, tmp_path, monkeypatch):
         from janus.integrations.markdown_goals import load_goals
@@ -164,7 +174,9 @@ class TestMilestoneParsing:
         assert goals[0].milestones[0]["title"] == "M1"
         assert goals[1].milestones[0]["title"] == "M2"
 
-    def test_milestone_related_tasks_dedup_on_parse(self, tmp_path, monkeypatch):
+    def test_legacy_milestone_related_tasks_ignored_on_parse(self, tmp_path, monkeypatch):
+        """Legacy 'Related tasks:' lines in milestone blocks are ignored
+        for backward compatibility. Membership is now derived dynamically."""
         from janus.integrations.markdown_goals import load_goals
 
         content = (
@@ -182,7 +194,7 @@ class TestMilestoneParsing:
         monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
 
         goals = load_goals()
-        assert goals[0].milestones[0]["related_tasks"] == ["Task A", "Task B"]
+        assert "related_tasks" not in goals[0].milestones[0]
 
     def test_empty_milestone_title_raises(self, tmp_path, monkeypatch):
         from janus.integrations.markdown_goals import load_goals
@@ -218,7 +230,6 @@ class TestMilestoneSerialization:
                 "description": "desc",
                 "deadline": "2026-10-01",
                 "status": "open",
-                "related_tasks": ["Task A"],
                 "order": 0,
             }],
         )
@@ -244,7 +255,6 @@ class TestMilestoneSerialization:
                 "description": "desc",
                 "deadline": "2026-10-01",
                 "status": "open",
-                "related_tasks": [],
                 "order": 0,
             }],
         )
@@ -260,6 +270,8 @@ class TestMilestoneSerialization:
         assert goals[0].milestones[0]["title"] == "M1"
 
     def test_update_goal_preserves_milestones_round_trip(self, tmp_path, monkeypatch):
+        """Milestones are preserved through update_goal rewrite; no
+        related_tasks key is serialized (membership is derived dynamically)."""
         from janus.integrations.markdown_goals import load_goals, update_goal
 
         content = (
@@ -267,12 +279,11 @@ class TestMilestoneSerialization:
             "## Goal: G\n"
             "Status: active\n"
             "## Milestones\n"
+            "\n"
             "### Milestone: M1  (order: 0)\n"
             "Description: first\n"
             "Deadline: 2026-10-01\n"
             "Status: open\n"
-            "Related tasks:\n"
-            "- Task A\n"
         )
         goals_file = _write_goals_file(tmp_path, content)
         monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
@@ -290,7 +301,7 @@ class TestMilestoneSerialization:
         assert ms["description"] == "first"
         assert ms["deadline"] == "2026-10-01"
         assert ms["status"] == "open"
-        assert ms["related_tasks"] == ["Task A"]
+        assert "related_tasks" not in ms
         assert ms["order"] == 0
 
     def test_goal_without_milestones_not_serialized(self, tmp_path, monkeypatch):

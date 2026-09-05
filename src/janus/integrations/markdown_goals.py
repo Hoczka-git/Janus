@@ -168,7 +168,6 @@ def load_goals() -> list[Goal]:
                         "description": "",
                         "deadline": None,
                         "status": "open",
-                        "related_tasks": [],
                         "order": ms_order,
                     }
                     in_milestone = True
@@ -184,13 +183,10 @@ def load_goals() -> list[Goal]:
                         current_milestone["deadline"] = raw
                     elif stripped.startswith("Status:"):
                         current_milestone["status"] = stripped[7:].strip()
-                    elif stripped.startswith("Related tasks:"):
-                        current_milestone["related_tasks"] = []
-                    elif stripped.startswith("- ") and current_milestone is not None:
-                        task = stripped[2:].strip()
-                        if task and "related_tasks" in current_milestone:
-                            current_milestone["related_tasks"].append(task)
-                    # else: unknown field — ignore
+                    # Note: task-to-milestone membership is NOT stored on
+                    # milestones. Related tasks live on the Goal model and
+                    # are derived dynamically at query time.
+                    # Unknown field in milestone — ignore
 
     if current is not None:
         if current_milestone is not None:
@@ -203,16 +199,10 @@ def load_goals() -> list[Goal]:
 def _finalize_milestone(data: dict) -> dict:
     """Apply final normalization to a parsed milestone dict.
 
-    Deduplicates related_tasks preserving order (same pattern as Goal).
+    No dedup needed — milestones no longer store task lists (membership is
+    derived dynamically). This function is kept for forward compatibility
+    and to ensure the dict is in canonical form.
     """
-    tasks = data.get("related_tasks", [])
-    seen = set()
-    deduped = []
-    for t in tasks:
-        if t not in seen:
-            seen.add(t)
-            deduped.append(t)
-    data["related_tasks"] = deduped
     return data
 
 
@@ -277,11 +267,9 @@ def _format_goal_block(goal: Goal) -> list[str]:
                 lines.append(f"Deadline: {ms['deadline']}")
             if ms.get("status"):
                 lines.append(f"Status: {ms['status']}")
-            related = ms.get("related_tasks") or []
-            if related:
-                lines.append("Related tasks:")
-                for task in related:
-                    lines.append(f"- {task}")
+            # Note: task-to-milestone membership is NOT serialized.
+            # Related tasks are stored on the Goal model and derived
+            # dynamically at query time (see derive_milestone_tasks).
 
     return lines
 

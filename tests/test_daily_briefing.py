@@ -18,7 +18,7 @@ class TestDailyBriefing:
         briefing = create_daily_briefing(events, tasks, goals, today)
 
         assert briefing.attention_items == []
-        assert briefing.suggested_focus is None
+        assert briefing.suggested_focus == []
 
     def test_overdue_task(self):
         today = date(2026, 8, 28)
@@ -37,8 +37,8 @@ class TestDailyBriefing:
         assert item.category == "overdue_task"
         assert item.score == 100
         assert "Overdue by 3 days" in item.reason
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Book dentist appointment"
+        assert len(briefing.suggested_focus) == 1
+        assert briefing.suggested_focus[0].title == "Book dentist appointment"
 
     def test_due_today_task(self):
         today = date(2026, 8, 28)
@@ -115,12 +115,16 @@ class TestDailyBriefing:
         briefing = create_daily_briefing([], tasks, goals, today)
 
         assert len(briefing.attention_items) == 3
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Overdue"  # 100 > 80 > 50
+        assert len(briefing.suggested_focus) == 3
+        assert briefing.suggested_focus[0].title == "Overdue"  # 100 > 80 > 50
         assert [item.title for item in briefing.attention_items] == \
                ["Overdue", "Due today", "High priority future"]
 
-    def test_suggested_focus_max_3_in_briefing(self):
+    def test_suggested_focus_max_3_in_briefing(self, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
         """Daily Briefing carries all items; renderer limits to 3."""
         today = date(2026, 8, 28)
         tasks = [
@@ -131,8 +135,13 @@ class TestDailyBriefing:
         goals = []
         briefing = create_daily_briefing([], tasks, goals, today)
 
-        # Engine returns all 5; renderer will show 3.
         assert len(briefing.attention_items) == 5
+        assert len(briefing.suggested_focus) == 3
+        assert [item.title for item in briefing.suggested_focus] == [
+            "Task 0",
+            "Task 1",
+            "Task 2",
+        ]
 
     def test_goal_stalled_attracts_attention(self):
         today = date(2026, 8, 28)
@@ -186,9 +195,9 @@ class TestDailyBriefing:
         assert item.title == "Launch campaign"
         assert item.category == "goal_deadline_today"
         assert item.score == 90
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.title == "Launch campaign"
-        assert briefing.suggested_focus.score == 90
+        assert len(briefing.suggested_focus) == 1
+        assert briefing.suggested_focus[0].title == "Launch campaign"
+        assert briefing.suggested_focus[0].score == 90
 
     def test_goal_overdue_outranks_regular_task(self):
         """Goal overdue (score 100) and overdue task (score 100) tie;
@@ -203,4 +212,4 @@ class TestDailyBriefing:
         assert "Overdue task" in titles
         assert "Overdue goal" in titles
         # Goal overdue (100) ties with task overdue (100); both present
-        assert briefing.suggested_focus is not None
+        assert briefing.suggested_focus

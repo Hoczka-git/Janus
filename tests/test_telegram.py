@@ -78,7 +78,11 @@ class TestFormatTelegramMessage:
         assert "⚠ REQUIRES ATTENTION" not in text
         assert "🎯 SUGGESTED FOCUS" not in text
 
-    def test_empty_briefing(self):
+    def test_empty_briefing(self, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
         briefing = create_daily_briefing([], [], [], FIXED_TODAY)
         text = format_telegram_message(briefing)
 
@@ -164,6 +168,11 @@ class TestLoadTelegramConfig:
 
 class TestSendBriefing:
     def test_success_request(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
+
         config_path = tmp_path / "config.toml"
         config_path.write_text(
             "[telegram]\nbot_token = \"test_token\"\nchat_id = \"123456789\"\n"
@@ -213,3 +222,61 @@ class TestSendBriefing:
             briefing = create_daily_briefing([], [], [], FIXED_TODAY)
             with pytest.raises(RuntimeError, match="Telegram API error"):
                 send_briefing(briefing)
+
+
+class TestCalendarPlanningFormatting:
+    def test_free_slots_rendered(self):
+        from janus.models.time_block import TimeBlock
+
+        slot = TimeBlock(
+            start=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+        briefing = DailyBriefing(
+            events=[],
+            free_slots=[slot],
+            has_calendar=True,
+        )
+
+        text = format_telegram_message(briefing)
+
+        assert "🕐 FREE TIME" in text
+        assert "10:00–12:00" in text
+        assert "120 min" in text
+
+    def test_overload_warning_rendered(self):
+        briefing = DailyBriefing(
+            events=[],
+            overload_warning="[measured] HIGH MEETING LOAD",
+            has_calendar=True,
+        )
+
+        text = format_telegram_message(briefing)
+
+        assert "📊 CALENDAR LOAD" in text
+        assert "[measured] HIGH MEETING LOAD" in text
+
+    def test_placements_rendered(self):
+        from janus.models.time_block import Placement, TimeBlock
+
+        slot = TimeBlock(
+            start=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+        placement = Placement(
+            task_title="Write report",
+            slot=slot,
+            reason="Due today; fits in available 120-min block",
+        )
+        briefing = DailyBriefing(
+            events=[],
+            placements=[placement],
+            has_calendar=True,
+        )
+
+        text = format_telegram_message(briefing)
+
+        assert "📌 SUGGESTED PLACEMENTS" in text
+        assert "Write report" in text
+        assert "10:00–12:00" in text
+        assert "Due today" in text

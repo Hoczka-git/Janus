@@ -34,7 +34,13 @@ def _build_today_briefing() -> "DailyBriefing":
     all_events = list_upcoming_events()
     today_events: list[Event] = [
         e for e in all_events
-        if e.start is not None and e.start.date() == today
+        if (
+            e.start is not None
+            and (
+                e.start.date() == today
+                or (e.end is not None and e.start.date() < today <= e.end.date())
+            )
+        )
     ]
     tasks = load_tasks()
     goals = load_goals()
@@ -59,6 +65,31 @@ def show_today() -> None:
         print("No events scheduled today.")
     print()
 
+    if briefing.has_calendar and briefing.free_slots:
+        print("FREE TIME")
+        for slot in briefing.free_slots:
+            print(
+                f"- {slot.start.strftime('%H:%M')}–{slot.end.strftime('%H:%M')} "
+                f"({slot.duration_minutes} min)"
+            )
+        print()
+
+    if briefing.has_calendar and briefing.overload_warning:
+        print("CALENDAR LOAD")
+        print(briefing.overload_warning)
+        print()
+
+    if briefing.has_calendar and briefing.placements:
+        print("SUGGESTED PLACEMENTS")
+        for i, placement in enumerate(briefing.placements, 1):
+            print(
+                f"{i}. {placement.task_title} — "
+                f"{placement.slot.start.strftime('%H:%M')}–"
+                f"{placement.slot.end.strftime('%H:%M')}"
+            )
+            print(f"   {placement.reason}")
+        print()
+
     print("REQUIRES ATTENTION")
     has_attention = False
 
@@ -73,8 +104,9 @@ def show_today() -> None:
 
     if briefing.suggested_focus:
         print("SUGGESTED FOCUS")
-        print(f"1. {briefing.suggested_focus.title}")
-        print(f"   {briefing.suggested_focus.reason}")
+        for i, item in enumerate(briefing.suggested_focus, 1):
+            print(f"{i}. {item.title}")
+            print(f"   {item.reason}")
         print()
 
 

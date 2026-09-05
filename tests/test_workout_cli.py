@@ -285,6 +285,73 @@ class TestWorkoutAddCLI:
         err = capsys.readouterr().err
         assert "unknown argument" in err
 
+    def test_show_by_id_strength(self, capsys):
+        with patch("janus.workout_cli.find_workout_by_id") as mock_find:
+            mock_find.return_value = StrengthWorkout(
+                id="sw-003",
+                date=_dt_full(2026, 9, 5, 10, 0),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[Exercise(name="Back Squat", sets=[
+                    Set(reps=5, weight_kg=80.0, rpe=8.0),
+                    Set(reps=5, weight_kg=80.0, rpe=8.5),
+                ])],
+                notes="Heavy day",
+            )
+            handle_workout_show(["sw-003"])
+
+        out = capsys.readouterr().out
+        assert "Workout: sw-003" in out
+        assert "Type: strength" in out
+        assert "Date: 2026-09-05" in out
+        assert "Notes: Heavy day" in out
+        assert "Exercise: Back Squat" in out
+        assert "Set 1: 5 reps x 80.0kg @ RPE 8.0" in out
+        assert "Set 2: 5 reps x 80.0kg @ RPE 8.5" in out
+
+    def test_show_by_id_running(self, capsys):
+        with patch("janus.workout_cli.find_workout_by_id") as mock_find:
+            mock_find.return_value = RunningWorkout(
+                id="rw-002",
+                date=_dt_full(2026, 9, 3, 18, 0),
+                workout_type=WorkoutType.RUNNING,
+                distance_km=10.0,
+                duration_minutes=45.0,
+                avg_hr_bpm=150.0,
+                elevation_m=100.0,
+            )
+            handle_workout_show(["rw-002"])
+
+        out = capsys.readouterr().out
+        assert "Workout: rw-002" in out
+        assert "Type: running" in out
+        assert "Distance: 10.0km" in out
+        assert "Duration: 45.0min" in out
+        assert "Avg HR: 150.0bpm" in out
+        assert "Elevation: 100.0m" in out
+
+    def test_show_by_id_not_found(self, capsys):
+        with patch("janus.workout_cli.find_workout_by_id") as mock_find:
+            mock_find.return_value = None
+            handle_workout_show(["sw-999"])
+
+        out = capsys.readouterr().out
+        assert "No workout found with ID: sw-999" in out
+
+    def test_show_by_id_takes_priority_over_last(self, capsys):
+        with patch("janus.workout_cli.find_workout_by_id") as mock_find:
+            mock_find.return_value = StrengthWorkout(
+                id="sw-001",
+                date=_dt_full(2026, 9, 1, 10, 0),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0)])],
+            )
+            handle_workout_show(["sw-001", "--last", "10"])
+
+        out = capsys.readouterr().out
+        assert "Workout: sw-001" in out
+        mock_find.assert_called_once_with("sw-001")
+
+
     def test_add_invalid_date_exits(self, capsys):
         with pytest.raises(SystemExit):
             handle_workout_add([

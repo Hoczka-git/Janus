@@ -3,6 +3,9 @@
 Milestones are stored as list[dict] on the Goal (see Goal.milestones).
 This service constructs real Milestone objects from those dicts, performs
 CRUD operations, and persists changes via markdown_goals.update_goal.
+
+Task-to-milestone membership is NOT stored on the milestone — it is
+derived dynamically (see services/next_action.py, ``derive_milestone_tasks``).
 """
 
 from janus.models.goal import Goal
@@ -18,20 +21,22 @@ def _milestone_dict_from_obj(ms: Milestone) -> dict:
         "description": ms.description,
         "deadline": ms.deadline,
         "status": ms.status,
-        "related_tasks": list(ms.related_tasks),
         "order": ms.order,
     }
 
 
 def _milestone_from_dict(data: dict) -> Milestone:
-    """Construct a Milestone from a stored dict."""
+    """Construct a Milestone from a stored dict.
+
+    The ``related_tasks`` key is ignored if present (legacy data from the
+    old permanent-assignment format). Membership is derived dynamically.
+    """
     return Milestone(
         title=data["title"],
         goal_title=data.get("goal_title", ""),
         description=data.get("description", ""),
         deadline=data.get("deadline"),
         status=data.get("status", "open"),
-        related_tasks=data.get("related_tasks"),
         order=data.get("order", 0),
     )
 
@@ -64,13 +69,15 @@ def add_milestone_for_goal(
     description: str = "",
     deadline: str | None = None,
     status: str = "open",
-    related_tasks: list[str] | None = None,
 ) -> Milestone:
     """Create a new milestone for a goal with auto-assigned order.
 
     The new milestone's ``order`` is max(existing orders) + 1.
     Raises ValueError if the goal does not exist or a milestone with
     the same title already exists within the goal.
+
+    Task membership is NOT stored — use ``derive_milestone_tasks`` to
+    dynamically determine which tasks belong to this milestone at query time.
     """
     goal = _get_goal_required(goal_title)
 
@@ -88,7 +95,6 @@ def add_milestone_for_goal(
         description=description,
         deadline=deadline,
         status=status,
-        related_tasks=related_tasks,
         order=order,
     )
     goal.milestones.append(_milestone_dict_from_obj(ms))
@@ -113,8 +119,8 @@ def get_milestone(goal_title: str, milestone_title: str) -> Milestone:
 def update_milestone(goal_title: str, milestone_title: str, **kwargs) -> Milestone:
     """Update fields of an existing milestone.
 
-    Valid kwargs: description, deadline, status, title, related_tasks,
-    add_related_task, remove_related_task.
+    Valid kwargs: description, deadline, status, title.
+
     Returns the updated Milestone. Raises ValueError if not found.
     """
     goal = _get_goal_required(goal_title)
@@ -123,20 +129,9 @@ def update_milestone(goal_title: str, milestone_title: str, **kwargs) -> Milesto
     ms_dict = goal.milestones[idx]
 
     for key, value in kwargs.items():
-        if key == "add_related_task":
-            tasks = ms_dict.get("related_tasks", [])
-            if value not in tasks:
-                tasks.append(value)
-            ms_dict["related_tasks"] = tasks
-        elif key == "remove_related_task":
-            tasks = ms_dict.get("related_tasks", [])
-            if value in tasks:
-                tasks.remove(value)
-            ms_dict["related_tasks"] = tasks
-        else:
-            ms_dict[key] = value
+        ms_dict[key] = value
 
-    # Reconstruct to re-run validaton via Milestone.__post_init__
+    # Reconstruct to re-run validation via Milestone.__post_init__
     updated = _milestone_from_dict(ms_dict)
     goal.milestones[idx] = _milestone_dict_from_obj(updated)
     update_goal(goal)

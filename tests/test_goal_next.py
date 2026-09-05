@@ -41,7 +41,7 @@ class TestGoalNextCLI:
             tasks_content="- [ ] Task A\n",
         )
         add_goal("Test goal", related_tasks=["Task A"])
-        handle_goal_milestone_add(["Test goal", "M1", "--related-task", "Task A"])
+        handle_goal_milestone_add(["Test goal", "M1"])
         handle_goal_next(["Test goal"])
         out = capsys.readouterr().out
         assert "Next action: Task A" in out
@@ -89,7 +89,7 @@ class TestGoalNextCLI:
         )
         add_goal("Test goal", related_tasks=["Task A"])
         handle_goal_milestone_add([
-            "Test goal", "M1", "--related-task", "Task A",
+            "Test goal", "M1",
             "--status", "completed",
         ])
         handle_goal_milestone_add(["Test goal", "M2", "--status", "completed"])

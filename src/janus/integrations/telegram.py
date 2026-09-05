@@ -56,6 +56,31 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
                 lines.append(f"{time_str} {event.title}{source}")
         lines.append("")
 
+    if briefing.has_calendar and briefing.free_slots:
+        lines.append("🕐 FREE TIME")
+        for slot in briefing.free_slots:
+            lines.append(
+                f"• {slot.start.strftime('%H:%M')}–{slot.end.strftime('%H:%M')} "
+                f"({slot.duration_minutes} min)"
+            )
+        lines.append("")
+
+    if briefing.has_calendar and briefing.overload_warning:
+        lines.append("📊 CALENDAR LOAD")
+        lines.append(briefing.overload_warning)
+        lines.append("")
+
+    if briefing.has_calendar and briefing.placements:
+        lines.append("📌 SUGGESTED PLACEMENTS")
+        for i, placement in enumerate(briefing.placements, 1):
+            lines.append(
+                f"• {i}. {placement.task_title} — "
+                f"{placement.slot.start.strftime('%H:%M')}–"
+                f"{placement.slot.end.strftime('%H:%M')}"
+            )
+            lines.append(f"  {placement.reason}")
+        lines.append("")
+
     if briefing.attention_items:
         lines.append("⚠ REQUIRES ATTENTION")
         for i, item in enumerate(briefing.attention_items[:3], 1):
@@ -65,8 +90,9 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
 
     if briefing.suggested_focus:
         lines.append("🎯 SUGGESTED FOCUS")
-        lines.append(f"• {briefing.suggested_focus.title}")
-        lines.append(f"  {briefing.suggested_focus.reason}")
+        for i, item in enumerate(briefing.suggested_focus, 1):
+            lines.append(f"• {i}. {item.title}")
+            lines.append(f"  {item.reason}")
         lines.append("")
 
     if lines and lines[-1] == "":

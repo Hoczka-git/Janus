@@ -201,8 +201,6 @@ def handle_goal_show(args: list[str]) -> None:
                     print(f"        Deadline: {ms.deadline}")
                 if ms.description:
                     print(f"        Description: {ms.description}")
-                if ms.related_tasks:
-                    print(f"        Related tasks: {', '.join(ms.related_tasks)}")
     else:
         print("\n  No milestones.")
 
@@ -536,8 +534,6 @@ def handle_goal_milestone_list(args: list[str]) -> None:
             print(f"      Deadline: {ms.deadline}")
         if ms.description:
             print(f"      Description: {ms.description}")
-        if ms.related_tasks:
-            print(f"      Related tasks: {', '.join(ms.related_tasks)}")
 
 
 def handle_goal_milestone_show(args: list[str]) -> None:
@@ -568,17 +564,16 @@ def handle_goal_milestone_show(args: list[str]) -> None:
     else:
         print("  Description: (none)")
     print(f"  Order:     {ms.order}")
-    if ms.related_tasks:
-        print("\n  Related tasks:")
-        for t in ms.related_tasks:
-            print(f"    - {t}")
-    else:
-        print("\n  No related tasks.")
+    # Task membership is derived dynamically — see derive_milestone_tasks
 
 
 def handle_goal_milestone_add(args: list[str]) -> None:
-    """janus goal milestone add <goal_title> <title> [--description D] [--deadline D] [--status S] [--related-task T]
+    """janus goal milestone add <goal_title> <title> [--description D] [--deadline D] [--status S]
     Create a new milestone for a goal.
+
+    Task-to-milestone membership is NOT stored. Use ``janus goal update
+    --add-related-task`` to add tasks to the goal's related_tasks list;
+    they are dynamically assigned to the earliest non-terminal milestone.
     """
     if len(args) < 2:
         print("Error: goal title and milestone title are required", file=sys.stderr)
@@ -588,7 +583,6 @@ def handle_goal_milestone_add(args: list[str]) -> None:
     description: str = ""
     deadline: str | None = None
     status: str = "open"
-    related_tasks: list[str] = []
 
     i = 1
     while i < len(args):
@@ -620,12 +614,6 @@ def handle_goal_milestone_add(args: list[str]) -> None:
                         file=sys.stderr,
                     )
                     sys.exit(1)
-            elif arg == "--related-task":
-                i += 1
-                if i >= len(args):
-                    print("Error: --related-task requires a value", file=sys.stderr)
-                    sys.exit(1)
-                related_tasks.append(args[i])
             else:
                 print(f"Error: unknown argument: {arg}", file=sys.stderr)
                 sys.exit(1)
@@ -642,7 +630,7 @@ def handle_goal_milestone_add(args: list[str]) -> None:
         ms = add_milestone_for_goal(
             goal_title, ms_title,
             description=description, deadline=deadline,
-            status=status, related_tasks=related_tasks or None,
+            status=status,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -685,8 +673,6 @@ def handle_goal_milestone_update(args: list[str]) -> None:
     remaining = args[2:]
 
     updates: dict = {}
-    add_tasks: list[str] = []
-    remove_tasks: list[str] = []
     i = 0
     while i < len(remaining):
         arg = remaining[i]
@@ -723,27 +709,10 @@ def handle_goal_milestone_update(args: list[str]) -> None:
                 print("Error: --title requires a value", file=sys.stderr)
                 sys.exit(1)
             updates["title"] = remaining[i]
-        elif arg == "--add-related-task":
-            i += 1
-            if i >= len(remaining):
-                print("Error: --add-related-task requires a value", file=sys.stderr)
-                sys.exit(1)
-            add_tasks.append(remaining[i])
-        elif arg == "--remove-related-task":
-            i += 1
-            if i >= len(remaining):
-                print("Error: --remove-related-task requires a value", file=sys.stderr)
-                sys.exit(1)
-            remove_tasks.append(remaining[i])
         else:
             print(f"Error: unknown argument: {arg}", file=sys.stderr)
             sys.exit(1)
         i += 1
-
-    for t in add_tasks:
-        updates["add_related_task"] = t
-    for t in remove_tasks:
-        updates["remove_related_task"] = t
 
     try:
         ms = update_milestone(goal_title, ms_title, **updates)

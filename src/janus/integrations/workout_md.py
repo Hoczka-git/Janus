@@ -9,7 +9,7 @@ Pojedynczy plik, rewrite przy zapisie (jak markdown_tasks.py / markdown_goals.py
 from datetime import datetime
 from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from janus.models.workout import (
     Exercise,
@@ -173,3 +173,12 @@ def find_last_n(n: int) -> list[Workout]:
         return []
     sorted_ws = sorted(workouts, key=lambda w: w.date, reverse=True)
     return sorted_ws[:n]
+
+
+def find_workout_by_id(workout_id: str) -> Optional[Workout]:
+    """Return a single workout matching the given ID, or None if not found."""
+    workouts = load_workouts()
+    for w in workouts:
+        if w.id == workout_id:
+            return w
+    return None

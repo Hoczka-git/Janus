@@ -50,12 +50,10 @@ class TestAddMilestone:
             description="A milestone",
             deadline="2026-10-01",
             status="in_progress",
-            related_tasks=["Task A", "Task B"],
         )
         assert ms.description == "A milestone"
         assert ms.deadline == "2026-10-01"
         assert ms.status == "in_progress"
-        assert ms.related_tasks == ["Task A", "Task B"]
 
     def test_add_milestone_persisted(self, tmp_path, monkeypatch):
         _setup(tmp_path, monkeypatch,
@@ -150,31 +148,6 @@ class TestUpdateMilestone:
         ms = update_milestone("G", "M1", deadline="2026-12-01")
         assert ms.deadline == "2026-12-01"
 
-    def test_update_add_related_task(self, tmp_path, monkeypatch):
-        _setup(tmp_path, monkeypatch,
-            "# Goals\n\n## Goal: G\nStatus: active\n"
-            "## Milestones\n"
-            "### Milestone: M1  (order: 0)\n"
-            "Related tasks:\n"
-            "- Task A\n"
-        )
-        ms = update_milestone("G", "M1", add_related_task="Task B")
-        assert "Task B" in ms.related_tasks
-        assert "Task A" in ms.related_tasks
-
-    def test_update_remove_related_task(self, tmp_path, monkeypatch):
-        _setup(tmp_path, monkeypatch,
-            "# Goals\n\n## Goal: G\nStatus: active\n"
-            "## Milestones\n"
-            "### Milestone: M1  (order: 0)\n"
-            "Related tasks:\n"
-            "- Task A\n"
-            "- Task B\n"
-        )
-        ms = update_milestone("G", "M1", remove_related_task="Task A")
-        assert "Task A" not in ms.related_tasks
-        assert "Task B" in ms.related_tasks
-
     def test_update_persists_to_file(self, tmp_path, monkeypatch):
         _setup(tmp_path, monkeypatch,
             "# Goals\n\n## Goal: G\nStatus: active\n"
@@ -199,17 +172,6 @@ class TestUpdateMilestone:
             "# Goals\n\n## Goal: G\nStatus: active\n")
         with pytest.raises(ValueError, match="Milestone not found"):
             update_milestone("G", "Ghost", status="completed")
-
-    def test_update_duplicate_related_task_no_change(self, tmp_path, monkeypatch):
-        _setup(tmp_path, monkeypatch,
-            "# Goals\n\n## Goal: G\nStatus: active\n"
-            "## Milestones\n"
-            "### Milestone: M1  (order: 0)\n"
-            "Related tasks:\n"
-            "- Task A\n"
-        )
-        ms = update_milestone("G", "M1", add_related_task="Task A")
-        assert ms.related_tasks == ["Task A"]
 
 
 class TestCompleteMilestone:

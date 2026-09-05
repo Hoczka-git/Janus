@@ -132,7 +132,7 @@ class TestMilestoneSlipped:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -145,7 +145,7 @@ class TestMilestoneSlipped:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "completed",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -223,7 +223,7 @@ class TestGoalInactiveSignal:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": None, "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -241,7 +241,7 @@ class TestMilestoneDeadlineSoon:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -255,7 +255,7 @@ class TestMilestoneDeadlineSoon:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-10-15", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
         signal_names = [s[0].signal for s in signals]
@@ -345,7 +345,7 @@ class TestGoalAttentionItems:
         goal = _make_goal("G", related_tasks=[], milestones=[{
             "title": "M1", "goal_title": "G", "description": "",
             "deadline": "2026-08-25", "status": "open",
-            "related_tasks": [], "order": 0,
+            "order": 0,
         }])
         items = get_attention_items([], [], [goal], FIXED_TODAY)
         assert len(items) == 1
@@ -379,3 +379,139 @@ class TestGoalAttentionItems:
                           deadline="2026-08-25", related_tasks=["Task A"])
         items = get_attention_items([], [], [goal], FIXED_TODAY)
         assert len(items) == 0
+
+
+# =============================================================================
+# 5. Deadline precedence — goal deadlines over milestone deadlines
+# =============================================================================
+#
+# Rule: when a goal has a deadline signal firing (overdue, today, or soon),
+# milestone deadline signals (milestone_slipped) are SUPPRESSED. The goal-level
+# deadline takes precedence — milestone deadlines are subordinate, treated as
+# derived from the goal deadline.
+
+class TestDeadlinePrecedence:
+    """Goal-level deadline signals always take precedence over milestone
+    deadline signals."""
+
+    def test_goal_overdue_suppresses_milestone_slipped(self, tmp_path, monkeypatch):
+        """Goal deadline overdue (100) + milestone slipped (50) → only goal_overdue.
+
+        The goal deadline takes precedence: milestone_slipped must NOT fire
+        when a goal deadline signal is already active.
+        """
+        _setup_tasks_file(tmp_path, monkeypatch,
+            content="- [x] Task A\n")
+        goal = _make_goal("G", deadline="2026-08-25",
+                          related_tasks=["Task A"],
+                          milestones=[{
+                              "title": "M1", "goal_title": "G",
+                              "description": "",
+                              "deadline": "2026-08-20", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        signals = assess_goal_stall(goal, FIXED_TODAY, set(), {"Task A"})
+        signal_names = [s[0].signal for s in signals]
+        # Goal deadline signal fires
+        assert "goal_overdue" in signal_names
+        # Milestone slipped is suppressed by goal deadline precedence
+        assert "milestone_slipped" not in signal_names
+
+    def test_goal_deadline_today_suppresses_milestone_slipped(self,
+            tmp_path, monkeypatch):
+        """Goal deadline today (90) + milestone slipped (50) → only goal_deadline_today."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G", deadline="2026-08-28",
+                          related_tasks=[],
+                          milestones=[{
+                              "title": "M1", "goal_title": "G",
+                              "description": "",
+                              "deadline": "2026-08-25", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
+        signal_names = [s[0].signal for s in signals]
+        assert "goal_deadline_today" in signal_names
+        assert "milestone_slipped" not in signal_names
+
+    def test_goal_deadline_soon_suppresses_milestone_slipped(self,
+            tmp_path, monkeypatch):
+        """Goal deadline soon (60) + milestone slipped (50) → only goal_deadline_soon."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G", deadline="2026-08-30",
+                          related_tasks=[],
+                          milestones=[{
+                              "title": "M1", "goal_title": "G",
+                              "description": "",
+                              "deadline": "2026-08-25", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
+        signal_names = [s[0].signal for s in signals]
+        assert "goal_deadline_soon" in signal_names
+        assert "milestone_slipped" not in signal_names
+
+    def test_no_goal_deadline_milestone_slipped_fires(self, tmp_path,
+            monkeypatch):
+        """When goal has NO deadline, milestone_slipped fires normally.
+
+        Milestone deadlines are only subordinate to *goal* deadlines.
+        If the goal has no deadline, the milestone deadline signal is
+        not suppressed.
+        """
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G", deadline=None,
+                          related_tasks=[],
+                          milestones=[{
+                              "title": "M1", "goal_title": "G",
+                              "description": "",
+                              "deadline": "2026-08-25", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        signals = assess_goal_stall(goal, FIXED_TODAY, set(), set())
+        signal_names = [s[0].signal for s in signals]
+        assert "milestone_slipped" in signal_names
+
+    def test_goal_deadline_today_wins_in_attention_items(self, tmp_path,
+            monkeypatch):
+        """In get_attention_items, when both goal deadline and milestone
+        deadline signals could fire, the goal deadline signal wins.
+
+        Scenario: goal deadline is today (score 90), milestone deadline
+        is past (would be score 50). The attention item should reflect
+        the goal deadline, not the milestone.
+        """
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("Goal with milestone",
+                          deadline="2026-08-28",
+                          related_tasks=[],
+                          milestones=[{
+                              "title": "M1", "goal_title": "Goal with milestone",
+                              "description": "",
+                              "deadline": "2026-08-25", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        items = get_attention_items([], [], [goal], FIXED_TODAY)
+        assert len(items) == 1
+        assert items[0].score == 90
+        assert items[0].category == "goal_deadline_today"
+        assert "Goal deadline is today" in items[0].reason
+
+    def test_milestone_slipped_only_in_attention_when_no_goal_deadline(
+            self, tmp_path, monkeypatch):
+        """Milestone slipped appears as the sole attention item only when
+        the goal has no deadline signal firing."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G without deadline",
+                          deadline=None,
+                          related_tasks=[],
+                          milestones=[{
+                              "title": "M1", "goal_title": "G without deadline",
+                              "description": "",
+                              "deadline": "2026-08-25", "status": "open",
+                              "related_tasks": [], "order": 0,
+                          }])
+        items = get_attention_items([], [], [goal], FIXED_TODAY)
+        assert len(items) == 1
+        assert items[0].score == 50
+        assert items[0].category == "milestone_slipped"
