@@ -9,6 +9,29 @@ from janus.models.goal import Goal
 from janus.services.daily_briefing import create_daily_briefing
 
 
+def _setup_tasks_file(monkeypatch, content: str):
+    """Provide a tasks.md fixture so _load_all_task_titles finds related tasks.
+
+    Stalls for goals whose related tasks are absent from the file are
+    suppressed by design (see test_missing_related_task_does_not_stall).
+    Tests that expect stalled goals must therefore supply a tasks.md entry
+    for the referenced task.
+    """
+    import janus.services.attention as attn
+
+    def _load_from_string(_path):
+        titles: set[str] = set()
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("- [ ]") or line.startswith("- [x]") or line.startswith("- [ ]"):
+                title = line[5:].strip().split("|", 1)[0].strip()
+                if title:
+                    titles.add(title)
+        return titles
+
+    monkeypatch.setattr(attn, "_load_all_task_titles", _load_from_string)
+
+
 class TestDailyBriefing:
     def test_empty_briefing(self):
         today = date(2026, 8, 28)
@@ -143,7 +166,8 @@ class TestDailyBriefing:
             "Task 2",
         ]
 
-    def test_goal_stalled_attracts_attention(self):
+    def test_goal_stalled_attracts_attention(self, monkeypatch):
+        _setup_tasks_file(monkeypatch, "- [x] Prepare training plan\n")
         today = date(2026, 8, 28)
         tasks = []
         goals = [Goal(title="Training", status="active",
@@ -168,7 +192,8 @@ class TestDailyBriefing:
         stalled_items = [i for i in briefing.attention_items if i.category == "goal_stalled"]
         assert len(stalled_items) == 0
 
-    def test_multiple_goals_one_stalled(self):
+    def test_multiple_goals_one_stalled(self, monkeypatch):
+        _setup_tasks_file(monkeypatch, "- [x] Prepare training plan\n")
         today = date(2026, 8, 28)
         tasks = []
         goals = [
