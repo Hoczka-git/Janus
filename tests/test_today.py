@@ -200,3 +200,107 @@ class TestEmptyStateRendering:
         assert "REQUIRES ATTENTION" in output
         assert "Nothing requires your attention today." in output
         assert "SUGGESTED FOCUS" not in output
+
+class TestCalendarPlanningRendering:
+    def test_free_slots_rendered(self, monkeypatch):
+        """Free calendar slots are shown in the Today view."""
+        from janus.models.time_block import TimeBlock
+        from janus.models.daily_briefing import DailyBriefing
+
+        free_slot = TimeBlock(
+            start=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+
+        monkeypatch.setattr(
+            "janus.today.create_daily_briefing",
+            lambda events, tasks, goals, today: DailyBriefing(
+                events=events,
+                free_slots=[free_slot],
+                has_calendar=True,
+            ),
+        )
+
+        output = _capture_show_today([], [], [])
+
+        assert "FREE TIME" in output
+        assert "10:00–12:00" in output
+        assert "120 min" in output
+
+    def test_overload_warning_rendered(self, monkeypatch):
+        """Calendar overload warning is shown when present."""
+        from janus.models.daily_briefing import DailyBriefing
+
+        monkeypatch.setattr(
+            "janus.today.create_daily_briefing",
+            lambda events, tasks, goals, today: DailyBriefing(
+                events=events,
+                overload_warning="[measured] HIGH MEETING LOAD",
+                has_calendar=True,
+            ),
+        )
+
+        output = _capture_show_today([], [], [])
+
+        assert "CALENDAR LOAD" in output
+        assert "[measured] HIGH MEETING LOAD" in output
+
+    def test_placements_rendered(self, monkeypatch):
+        """Suggested task placements are shown."""
+        from janus.models.daily_briefing import DailyBriefing
+        from janus.models.time_block import Placement, TimeBlock
+
+        slot = TimeBlock(
+            start=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc),
+        )
+        placement = Placement(
+            task_title="Write report",
+            slot=slot,
+            reason="Due today; fits in available 120-min block",
+        )
+
+        monkeypatch.setattr(
+            "janus.today.create_daily_briefing",
+            lambda events, tasks, goals, today: DailyBriefing(
+                events=events,
+                placements=[placement],
+                has_calendar=True,
+            ),
+        )
+
+        output = _capture_show_today([], [], [])
+
+        assert "SUGGESTED PLACEMENTS" in output
+        assert "Write report" in output
+        assert "10:00–12:00" in output
+        assert "Due today" in output
+
+
+class TestCrossMidnightEvents:
+    def test_event_started_previous_day_is_included(self, monkeypatch):
+        """An event spanning midnight must reach the daily briefing."""
+        from janus.models.daily_briefing import DailyBriefing
+
+        event = Event(
+            title="Overnight meeting",
+            start=datetime(2026, 8, 27, 23, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+            all_day=False,
+            source="Job",
+        )
+
+        captured = {}
+
+        def fake_create_briefing(events, tasks, goals, today):
+            captured["events"] = events
+            return DailyBriefing(events=events)
+
+        monkeypatch.setattr(
+            "janus.today.create_daily_briefing",
+            fake_create_briefing,
+        )
+
+        _capture_show_today([event], [], [])
+
+        assert captured["events"] == [event]

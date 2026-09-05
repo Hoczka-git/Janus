@@ -120,7 +120,11 @@ class TestDailyBriefing:
         assert [item.title for item in briefing.attention_items] == \
                ["Overdue", "Due today", "High priority future"]
 
-    def test_suggested_focus_max_3_in_briefing(self):
+    def test_suggested_focus_max_3_in_briefing(self, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
         """Daily Briefing carries all items; renderer limits to 3."""
         today = date(2026, 8, 28)
         tasks = [

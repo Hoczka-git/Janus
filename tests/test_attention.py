@@ -243,7 +243,11 @@ class TestDailyBriefingWithAttention:
         briefing = create_daily_briefing([], tasks, goals, FIXED_TODAY)
         assert len(briefing.attention_items) == 2
 
-    def test_max_3_items_displayed_via_briefing(self):
+    def test_max_3_items_displayed_via_briefing(self, monkeypatch):
+        monkeypatch.setattr(
+            "janus.integrations.google_calendar._load_config",
+            lambda: [],
+        )
         # Create 4 attention items, but briefing itself doesn't limit;
         # the renderer (today.py) will limit to 3.
         tasks = [
