@@ -89,15 +89,10 @@ Persistent Data
 
 # Near-Term Implementation
 
-The following repository artifacts contain planned or designed work that can
-be replenished into executable implementation tasks.
-
-## Execution Planning
+The following items represent planned implementation work derived from
+existing design and planning artifacts in this repository.
 
 - [ ] Implement the execution planning extension described in
   [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
-
-## Observability
-
 - [ ] Implement the structured observability log schema and instrumentation
   described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
