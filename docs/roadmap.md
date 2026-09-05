@@ -89,8 +89,15 @@ Persistent Data
 
 # Near-Term Implementation
 
-The following items are small, concrete implementation steps that can be
-executed independently and are suitable for automatic task replenishment.
+The following repository artifacts contain planned or designed work that can
+be replenished into executable implementation tasks.
 
-- [ ] Add `data/*` to `.gitignore` and verify the full test suite passes
-- [ ] Verify automatic task replenishment
+## Execution Planning
+
+- [ ] Implement the execution planning extension described in
+  [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
+
+## Observability
+
+- [ ] Implement the structured observability log schema and instrumentation
+  described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
