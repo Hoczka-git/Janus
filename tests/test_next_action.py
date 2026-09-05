@@ -254,6 +254,26 @@ class TestNoMilestonesFallback:
         assert action is None
 
 
+class TestRelatedTasksOrdering:
+    def test_first_open_task_selected_by_related_tasks_order(self):
+        """Regression: with multiple open related tasks, derive_next_action()
+        selects the first open task according to goal.related_tasks order,
+        not the order tasks are supplied."""
+        # Deliberately non-alphabetical order in related_tasks
+        goal = _make_goal("G", ["Task C", "Task A", "Task B"])
+        # Tasks passed in a different order than goal.related_tasks
+        tasks = [
+            _make_task("Task A"),
+            _make_task("Task B"),
+            _make_task("Task C"),
+        ]
+        action = derive_next_action(goal, tasks, set(), FIXED_TODAY)
+        assert action is not None
+        assert action.kind == "task"
+        # Must follow goal.related_tasks order: Task C is first
+        assert action.title == "Task C"
+
+
 class TestNextActionDataclass:
     def test_score_defaults_to_zero(self):
         a = NextAction(title="X", kind="task", reason="r", goal_title="G")
