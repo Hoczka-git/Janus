@@ -84,4 +84,8 @@ Persistent Data
 └── Curated Knowledge
 │
 ▼
+
+## Replenishment Test
+
+- [ ] Verify automatic task replenishment
 Obsidian
