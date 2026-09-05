@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 from janus.models.daily_briefing import DailyBriefing
 from janus.models.goal import Goal
 
+MAX_SUGGESTED_FOCUS_ITEMS = 3
+
 if TYPE_CHECKING:
     from janus.models.event import Event
     from janus.models.task import Task
@@ -28,7 +30,7 @@ def create_daily_briefing(
     from janus.integrations.google_calendar import _load_config
 
     attention_items = get_attention_items(events, tasks, goals, today)
-    suggested_focus = attention_items[0] if attention_items else None
+    suggested_focus = attention_items[:MAX_SUGGESTED_FOCUS_ITEMS]
 
     calendar_configured = bool(_load_config())
 

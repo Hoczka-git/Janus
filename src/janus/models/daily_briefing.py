@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 class DailyBriefing:
     events: list["Event"]
     attention_items: list["AttentionItem"] = field(default_factory=list)
-    suggested_focus: "AttentionItem | None" = None
+    suggested_focus: list["AttentionItem"] = field(default_factory=list)
     free_slots: list["TimeBlock"] = field(default_factory=list)
     overload_warning: str | None = None
     placements: list["Placement"] = field(default_factory=list)

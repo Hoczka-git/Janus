@@ -90,8 +90,9 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
 
     if briefing.suggested_focus:
         lines.append("🎯 SUGGESTED FOCUS")
-        lines.append(f"• {briefing.suggested_focus.title}")
-        lines.append(f"  {briefing.suggested_focus.reason}")
+        for i, item in enumerate(briefing.suggested_focus, 1):
+            lines.append(f"• {i}. {item.title}")
+            lines.append(f"  {item.reason}")
         lines.append("")
 
     if lines and lines[-1] == "":

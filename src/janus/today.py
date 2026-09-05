@@ -104,8 +104,9 @@ def show_today() -> None:
 
     if briefing.suggested_focus:
         print("SUGGESTED FOCUS")
-        print(f"1. {briefing.suggested_focus.title}")
-        print(f"   {briefing.suggested_focus.reason}")
+        for i, item in enumerate(briefing.suggested_focus, 1):
+            print(f"{i}. {item.title}")
+            print(f"   {item.reason}")
         print()
 
 

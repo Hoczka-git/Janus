@@ -52,7 +52,7 @@ class TestNoCalendarConfigured:
         # No overload item prepended.
         assert len(briefing.attention_items) == 1
         assert briefing.attention_items[0].category == "overdue_task"
-        assert briefing.suggested_focus is not None
+        assert briefing.suggested_focus
 
 
 class TestWithCalendarMocked:
@@ -108,8 +108,8 @@ class TestWithCalendarMocked:
         events = [_timed_event("Meeting", 9, 0, 17, 0)]
         tasks = [_task("Overdue", due=date(2026, 8, 25), priority=1)]
         briefing = create_daily_briefing(events, tasks, [], FIXED_TODAY)
-        assert briefing.suggested_focus is not None
-        assert briefing.suggested_focus.category == "overdue_task"
+        assert briefing.suggested_focus
+        assert briefing.suggested_focus[0].category == "overdue_task"
 
     def test_placements_generated_from_attention_items(self):
         """With free slots and urgent tasks, placements are computed."""
