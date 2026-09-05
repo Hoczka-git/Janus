@@ -85,7 +85,12 @@ Persistent Data
 │
 ▼
 
-## Replenishment Test
+---
 
+# Near-Term Implementation
+
+The following items are small, concrete implementation steps that can be
+executed independently and are suitable for automatic task replenishment.
+
+- [ ] Add `data/*` to `.gitignore` and verify the full test suite passes
 - [ ] Verify automatic task replenishment
-Obsidian
