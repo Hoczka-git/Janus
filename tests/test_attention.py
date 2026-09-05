@@ -40,6 +40,29 @@ def _make_goal(title: str, status: str = "active",
                 related_tasks=related_tasks or [])
 
 
+def _setup_tasks_file(monkeypatch, content: str):
+    """Provide a tasks.md fixture so _load_all_task_titles finds related tasks.
+
+    Stalls for goals whose related tasks are absent from the file are
+    suppressed by design (see test_missing_related_task_does_not_stall).
+    Tests that expect stalled goals must therefore supply a tasks.md entry
+    for the referenced task.
+    """
+    import janus.services.attention as attn
+
+    def _load_from_string(_path):
+        titles: set[str] = set()
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("- [ ]") or line.startswith("- [x]") or line.startswith("- [ ]"):
+                title = line[5:].strip().split("|", 1)[0].strip()
+                if title:
+                    titles.add(title)
+        return titles
+
+    monkeypatch.setattr(attn, "_load_all_task_titles", _load_from_string)
+
+
 # =============================================================================
 # 1. Task attention
 # =============================================================================
@@ -168,7 +191,8 @@ class TestGoalStagnation:
         items = get_attention_items([], tasks, goals, FIXED_TODAY)
         assert len(items) == 0
 
-    def test_active_goal_all_related_completed_is_stalled(self):
+    def test_active_goal_all_related_completed_is_stalled(self, monkeypatch):
+        _setup_tasks_file(monkeypatch, "- [x] Prepare training plan\n")
         goals = [_make_goal("Endurance challenge", "active",
                             ["Prepare training plan"])]
         tasks = []  # no open tasks
@@ -237,7 +261,8 @@ class TestSorting:
 # =============================================================================
 
 class TestDailyBriefingWithAttention:
-    def test_attention_items_in_briefing(self):
+    def test_attention_items_in_briefing(self, monkeypatch):
+        _setup_tasks_file(monkeypatch, "- [x] Prepare training plan\n")
         tasks = [_make_task("Overdue", date(2026, 8, 25), priority=1)]
         goals = [_make_goal("Stalled goal", "active", ["Prepare training plan"])]
         briefing = create_daily_briefing([], tasks, goals, FIXED_TODAY)
@@ -282,8 +307,9 @@ class TestDailyBriefingWithAttention:
         assert len(briefing.events) == 1
         assert briefing.events[0].title == "Team meeting"
 
-    def test_goal_stalled_can_be_suggested_focus(self):
+    def test_goal_stalled_can_be_suggested_focus(self, monkeypatch):
         """A stalled active goal with the highest attention score may become suggested_focus."""
+        _setup_tasks_file(monkeypatch, "- [x] Prepare training plan\n")
         goals = [_make_goal("Training", "active", ["Prepare training plan"])]
         briefing = create_daily_briefing([], [], goals, FIXED_TODAY)
         assert len(briefing.suggested_focus) == 1
