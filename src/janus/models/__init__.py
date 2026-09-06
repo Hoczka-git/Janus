@@ -22,6 +22,7 @@ from janus.models.daily_briefing import DailyBriefing
 from janus.models.attention import AttentionItem
 from janus.models.research_artifact import Finding, ResearchArtifact, Source
 from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
+from janus.models.decision import Decision
 
 __all__ = [
     "Task",
@@ -36,4 +37,5 @@ __all__ = [
     "ResearchArtifact",
     "TopicBlock",
     "KnowledgeSummary",
+    "Decision",
 ]

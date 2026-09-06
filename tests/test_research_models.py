@@ -669,3 +669,39 @@ class TestTopicOrdering:
         first = ks.ordered_topic_blocks()
         second = ks.ordered_topic_blocks()
         assert [tb.topic for tb in first] == [tb.topic for tb in second]
+
+
+# =============================================================================
+# ResearchArtifact.linked_goal_titles
+# =============================================================================
+
+class TestLinkedGoalTitles:
+    def test_default_is_empty_list(self):
+        a = ResearchArtifact(title="X", findings=[_finding("X", sources=[_src("http://x.com")])])
+        assert a.linked_goal_titles == []
+
+    def test_none_normalized_to_empty(self):
+        a = ResearchArtifact(title="X", findings=[_finding("X", sources=[_src("http://x.com")])],
+                             linked_goal_titles=None)  # type: ignore[arg-type]
+        assert a.linked_goal_titles == []
+
+    def test_set_on_construction(self):
+        a = ResearchArtifact(
+            title="X", findings=[_finding("X", sources=[_src("http://x.com")])],
+            linked_goal_titles=["Goal A", "Goal B"],
+        )
+        assert a.linked_goal_titles == ["Goal A", "Goal B"]
+
+    def test_dedup_preserves_order(self):
+        a = ResearchArtifact(
+            title="X", findings=[_finding("X", sources=[_src("http://x.com")])],
+            linked_goal_titles=["Goal A", "Goal B", "Goal A", "Goal C"],
+        )
+        assert a.linked_goal_titles == ["Goal A", "Goal B", "Goal C"]
+
+    def test_non_str_rejected(self):
+        with pytest.raises(ValueError, match="must contain str instances"):
+            ResearchArtifact(
+                title="X", findings=[_finding("X", sources=[_src("http://x.com")])],
+                linked_goal_titles=["Valid", 123],  # type: ignore[list-item]
+            )

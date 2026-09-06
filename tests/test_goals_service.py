@@ -421,3 +421,63 @@ class TestMeasurementRequirementsService:
         content = goals_file.read_text()
         assert "Measurement requirements:" in content
         assert "- metric: weight" in content
+
+
+# ---------------------------------------------------------------------------
+# 7. research_artifact_titles field
+# ---------------------------------------------------------------------------
+
+class TestResearchArtifactTitles:
+    def _seed_empty(self, tmp_path, monkeypatch):
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text("# Goals\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        return goals_file
+
+    def test_add_goal_with_research_artifacts(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        g = add_goal("My Goal", research_artifact_titles=["Artifact 1", "Artifact 2"])
+        assert g.research_artifact_titles == ["Artifact 1", "Artifact 2"]
+
+    def test_add_goal_research_artifacts_default_empty(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        g = add_goal("Simple goal")
+        assert g.research_artifact_titles == []
+
+    def test_update_add_research_artifact(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G")
+        g = update_goal_fields("G", add_research_artifact="Artifact 1")
+        assert g.research_artifact_titles == ["Artifact 1"]
+
+    def test_update_add_research_artifact_duplicate_no_change(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G", research_artifact_titles=["Artifact 1"])
+        g = update_goal_fields("G", add_research_artifact="Artifact 1")
+        assert g.research_artifact_titles == ["Artifact 1"]
+
+    def test_update_remove_research_artifact(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G", research_artifact_titles=["A1", "A2"])
+        g = update_goal_fields("G", remove_research_artifact="A1")
+        assert g.research_artifact_titles == ["A2"]
+
+    def test_update_remove_nonexistent_artifact_no_change(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G", research_artifact_titles=["A1"])
+        g = update_goal_fields("G", remove_research_artifact="Ghost")
+        assert g.research_artifact_titles == ["A1"]
+
+    def test_update_set_research_artifacts(self, tmp_path, monkeypatch):
+        self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G", research_artifact_titles=["A1", "A2"])
+        g = update_goal_fields("G", set_research_artifacts=["A3", "A4"])
+        assert g.research_artifact_titles == ["A3", "A4"]
+
+    def test_update_research_artifacts_persists_to_file(self, tmp_path, monkeypatch):
+        goals_file = self._seed_empty(tmp_path, monkeypatch)
+        add_goal("G")
+        update_goal_fields("G", add_research_artifact="My Artifact")
+        content = goals_file.read_text()
+        assert "Research artifacts:" in content
+        assert "- My Artifact" in content

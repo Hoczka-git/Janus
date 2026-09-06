@@ -717,3 +717,100 @@ class TestMeasurementRequirementsParsing:
         assert "frequency: weekly" in content
         assert "preferred_time: evening" in content
 
+
+# ===========================================================================
+# 8. Research artifacts parsing & serialization
+# ===========================================================================
+
+class TestResearchArtifactsParsing:
+    def test_parse_research_artifacts(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: GLUE research\n"
+            "Status: active\n"
+            "Research artifacts:\n"
+            "- GLUE Report\n"
+            "- GLUE Pipeline Analysis\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert len(goals) == 1
+        assert goals[0].research_artifact_titles == ["GLUE Report", "GLUE Pipeline Analysis"]
+
+    def test_parse_no_research_artifacts_defaults_empty(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: Simple\n"
+            "Status: active\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert goals[0].research_artifact_titles == []
+
+    def test_roundtrip_research_artifacts(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals, update_goal
+        from janus.models.goal import Goal
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: GLUE research\n"
+            "Status: active\n"
+            "Research artifacts:\n"
+            "- GLUE Report\n"
+            "- GLUE Pipeline Analysis\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+
+        goals = load_goals()
+        g = goals[0]
+        g.research_artifact_titles = g.research_artifact_titles + ["New Artifact"]  # type: ignore[operator]
+        update_goal(g)
+
+        goals2 = load_goals()
+        assert goals2[0].research_artifact_titles == [
+            "GLUE Report", "GLUE Pipeline Analysis", "New Artifact"
+        ]
+
+    def test_save_goal_with_research_artifacts(self, tmp_path, monkeypatch):
+        from janus.models.goal import Goal
+        from janus.integrations.markdown_goals import save_goal, load_goals
+
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text("# Goals\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+
+        g = Goal("Research goal", research_artifact_titles=["Artifact A", "Artifact B"])
+        save_goal(g)
+
+        content = goals_file.read_text()
+        assert "Research artifacts:" in content
+        assert "- Artifact A" in content
+        assert "- Artifact B" in content
+
+    def test_related_tasks_and_research_artifacts_together(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: My Goal\n"
+            "Status: active\n"
+            "Related tasks:\n"
+            "- Task A\n"
+            "- Task B\n"
+            "Research artifacts:\n"
+            "- Artifact 1\n"
+            "- Artifact 2\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert goals[0].related_tasks == ["Task A", "Task B"]
+        assert goals[0].research_artifact_titles == ["Artifact 1", "Artifact 2"]
+

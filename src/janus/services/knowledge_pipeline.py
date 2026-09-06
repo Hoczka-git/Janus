@@ -1,10 +1,14 @@
-"""Knowledge pipeline service — validation + summary generation.
+"""Knowledge pipeline service — validation + summary generation + gap bridge.
 
 Step 1 (Intake & Validation) and Step 2 (Summary Generation) of the
 Research Knowledge Pipeline. Pure domain logic — no I/O.
 
 Produces a KnowledgeSummary IR from a ResearchArtifact, with validation
 warnings collected for the curation gate (Step 3).
+
+Stage 3 bridge: ``emit_knowledge_gaps_as_attention`` converts
+KnowledgeSummary knowledge gaps into attention-item dicts suitable
+for the attention service.
 """
 
 from datetime import datetime
@@ -157,3 +161,47 @@ def _generate_conclusions(artifact: ResearchArtifact, topic_blocks: list[TopicBl
     if not parts:
         return artifact.conclusions
     return ". ".join(parts) + "."
+
+
+# =============================================================================
+# Stage 3: Knowledge gap → attention bridge
+# =============================================================================
+
+def emit_knowledge_gaps_as_attention(
+    knowledge_summary: KnowledgeSummary,
+    goal_title: str | None = None,
+) -> list[dict]:
+    """Convert KnowledgeSummary.knowledge_gaps into attention-item dicts.
+
+    This is a pure transformation — no I/O, no model mutation. Each
+    knowledge gap becomes a dict with the same shape the attention
+    service produces:
+
+        {"title": str, "reason": str, "score": int, "category": str}
+
+    If ``goal_title`` is provided, each attention item is scoped to
+    that goal (the title includes the goal name so the user can trace
+    the gap back to the goal it affects).
+
+    Args:
+        knowledge_summary: A KnowledgeSummary with knowledge_gaps populated.
+        goal_title: Optional goal title to scope the attention items.
+
+    Returns:
+        A list of attention-item dicts. Empty list if there are no gaps.
+    """
+    items: list[dict] = []
+    for gap in knowledge_summary.knowledge_gaps:
+        title = gap if len(gap) <= 80 else gap[:77] + "..."
+        reason = gap
+        if goal_title:
+            title = f"[Gap] {goal_title}: {title}" if len(gap) <= 60 \
+                else f"[Gap] {goal_title}: {gap[:57]}..."
+            reason = f"Knowledge gap for goal '{goal_title}': {gap}"
+        items.append({
+            "title": title,
+            "reason": reason,
+            "score": 50,
+            "category": "knowledge_gap",
+        })
+    return items

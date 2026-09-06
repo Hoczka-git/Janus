@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class Goal:
@@ -32,6 +32,7 @@ class Goal:
     #   {"metric": str, "unit": str, "frequency": str, "preferred_time": str,
     #    "interval_days": int}
     measurement_requirements: list[dict] | None = None
+    research_artifact_titles: list[str] | None = field(default_factory=list)
 
     def __post_init__(self):
         if self.related_tasks is None:
@@ -42,6 +43,15 @@ class Goal:
             self.milestones = []
         if self.measurement_requirements is None:
             self.measurement_requirements = []
+        if self.research_artifact_titles is None:
+            self.research_artifact_titles = []
+        self.research_artifact_titles = self._dedup_related_tasks(self.research_artifact_titles)
+        for t in self.research_artifact_titles:
+            if not isinstance(t, str):
+                raise ValueError(
+                    f"Goal.research_artifact_titles must contain str instances, "
+                    f"got {type(t).__name__}"
+                )
         if self.status not in ("active", "completed", "inactive"):
             raise ValueError(
                 f"Invalid goal status: {self.status!r}. "
