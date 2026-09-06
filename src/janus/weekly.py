@@ -3,8 +3,8 @@
 from janus.services.weekly_review import create_weekly_review
 
 
-def show_weekly() -> None:
-    review = create_weekly_review()
+def show_weekly(trace_id: str | None = None) -> None:
+    review = create_weekly_review(trace_id=trace_id)
 
     print("JANUS — WEEKLY REVIEW")
     print()

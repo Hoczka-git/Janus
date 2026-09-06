@@ -227,7 +227,7 @@ class TestCalendarPlanningRendering:
 
         monkeypatch.setattr(
             "janus.today.create_daily_briefing",
-            lambda events, tasks, goals, today: DailyBriefing(
+            lambda events, tasks, goals, today, trace_id=None: DailyBriefing(
                 events=events,
                 free_slots=[free_slot],
                 has_calendar=True,
@@ -246,7 +246,7 @@ class TestCalendarPlanningRendering:
 
         monkeypatch.setattr(
             "janus.today.create_daily_briefing",
-            lambda events, tasks, goals, today: DailyBriefing(
+            lambda events, tasks, goals, today, trace_id=None: DailyBriefing(
                 events=events,
                 overload_warning="[measured] HIGH MEETING LOAD",
                 has_calendar=True,
@@ -275,7 +275,7 @@ class TestCalendarPlanningRendering:
 
         monkeypatch.setattr(
             "janus.today.create_daily_briefing",
-            lambda events, tasks, goals, today: DailyBriefing(
+            lambda events, tasks, goals, today, trace_id=None: DailyBriefing(
                 events=events,
                 placements=[placement],
                 has_calendar=True,
@@ -305,7 +305,7 @@ class TestCrossMidnightEvents:
 
         captured = {}
 
-        def fake_create_briefing(events, tasks, goals, today):
+        def fake_create_briefing(events, tasks, goals, today, trace_id=None):
             captured["events"] = events
             return DailyBriefing(events=events)
 

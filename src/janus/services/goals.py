@@ -4,8 +4,14 @@ Title is the persistence identity and is immutable in MVP.
 No delete_goal — goals can be set to inactive.
 """
 
+import logging
+
+from janus._log import emit
 from janus.models.goal import Goal
 from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
+
+
+logger = logging.getLogger(__name__)
 
 
 def add_goal(
@@ -45,6 +51,13 @@ def add_goal(
     if any(g.title == title for g in existing):
         raise ValueError(f"Goal already exists: {title!r}")
     save_goal(goal)
+
+    emit(logger, "service.goal.mutated",
+         trace_id=None, span_id="service",
+         operation="add", goal_title=title,
+         changes=None,
+         message=f"Goal '{title}' added")
+
     return goal
 
 
@@ -73,15 +86,20 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
     """
     goal = get_goal(title)
 
+    changes: dict = {}
     for key, value in kwargs.items():
         if key == "add_related_task":
             if value not in goal.related_tasks:
                 goal.related_tasks.append(value)
+                changes.setdefault("related_tasks", []).append(value)
         elif key == "remove_related_task":
             if value in goal.related_tasks:
                 goal.related_tasks.remove(value)
+                changes.setdefault("related_tasks_removed", []).append(value)
         else:
+            old_val = getattr(goal, key, None)
             setattr(goal, key, value)
+            changes[key] = value
 
     # Re-validate via Goal constructor (runs __post_init__)
     goal = Goal(
@@ -100,6 +118,14 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
     )
 
     update_goal(goal)
+
+    if changes:
+        emit(logger, "service.goal.mutated",
+             trace_id=None, span_id="service",
+             operation="update", goal_title=title,
+             changes=changes,
+             message=f"Goal '{title}' updated")
+
     return goal
 
 

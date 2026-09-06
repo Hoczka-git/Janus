@@ -1,17 +1,24 @@
 """Markdown task loader for Janus."""
 
+import logging
 import re
 from pathlib import Path
 from datetime import date
 
+from janus._log import emit
 from janus.models.task import Task, ALLOWED_STATES
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
 
+logger = logging.getLogger(__name__)
 
-def load_tasks(path: Path | None = None) -> list[Task]:
+
+def load_tasks(
+    path: Path | None = None,
+    trace_id: str | None = None,
+) -> list[Task]:
     """Load open tasks from data/tasks.md.
 
     Args:
@@ -19,15 +26,18 @@ def load_tasks(path: Path | None = None) -> list[Task]:
             ``TASKS_PATH`` is used. Callers that own their own path constant
             (e.g. ``janus.services.tasks``) should pass it explicitly so that
             monkeypatching at the service layer is respected.
+        trace_id: Trace identifier propagated for observability events.
     """
     tasks_path = path if path is not None else TASKS_PATH
     if not tasks_path.exists():
         raise FileNotFoundError(f"Task file not found: {tasks_path}")
 
     tasks: list[Task] = []
+    lines_scanned = 0
 
     with tasks_path.open() as f:
         for line_num, line in enumerate(f, start=1):
+            lines_scanned += 1
             line = line.strip()
 
             if not line.startswith("- [ ]"):
@@ -37,6 +47,15 @@ def load_tasks(path: Path | None = None) -> list[Task]:
             if task is not None:
                 tasks.append(task)
 
+    emit(logger, "source.tasks.loaded",
+         trace_id=trace_id, span_id="load_tasks",
+         correlation_id=trace_id,
+         file_path=str(tasks_path),
+         lines_scanned=lines_scanned,
+         tasks_loaded=len(tasks),
+         parse_errors=0,
+         message=f"Loaded {len(tasks)} open tasks from tasks.md")
+
     return tasks
 
 
@@ -44,7 +63,6 @@ def _parse_task_line(line: str, line_num: int) -> Task | None:
     """Parse a single task line. Returns None for completed tasks."""
     if line.startswith("- [x]"):
         return None
-
     content = line[5:].strip()
     title, metadata = _split_title_metadata(content)
     due_date = _parse_due_date(metadata, line_num)
@@ -67,7 +85,6 @@ def _split_title_metadata(content: str) -> tuple[str, str]:
     """Split task content into title and metadata parts."""
     if "|" not in content:
         return content.strip(), ""
-
     parts = content.split("|", 1)
     return parts[0].strip(), parts[1]
 
