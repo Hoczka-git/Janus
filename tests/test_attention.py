@@ -217,18 +217,37 @@ class TestGoalStagnation:
         assert len(items) == 0
 
     def test_missing_related_task_does_not_stall(self):
-        # Goal references a task that doesn't exist at all in tasks.md
+        # Goal references a task that doesn't exist at all in tasks.md.
+        # With the new no_recent_activity signal (§6.2.2), this goal now
+        # appears in attention items — it has had no activity. The old
+        # expectation of 0 items reflected the pre-signal binary stall logic.
         goals = [_make_goal("Endurance challenge", "active",
                             ["Buy running shoes"])]
         tasks = []  # no tasks at all
+        # Need tasks.md so _load_all_task_titles doesn't crash, but
+        # the goal's related task won't be found there.
+        import janus.services.attention as attn
+        # With no snapshot data loaded for this goal (no metric configured),
+        # no_recent_activity fires because there's no activity and no upcoming
+        # deadlines/milestones.
         items = get_attention_items([], tasks, goals, FIXED_TODAY)
-        assert len(items) == 0
+        assert len(items) == 1
+        assert items[0].title == "Endurance challenge"
+        assert items[0].category == "no_recent_activity"
+        assert items[0].score == 35
 
     def test_goal_with_no_related_tasks_ignored(self):
+        # A goal with no related tasks, no metric, no deadline, and no milestones
+        # now triggers no_recent_activity (score 35) rather than being ignored.
+        # This is the intended behavior: an active goal with no recent activity
+        # should surface for attention (design §6.2.2).
         goals = [_make_goal("Standalone goal", "active", [])]
         tasks = []
         items = get_attention_items([], tasks, goals, FIXED_TODAY)
-        assert len(items) == 0
+        assert len(items) == 1
+        assert items[0].title == "Standalone goal"
+        assert items[0].category == "no_recent_activity"
+        assert items[0].score == 35
 
 
 # =============================================================================
