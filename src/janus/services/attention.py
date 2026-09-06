@@ -1,14 +1,19 @@
 """Attention engine for Janus — deterministic scoring of what deserves attention."""
 
+import logging
+
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from janus._log import emit
 from janus.models.attention import AttentionItem
 from janus.models.event import Event
 from janus.models.goal import Goal
 from janus.models.milestone import Milestone
 from janus.models.task import Task
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -210,6 +215,7 @@ def get_attention_items(
     goals: list[Goal],
     today: date,
     now: datetime | None = None,
+    trace_id: str | None = None,
 ) -> list[AttentionItem]:
     """Produce a deterministically sorted list of attention items.
 
@@ -223,6 +229,7 @@ def get_attention_items(
 
     Args:
         now: current time for event filtering. Defaults to datetime.now().
+        trace_id: Trace identifier propagated for observability events.
     """
     if now is None:
         now = datetime.now().astimezone()
@@ -326,6 +333,27 @@ def get_attention_items(
             category=category,
         ))
 
-    # ── Deterministic sort: highest score first, then category, then title ─
+    # ── Deterministic sort: highest score first, then category, then title ──
     items.sort(key=lambda i: (-i.score, i.category, i.title))
+
+    if items:
+        category_counts: dict[str, int] = {}
+        for item in items:
+            category_counts[item.category] = category_counts.get(item.category, 0) + 1
+        max_score = max(i.score for i in items)
+        min_score = min(i.score for i in items)
+    else:
+        category_counts = {}
+        max_score = 0
+        min_score = 0
+
+    emit(logger, "engine.attention.computed",
+         trace_id=trace_id, span_id="compute_attention",
+         correlation_id=trace_id,
+         items_returned=len(items),
+         category_counts=category_counts,
+         max_score=max_score,
+         min_score=min_score,
+         message=f"Attention engine computed {len(items)} items")
+
     return items

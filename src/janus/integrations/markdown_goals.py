@@ -5,20 +5,24 @@ Loads, saves, and updates goals from data/goals.md.
 Backward compatible: parses existing fields (Description, Status, Related tasks)
 and 7 new optional fields (Metric, Unit, Start, Current, Target, Direction, Deadline).
 
-Unknown fields are ignored on parse and NOT preserved through update_goal rewrite.
+Unknown fields are ignored on parse and NOT preserved through update_goal rewrit.
 Malformed numeric/date/direction values raise ValueError with line number.
 """
 
+import logging
 from datetime import date
 from pathlib import Path
 
+from janus._log import emit
 from janus.models.goal import Goal
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GOALS_PATH = PROJECT_ROOT / "data" / "goals.md"
 
+logger = logging.getLogger(__name__)
 
-def load_goals() -> list[Goal]:
+
+def load_goals(trace_id: str | None = None) -> list[Goal]:
     """Load goals from data/goals.md.
 
     Returns [] if file is missing (changed from raising FileNotFoundError).
@@ -26,6 +30,14 @@ def load_goals() -> list[Goal]:
     Malformed numeric values, invalid directions, and invalid dates raise ValueError.
     """
     if not GOALS_PATH.exists():
+        emit(logger, "source.goals.loaded",
+             trace_id=trace_id, span_id="load_goals",
+             correlation_id=trace_id,
+             file_present=False,
+             file_path=str(GOALS_PATH),
+             goals_loaded=0,
+             validation_errors=0,
+             message="Goals file not found")
         return []
 
     goals: list[Goal] = []
@@ -35,9 +47,12 @@ def load_goals() -> list[Goal]:
     current_milestone: dict | None = None
     in_measurement_requirements = False
     current_requirement: dict | None = None
+    lines_scanned = 0
+    validation_errors = 0
 
     with GOALS_PATH.open() as f:
         for line_num, line in enumerate(f, start=1):
+            lines_scanned += 1
             stripped = lint = line.strip()
 
             if stripped.startswith("# Goals"):
@@ -84,7 +99,6 @@ def load_goals() -> list[Goal]:
 
             if current is None:
                 continue
-
             # --- Measurement requirements section detection ---
             if stripped == "Measurement requirements:":
                 in_measurement_requirements = True
@@ -254,6 +268,16 @@ def load_goals() -> list[Goal]:
             current["measurement_requirements"].append(current_requirement)
             current_requirement = None
         goals.append(_finalize_goal(current))
+
+    emit(logger, "source.goals.loaded",
+         trace_id=trace_id, span_id="load_goals",
+         correlation_id=trace_id,
+         file_present=True,
+         file_path=str(GOALS_PATH),
+         lines_scanned=lines_scanned,
+         goals_loaded=len(goals),
+         validation_errors=validation_errors,
+         message=f"Loaded {len(goals)} goals from goals.md")
 
     return goals
 

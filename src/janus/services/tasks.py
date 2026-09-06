@@ -6,7 +6,9 @@ the existing loading logic.
 
 from datetime import date
 from pathlib import Path
+import logging
 
+from janus._log import emit
 from janus.models.task import Task
 from janus.integrations.markdown_tasks import (
     _parse_task_line,
@@ -15,6 +17,8 @@ from janus.integrations.markdown_tasks import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
+
+logger = logging.getLogger(__name__)
 
 
 def add_task(title: str, due_date: date | None = None, priority: int = 1) -> Task:
@@ -25,6 +29,12 @@ def add_task(title: str, due_date: date | None = None, priority: int = 1) -> Tas
 
     task = Task(title=title, due_date=due_date, priority=priority)
     _append_task(task)
+
+    emit(logger, "service.task.mutated",
+         trace_id=None, span_id="service",
+         operation="add", task_title=title,
+         previous_state=None, new_state=None, new_progress=None,
+         message=f"Task '{title}' added")
 
     return task
 
@@ -59,6 +69,12 @@ def complete_task(title: str) -> Task:
     lines[idx] = "- [x] " + line[len("- [ ] "):]
 
     TASKS_PATH.write_text("\n".join(lines) + "\n")
+
+    emit(logger, "service.task.mutated",
+         trace_id=None, span_id="service",
+         operation="complete", task_title=title,
+         previous_state="todo", new_state="completed", new_progress=None,
+         message=f"Task '{title}' completed")
 
     return Task(title=title)
 
@@ -146,6 +162,12 @@ def set_task_state(title: str, state: str) -> Task:
     lines[idx] = _format_task_line(task)
     TASKS_PATH.write_text("\n".join(lines) + "\n")
 
+    emit(logger, "service.task.mutated",
+         trace_id=None, span_id="service",
+         operation="set_state", task_title=title,
+         previous_state=None, new_state=state, new_progress=None,
+         message=f"Task '{title}' state set to '{state}'")
+
     return task
 
 
@@ -197,6 +219,12 @@ def set_task_progress(title: str, progress: int) -> Task:
     task.progress = progress
     lines[idx] = _format_task_line(task)
     TASKS_PATH.write_text("\n".join(lines) + "\n")
+
+    emit(logger, "service.task.mutated",
+         trace_id=None, span_id="service",
+         operation="set_progress", task_title=title,
+         previous_state=None, new_state=None, new_progress=progress,
+         message=f"Task '{title}' progress set to {progress}%")
 
     return task
 

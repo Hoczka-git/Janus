@@ -10,7 +10,11 @@ from io import StringIO
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from janus.integrations.google_calendar import list_upcoming_events
+import logging
+import time
+
+from janus._log import emit
+from janus.integrations.google_calendar import list_upcoming_events, _load_config
 from janus.integrations.markdown_tasks import load_tasks
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.telegram import send_briefing
@@ -23,15 +27,24 @@ from janus.models.attention import AttentionItem
 if TYPE_CHECKING:
     from janus.models.daily_briefing import DailyBriefing
 
+logger = logging.getLogger(__name__)
 
-def _build_today_briefing() -> "DailyBriefing":
+
+def _build_today_briefing(trace_id: str | None = None) -> "DailyBriefing":
     """Collect today's events, open tasks, and active goals into a DailyBriefing.
 
     This helper is used by both show_today() and show_telegram() to avoid
     duplicating the data-collection logic.
     """
+    start = time.monotonic()
+    emit(logger, "briefing.generation.started",
+         trace_id=trace_id, span_id="build_daily",
+         correlation_id=trace_id,
+         briefing_type="daily",
+         message="Daily briefing generation started")
+
     today = date.today()
-    all_events = list_upcoming_events()
+    all_events = list_upcoming_events(trace_id=trace_id)
     today_events: list[Event] = [
         e for e in all_events
         if (
@@ -42,13 +55,40 @@ def _build_today_briefing() -> "DailyBriefing":
             )
         )
     ]
-    tasks = load_tasks()
-    goals = load_goals()
-    return create_daily_briefing(today_events, tasks, goals, today)
+    tasks = load_tasks(trace_id=trace_id)
+    goals = load_goals(trace_id=trace_id)
+    briefing = create_daily_briefing(today_events, tasks, goals, today, trace_id=trace_id)
+
+    # Build attention breakdown from the briefing for the finished event.
+    attention_items_count = len(briefing.attention_items)
+    attention_by_category: dict[str, int] = {}
+    for item in briefing.attention_items:
+        attention_by_category[item.category] = (
+            attention_by_category.get(item.category, 0) + 1
+        )
+    suggested_focus_present = len(briefing.suggested_focus) > 0
+
+    duration_ms = (time.monotonic() - start) * 1000
+    emit(logger, "briefing.generation.finished",
+         trace_id=trace_id, span_id="build_daily",
+         correlation_id=trace_id,
+         briefing_type="daily",
+         duration_ms=duration_ms,
+         source_calendars=len(_load_config()),
+         events_total=len(all_events),
+         events_today=len(today_events),
+         tasks_loaded=len(tasks),
+         goals_loaded=len(goals),
+         attention_items=attention_items_count,
+         attention_by_category=attention_by_category,
+         suggested_focus_present=suggested_focus_present,
+         message="Daily briefing generation finished")
+
+    return briefing
 
 
-def show_today() -> None:
-    briefing = _build_today_briefing()
+def show_today(trace_id: str | None = None) -> None:
+    briefing = _build_today_briefing(trace_id)
 
     print("JANUS — TODAY")
     print()
@@ -110,9 +150,9 @@ def show_today() -> None:
         print()
 
 
-def show_telegram() -> None:
-    briefing = _build_today_briefing()
-    send_briefing(briefing)
+def show_telegram(trace_id: str | None = None) -> None:
+    briefing = _build_today_briefing(trace_id)
+    send_briefing(briefing, trace_id=trace_id)
 
 
 def _capture_show_today(events, tasks, goals, today=date(2026, 8, 28)):

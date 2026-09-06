@@ -1,11 +1,15 @@
 """Telegram delivery integration for Janus daily briefing."""
 
 import json
+import logging
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 import tomllib
 
+from janus._log import emit
 from janus.models.daily_briefing import DailyBriefing
 
 if TYPE_CHECKING:
@@ -13,8 +17,11 @@ if TYPE_CHECKING:
     from janus.models.task import Task
     from janus.models.attention import AttentionItem
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.toml"
+
+logger = logging.getLogger(__name__)
 
 
 def _load_telegram_config() -> tuple[str, str]:
@@ -25,10 +32,8 @@ def _load_telegram_config() -> tuple[str, str]:
     """
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Config file not found: {CONFIG_PATH}")
-
     with CONFIG_PATH.open("rb") as f:
         data = tomllib.load(f)
-
     telegram = data.get("telegram", {})
     bot_token = telegram.get("bot_token", "")
     chat_id = telegram.get("chat_id", "")
@@ -101,8 +106,13 @@ def format_telegram_message(briefing: DailyBriefing) -> str:
     return "\n".join(lines)
 
 
-def send_briefing(briefing: DailyBriefing) -> None:
-    """Load config, format briefing, and send to Telegram."""
+def send_briefing(briefing: DailyBriefing, trace_id: str | None = None) -> None:
+    """Load config, format briefing, and send to Telegram.
+
+    Args:
+        briefing: The DailyBriefing to send.
+        trace_id: Trace identifier propagated for observability events.
+    """
     bot_token, chat_id = _load_telegram_config()
     text = format_telegram_message(briefing)
 
@@ -116,12 +126,50 @@ def send_briefing(briefing: DailyBriefing) -> None:
         method="POST",
     )
 
-    with urllib.request.urlopen(req) as response:
-        body = json.loads(response.read())
-        if not body.get("ok"):
-            raise RuntimeError(
-                f"Telegram API error: {body.get('description', 'unknown')}"
-            )
+    api_status = "ok"
+    api_error = None
+    api_response_ms = None
+    start = time.monotonic()
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            api_response_ms = (time.monotonic() - start) * 1000
+            body = json.loads(response.read())
+            if not body.get("ok"):
+                api_status = "error"
+                api_error = body.get("description", "unknown")
+                raise RuntimeError(
+                    f"Telegram API error: {api_error}"
+                )
+    except urllib.error.HTTPError as e:
+        api_response_ms = (time.monotonic() - start) * 1000
+        api_status = "error"
+        try:
+            err_body = json.loads(e.read())
+            api_error = err_body.get("description", str(e))
+        except Exception:
+            api_error = str(e)
+        raise
+    except Exception:
+        api_response_ms = (time.monotonic() - start) * 1000
+        api_status = "exception"
+        api_error = "Request failed before completing"
+        raise
+    finally:
+        emit(logger, "integration.telegram.response",
+             trace_id=trace_id, span_id="send",
+             correlation_id=trace_id,
+             channel="telegram",
+             delivery_type="daily",
+             chat_id=chat_id[-4:] if chat_id else chat_id,
+             message_chars=len(text),
+             message_lines=len(text.split("\n")),
+             api_response_ms=api_response_ms,
+             api_status=api_status,
+             api_error=api_error,
+             duration_ms=api_response_ms,
+             level=logging.WARNING if api_status != "ok" else logging.INFO,
+             message=f"Telegram delivery {'failed' if api_status != 'ok' else 'succeeded'} for daily briefing")
 
 
 class _MockResponse:
