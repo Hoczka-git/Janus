@@ -3,7 +3,7 @@
 import logging
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from janus._log import emit
@@ -63,11 +63,89 @@ def _milestone_objs(goal: Goal) -> list[Milestone]:
     return mss
 
 
+# ── Inactivity window constants ────────────────────────────────────────────
+INACTIVITY_WINDOW_DAYS = 30
+
+
+def _assess_no_recent_activity(
+    goal: Goal,
+    today: date,
+    metric_snapshots: list | None,
+    completed_task_dates: dict[str, date] | None,
+    milestones: list,
+    goal_deadline,
+    has_open_related: bool,
+) -> tuple[StallSignal, str] | None:
+    """Evaluate the ``no_recent_activity`` signal (design §6.2.2).
+
+    Fires when ALL of:
+    - Goal status is active.
+    - No metric snapshot recorded within the inactivity window.
+    - No related task completed within the inactivity window.
+    - No upcoming milestone deadline (future, non-terminal).
+    - No upcoming goal deadline within the inactivity window.
+
+    Suppressed by any higher-severity signal — caller should only call this
+    when no deadline/milestone signal is firing.
+    """
+    if goal.status != "active":
+        return None
+
+    # A goal with open related tasks is actively scheduled — not stale.
+    if has_open_related:
+        return None
+
+    window = goal.inactivity_window_days or INACTIVITY_WINDOW_DAYS
+    now = datetime.now().astimezone()
+    window_start = now - timedelta(days=window)
+
+    # Recent metric snapshot?
+    if metric_snapshots:
+        for s in metric_snapshots:
+            if s.timestamp >= window_start:
+                return None
+
+    # Recent task completion?
+    if completed_task_dates:
+        for rt in goal.related_tasks:
+            if rt in completed_task_dates:
+                completion_dt = datetime.combine(
+                    completed_task_dates[rt], datetime.min.time()
+                ).astimezone()
+                if completion_dt >= window_start:
+                    return None
+
+    # No upcoming milestone deadline?
+    for m in milestones:
+        m_deadline = _parse_deadline(m.deadline)
+        if m_deadline is not None and m_deadline > today and m.status not in ("completed", "skipped"):
+            return None
+        if m.status in ("open", "in_progress") and m_deadline is None:
+            return None
+
+    # No upcoming goal deadline within the inactivity window?
+    if goal_deadline is not None and goal_deadline > today:
+        days_to_deadline = (goal_deadline - today).days
+        if days_to_deadline <= window:
+            return None
+
+    return (StallSignal(
+        signal="no_recent_activity",
+        score=35,
+        reason=(
+            f"No metric update or task completion in {window} days; "
+            f"no upcoming milestones or deadlines"
+        ),
+    ), "no_recent_activity")
+
+
 def assess_goal_stall(
     goal: Goal,
     today: date,
     open_task_titles: set[str],
     all_task_titles: set[str],
+    metric_snapshots: list | None = None,
+    completed_task_dates: dict[str, date] | None = None,
 ) -> list[tuple[StallSignal, str]]:
     """Assess a goal for stall/deadline signals.
 
@@ -82,6 +160,12 @@ def assess_goal_stall(
             load_tasks, not the raw file).
         all_task_titles: Set of all task titles (open + completed) from
             the raw file.
+        metric_snapshots: Optional list of MetricSnapshot objects for this
+            goal. When provided, enables time-based no_recent_activity
+            detection (design §6.2.2).
+        completed_task_dates: Optional mapping of task title to completion
+            date. When provided alongside metric_snapshots, enables
+            time-based no_recent_activity detection.
     """
     signals: list[tuple[StallSignal, str]] = []
 
@@ -152,6 +236,17 @@ def assess_goal_stall(
                     reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
                 ), "milestone_deadline_soon"))
 
+    # --- No recent activity (time-based, design §6.2.2) ---
+    # Fires when the goal is active but has had no metric update or task
+    # completion within the configured inactivity window, AND there are no
+    # upcoming milestones or deadlines explaining the pause.
+    # Score 35 — distinct from goal_inactive (30, all tasks done, no future
+    # plans) and goal_stalled (40, fallback). Suppressed by any higher-
+    # severity signal (deadline/milestone/stall signals).
+    no_activity_signal = _assess_no_recent_activity(
+        goal, today, metric_snapshots, completed_task_dates,
+        milestones, goal_deadline, has_open_related,
+    )
 
     # --- No recent activity (heuristic) ---
     # Fires when: all related tasks completed (no open), no future milestone
@@ -196,6 +291,16 @@ def assess_goal_stall(
                 reason="All linked tasks are completed. Define the next milestone, add a new action, or mark the goal as complete.",
             ), "goal_stalled"))
 
+    # --- Finalize: add no_recent_activity if not suppressed ---
+    # no_recent_activity (35) is suppressed when any signal with score > 35
+    # fires (goal_stalled=40, milestone_slipped=50, etc.) OR when goal_inactive
+    # fires (structural signal takes precedence over the temporal one).
+    if no_activity_signal is not None:
+        higher_score = any(s[0].score > 35 for s in signals)
+        has_inactive = any(s[0].signal == "goal_inactive" for s in signals)
+        if not higher_score and not has_inactive:
+            signals.append(no_activity_signal)
+
     return signals
 
 
@@ -235,7 +340,6 @@ def get_attention_items(
         now = datetime.now().astimezone()
 
     items: list[AttentionItem] = []
-
     # ── Tasks ──────────────────────────────────────────────────────────────
     for task in tasks:
         score = 0
@@ -307,16 +411,20 @@ def get_attention_items(
     tasks_path = Path(__file__).resolve().parents[3] / "data" / "tasks.md"
     all_task_titles = _load_all_task_titles(tasks_path)
 
-    goal_signals: dict[str, list[dict]] = {}
+    # Load metric history for time-based no_recent_activity detection.
+    from janus.integrations.metric_history import get_metric_snapshots
+    goal_signal_breakdown: dict[str, list] = {}
+
     for goal in goals:
         if goal.status != "active":
             continue
-        # A goal needs related tasks, milestones, or a deadline to be assessed.
-        if not goal.related_tasks and not goal.milestones and not goal.deadline:
-            continue
-
+        # Load metric snapshots for this goal (enables no_recent_activity).
+        goal_snapshots = get_metric_snapshots(goal.title) if (
+            goal.metric_name or goal.inactivity_window_days is not None
+        ) else None
         signals = assess_goal_stall(
             goal, today, open_task_titles, all_task_titles,
+            metric_snapshots=goal_snapshots,
         )
         if not signals:
             continue
@@ -333,9 +441,11 @@ def get_attention_items(
             score=signal.score,
             category=category,
         ))
-        goal_signals[goal.title] = [
-            {"signal": s[0].signal, "score": s[0].score, "reason": s[0].reason}
-            for s in signals
+
+        # Record signal breakdown for observability (design §12.7).
+        goal_signal_breakdown[goal.title] = [
+            {"signal": s.signal, "score": s.score, "category": c}
+            for s, c in signals
         ]
 
     # ── Deterministic sort: highest score first, then category, then title ──
@@ -357,9 +467,9 @@ def get_attention_items(
          correlation_id=trace_id,
          items_returned=len(items),
          category_counts=category_counts,
-         goal_signals=goal_signals,
          max_score=max_score,
          min_score=min_score,
+         goal_signals=goal_signal_breakdown or None,
          message=f"Attention engine computed {len(items)} items")
 
     return items

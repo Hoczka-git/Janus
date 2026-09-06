@@ -1,40 +1,32 @@
-"""Metric snapshot history persistence for Janus.
+"""Append-only metric snapshot history for Janus goals.
 
-Append-only store of metric values over time, kept in ``data/metric_history.md``
-for consistency with the rest of the Janus persistence layer (all files are
-markdown).  The line-based format keeps it simple and human-readable.
-
-Format::
-
-    # Metric History
-    # Format: ISO-timestamp | goal_title | metric_name | value | source
-    2026-09-06T10:00:00+02:00 | Body fat % | 20.0 | manual
-    2026-09-13T10:00:00+02:00 | Body fat % | 19.5 | manual
-
-Snapshots are NEVER modified or deleted by the system — the file is append-only.
+Reads and writes ``data/metric_history.md`` in a simple comment-line format.
+The file is a human-readable, append-only log of metric values recorded for
+goals over time. It is consumed by the goal-health service to compute progress
+trends, inactivity, and measurement-due signals.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
-import logging
-
-from janus._log import emit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
 
 logger = logging.getLogger(__name__)
 
+# Field order for the comment-line format.
+# Format: # <timestamp> | <goal_title> | <metric_name> | <value> | <source>
+_HEADER_LINES = [
+    "# Metric History",
+    "# Format: ISO-timestamp | goal_title | metric_name | value | source",
+]
+
 
 @dataclass
 class MetricSnapshot:
-    """A single metric value snapshot recorded at a point in time.
-
-    ``timestamp`` carries timezone information (ISO 8601 with offset) so that
-    the snapshot is unambiguous regardless of the host timezone.
-    """
+    """A single metric value recorded for a goal at a point in time."""
 
     timestamp: datetime
     goal_title: str
@@ -43,27 +35,35 @@ class MetricSnapshot:
     source: str  # manual | measurement | import
 
 
-def load_snapshots(path: Path | None = None) -> list[MetricSnapshot]:
-    """Load all metric snapshots from the history file.
+def _parse_line(line: str) -> MetricSnapshot | None:
+    """Parse a single metric history comment line into a MetricSnapshot.
 
-    Returns an empty list if the file is missing.  Malformed lines are
-    skipped with a warning, so a single bad entry never corrupts the whole
-    history.
+    Returns None for blank or non-data lines (headers, comments without
+    the 5-field pipe format).
     """
-    log_path = path if path is not None else METRIC_HISTORY_PATH
-    if not log_path.exists():
-        return []
-
-    snapshots: list[MetricSnapshot] = []
-    with log_path.open() as f:
-        for line_num, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            snapshot = _parse_snapshot_line(line, line_num)
-            if snapshot is not None:
-                snapshots.append(snapshot)
-    return snapshots
+    stripped = line.strip()
+    if not stripped or not stripped.startswith("#"):
+        return None
+    # Remove the leading "#"
+    content = stripped[1:].strip()
+    parts = [p.strip() for p in content.split("|")]
+    if len(parts) != 5:
+        return None
+    try:
+        ts = datetime.fromisoformat(parts[0])
+    except ValueError:
+        return None
+    try:
+        val = float(parts[3])
+    except ValueError:
+        return None
+    return MetricSnapshot(
+        timestamp=ts,
+        goal_title=parts[1],
+        metric_name=parts[2],
+        value=val,
+        source=parts[4],
+    )
 
 
 def get_metric_snapshots(
@@ -72,123 +72,107 @@ def get_metric_snapshots(
     until: datetime | None = None,
     path: Path | None = None,
 ) -> list[MetricSnapshot]:
-    """Return snapshots for ``goal_title`` within ``[since, until`` (inclusive).
+    """Return snapshots for a goal within an optional time range.
 
-    ``since`` and ``until`` are inclusive on both ends.  If omitted, no
-    lower/upper bound is applied.  Results are sorted by timestamp ascending.
+    Args:
+        goal_title: Goal title to match (identity is the title string).
+        since: Inclusive lower bound on timestamp (None = no lower bound).
+        until: Inclusive upper bound on timestamp (None = no upper bound).
+        path: Override the history file path (used by tests).
 
-    The function accepts either datetimes (preferred for precise comparison)
-    or dates (compared by midnight).  Dates are accepted for ergonomics.
+    Returns:
+        Snapshots sorted ascending by timestamp. Empty list if the file
+        does not exist or no snapshots match.
     """
-    from datetime import date as _date
-    from datetime import timezone as _tz
+    history_path = path if path is not None else METRIC_HISTORY_PATH
+    if not history_path.exists():
+        return []
 
-    snapshots = load_snapshots(path)
-    result = [s for s in snapshots if s.goal_title == goal_title]
+    results: list[MetricSnapshot] = []
+    with history_path.open() as f:
+        for line in f:
+            snap = _parse_line(line)
+            if snap is None:
+                continue
+            if snap.goal_title != goal_title:
+                continue
+            if since is not None and snap.timestamp < since:
+                continue
+            if until is not None and snap.timestamp > until:
+                continue
+            results.append(snap)
+    results.sort(key=lambda s: s.timestamp)
+    return results
 
-    if since is not None:
-        if isinstance(since, _date) and not isinstance(since, datetime):
-            since = datetime.combine(since, datetime.min.time(), tzinfo=_tz.utc)
-        result = [s for s in result if s.timestamp >= since]
 
-    if until is not None:
-        if isinstance(until, _date) and not isinstance(until, datetime):
-            until = datetime.combine(until, datetime.max.time(), tzinfo=_tz.utc)
-        result = [s for s in result if s.timestamp <= until]
-
-    result.sort(key=lambda s: s.timestamp)
-    return result
-
-
-def append_snapshot(
+def append_metric_snapshot(
     snapshot: MetricSnapshot,
     path: Path | None = None,
 ) -> None:
-    """Append a single snapshot to the history file.
+    """Append a single snapshot to the metric history file.
 
-    Creates the file (with header comment) if it doesn't exist.  Parent
-    directories are created as needed.  The write is append-only — existing
-    entries are never touched.
+    Creates the file (with header) on first use. Existing entries are never
+    modified or deleted — the file is strictly append-only.
+
+    Args:
+        snapshot: The MetricSnapshot to record.
+        path: Override the history file path (used by tests).
     """
-    log_path = path if path is not None else METRIC_HISTORY_PATH
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path = path if path is not None else METRIC_HISTORY_PATH
+    should_write_header = not history_path.exists()
+    history_path.parent.mkdir(parents=True, exist_ok=True)
 
     line = (
-        f"{snapshot.timestamp.isoformat()} | "
+        f"# {snapshot.timestamp.isoformat()} | "
         f"{snapshot.goal_title} | "
         f"{snapshot.metric_name} | "
         f"{snapshot.value} | "
         f"{snapshot.source}"
     )
 
-    header = (
-        "# Metric History\n"
-        "# Format: ISO-timestamp | goal_title | metric_name | value | source\n"
-    )
-
-    write_header = not log_path.exists() or log_path.stat().st_size == 0
-
-    with log_path.open("a") as f:
-        if write_header:
-            f.write(header)
+    with history_path.open("a") as f:
+        if should_write_header:
+            for h in _HEADER_LINES:
+                f.write(h + "\n")
         f.write(line + "\n")
 
-    emit(logger, "metric_history.snapshot.appended",
-         trace_id=None, span_id="metric_history",
-         goal_title=snapshot.goal_title,
-         metric_name=snapshot.metric_name,
-         value=snapshot.value,
-         source=snapshot.source,
-         file_path=str(log_path),
-         message=f"Metric snapshot appended for '{snapshot.goal_title}'")
-
-
-def _parse_snapshot_line(line: str, line_num: int) -> MetricSnapshot | None:
-    """Parse a single snapshot line into a MetricSnapshot.
-
-    Returns None (with a warning) if the line is malformed.
-    """
-    parts = line.split(" | ")
-    if len(parts) != 5:
-        logger.warning(
-            f"Skipping malformed metric history line {line_num}: "
-            f"expected 5 fields, got {len(parts)}"
-        )
-        return None
-
-    ts_str, goal_title, metric_name, value_str, source = [
-        p.strip() for p in parts
-    ]
-
-    try:
-        timestamp = datetime.fromisoformat(ts_str)
-    except ValueError:
-        logger.warning(
-            f"Skipping malformed metric history line {line_num}: "
-            f"invalid timestamp '{ts_str}'"
-        )
-        return None
-
-    try:
-        value = float(value_str)
-    except ValueError:
-        logger.warning(
-            f"Skipping malformed metric history line {line_num}: "
-            f"invalid value '{value_str}'"
-        )
-        return None
-
-    if not goal_title or not metric_name:
-        logger.warning(
-            f"Skipping malformed metric history line {line_num}: "
-            f"empty goal_title or metric_name"
-        )
-        return None
-
-    return MetricSnapshot(
-        timestamp=timestamp,
-        goal_title=goal_title,
-        metric_name=metric_name,
-        value=value,
-        source=source,
+    logger.debug(
+        "Appended metric snapshot for goal %s: %s=%.2f (%s)",
+        snapshot.goal_title,
+        snapshot.metric_name,
+        snapshot.value,
+        snapshot.source,
     )
+
+
+# ── Aliases for backward compatibility ─────────────────────────────────────
+
+def load_snapshots(path: Path | None = None) -> list[MetricSnapshot]:
+    """Load all metric snapshots from the history file (alias for get_metric_snapshots
+    with no goal filter — loads everything)."""
+    log_path = path if path is not None else METRIC_HISTORY_PATH
+    if not log_path.exists():
+        return []
+    snapshots: list[MetricSnapshot] = []
+    with log_path.open() as f:
+        for line in f:
+            snap = _parse_line(line)
+            if snap is not None:
+                snapshots.append(snap)
+    return snapshots
+
+
+def append_snapshot(
+    snapshot: MetricSnapshot,
+    path: Path | None = None,
+) -> None:
+    """Append a single snapshot (alias for append_metric_snapshot)."""
+    append_metric_snapshot(snapshot, path)
+
+
+#: Re-export for callers that import from this module.
+append_metric_snapshot
+load_snapshots
+get_metric_snapshots
+MetricSnapshot
+append_snapshot

@@ -62,10 +62,15 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     completed_titles = _read_completed_task_titles()
     open_task_map = {t.title: t for t in tasks}
     all_open_titles = list(open_task_map.keys())
-    open_task_titles = set(open_task_map.keys())
-    all_task_titles = open_task_titles | set(completed_titles)
+
+    # Load all task titles (open + completed) for stall detection
+    from janus.services.attention import _load_all_task_titles
+    all_task_titles = _load_all_task_titles(
+        Path(__file__).resolve().parents[3] / "data" / "tasks.md"
+    )
 
     # Load metric snapshots once for all goals (§7.4, §12.5).
+    from janus.integrations.metric_history import load_snapshots
     metric_snapshots = load_snapshots()
 
     goal_reviews: list[GoalReview] = []
@@ -118,7 +123,9 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
 
         # ── Goal health assessment (§12.5) ──────────────────────────────
         assessment = assess_goal_health(
-            goal, today, open_task_titles, all_task_titles,
+            goal, today,
+            open_task_titles={t.title for t in tasks},
+            all_task_titles=all_task_titles,
             metric_snapshots=metric_snapshots,
             completed_task_dates=None,  # task completion dates not tracked yet
         )

@@ -164,15 +164,23 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
     # When current_value is updated on a goal with a metric, append a snapshot
     # to data/metric_history.md so progress_slow and days_since_last_activity
     # can be computed.
-    if "current_value" in changes and goal.metric_name and goal.current_value is not None:
+    if "current_value" in changes and goal.metric_name is not None and goal.current_value is not None:
+        from datetime import datetime
+        from janus.integrations.metric_history import append_metric_snapshot, MetricSnapshot
+
         snapshot = MetricSnapshot(
             timestamp=datetime.now().astimezone(),
             goal_title=goal.title,
             metric_name=goal.metric_name,
-            value=goal.current_value,
+            value=float(goal.current_value),
             source="manual",
         )
-        append_snapshot(snapshot)
+        append_metric_snapshot(snapshot)
+        emit(logger, "service.goal.snapshot_created",
+             trace_id=None, span_id="service",
+             operation="update", goal_title=title,
+             metric_name=goal.metric_name,
+             message=f"Metric snapshot recorded for goal '{title}'")
 
     if changes:
         emit(logger, "service.goal.mutated",
