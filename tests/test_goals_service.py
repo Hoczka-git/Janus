@@ -481,3 +481,53 @@ class TestResearchArtifactTitles:
         content = goals_file.read_text()
         assert "Research artifacts:" in content
         assert "- My Artifact" in content
+
+
+# ---------------------------------------------------------------------------
+# 8. Metric snapshot trigger (§12.4)
+# ---------------------------------------------------------------------------
+
+class TestMetricSnapshotTrigger:
+    """Setting current_value on a goal with a metric should append a snapshot
+    to data/metric_history.md (design §7.3 / §12.4)."""
+
+    def _seed_with_metric(self, tmp_path, monkeypatch):
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text(
+            "# Goals\n\n"
+            "## Goal: Body fat\n"
+            "Status: active\n"
+            "Metric: Body fat %\n"
+            "Unit: %\n"
+            "Start: 23.0\n"
+            "Current: 20.0\n"
+            "Target: 15.0\n"
+            "Direction: decrease\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        metric_history = tmp_path / "metric_history.md"
+        monkeypatch.setattr("janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_history)
+        return goals_file
+
+    def test_update_current_value_appends_snapshot(self, tmp_path, monkeypatch):
+        """Setting current_value via update_goal_fields appends a snapshot."""
+        self._seed_with_metric(tmp_path, monkeypatch)
+        from janus.integrations.metric_history import get_metric_snapshots
+        update_goal_fields("Body fat", current_value=19.0)
+        snapshots = get_metric_snapshots("Body fat")
+        assert len(snapshots) == 1
+        assert snapshots[0].value == 19.0
+        assert snapshots[0].metric_name == "Body fat %"
+        assert snapshots[0].source == "manual"
+        assert snapshots[0].goal_title == "Body fat"
+
+    def test_update_current_value_no_snapshot_without_metric(self, tmp_path, monkeypatch):
+        """No snapshot appended when goal has no metric_name."""
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text("# Goals\n\n## Goal: No metric\nStatus: active\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        metric_history = tmp_path / "metric_history.md"
+        monkeypatch.setattr("janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_history)
+
+        update_goal_fields("No metric", description="Updated")
+        assert not metric_history.exists()

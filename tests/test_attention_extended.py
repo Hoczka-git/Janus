@@ -6,7 +6,7 @@ and goal attention item construction.
 
 import pytest
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from janus.models.attention import AttentionItem
@@ -192,10 +192,115 @@ class TestBinaryStallFallback:
 # 3b. Goal inactive signal
 # =============================================================================
 
+class TestNoRecentActivitySignal:
+    """Tests for no_recent_activity signal in assess_goal_stall (§6.2.2).
+
+    no_recent_activity fires in assess_goal_stall when:
+    - Goal is active, no open related tasks, no upcoming milestones/deadlines.
+    - Metric snapshots or completed_task_dates provided (time-based detection).
+    - Suppressed by goal_inactive (stronger signal wins) or any deadline/milestone signal.
+    """
+
+    def test_fires_when_no_activity_no_upcoming_deadlines(self, tmp_path, monkeypatch):
+        """no_recent_activity fires when no snapshots/tasks and no upcoming deadlines."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G")  # no related_tasks, no deadline, no milestones
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), set(),
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "no_recent_activity" in signal_names
+        nra = next(s for s in signals if s[0].signal == "no_recent_activity")
+        assert nra[0].score == 35
+
+    def test_does_not_fire_with_recent_snapshot(self, tmp_path, monkeypatch):
+        """no_recent_activity does NOT fire when a snapshot exists within the window."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G")
+        now = datetime.now(timezone.utc)
+        from janus.integrations.metric_history import MetricSnapshot
+        recent_snap = MetricSnapshot(
+            timestamp=now - timedelta(days=5),
+            goal_title="G",
+            metric_name="weight",
+            value=70.0,
+            source="manual",
+        )
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), set(),
+            metric_snapshots=[recent_snap], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "no_recent_activity" not in signal_names
+
+    def test_does_not_fire_with_upcoming_milestone(self, tmp_path, monkeypatch):
+        """no_recent_activity does NOT fire when an upcoming milestone exists."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G", milestones=[{
+            "title": "M1", "goal_title": "G", "description": "",
+            "deadline": "2026-10-01", "status": "open", "order": 0,
+        }])
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), set(),
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "no_recent_activity" not in signal_names
+
+    def test_does_not_fire_with_upcoming_deadline(self, tmp_path, monkeypatch):
+        """no_recent_activity does NOT fire when goal deadline is within the window."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("G", deadline="2026-09-15")  # within 30-day window
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), set(),
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "no_recent_activity" not in signal_names
+
+    def test_suppressed_by_goal_inactive(self, tmp_path, monkeypatch):
+        """no_recent_activity is suppressed when goal_inactive would fire."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="- [x] Task A\n")
+        goal = _make_goal("G", related_tasks=["Task A"])
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), {"Task A"},
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "goal_inactive" in signal_names
+        assert "no_recent_activity" not in signal_names
+
+    def test_suppressed_by_goal_overdue(self, tmp_path, monkeypatch):
+        """no_recent_activity is suppressed by goal_overdue (higher severity)."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="- [x] Task A\n")
+        goal = _make_goal("G", deadline="2026-08-25", related_tasks=["Task A"])
+        signals = assess_goal_stall(
+            goal, FIXED_TODAY, set(), {"Task A"},
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        signal_names = [s[0].signal for s in signals]
+        assert "goal_overdue" in signal_names
+        assert "no_recent_activity" not in signal_names
+
+    def test_in_attention_items(self, tmp_path, monkeypatch):
+        """no_recent_activity appears as an attention item when it fires."""
+        _setup_tasks_file(tmp_path, monkeypatch, content="")
+        goal = _make_goal("Stale Goal")
+        items = get_attention_items([], [], [goal], FIXED_TODAY)
+        assert len(items) == 1
+        assert items[0].title == "Stale Goal"
+        assert items[0].score == 35
+        assert items[0].category == "no_recent_activity"
+
+
+# =============================================================================
+# 3b. Goal inactive signal
+# =============================================================================
+
 class TestGoalInactiveSignal:
     def test_goal_inactive_fires_all_done_no_future_milestone(self,
             tmp_path, monkeypatch):
-        """All tasks done, no future deadline, no future milestone → goal_inactive."""
         _setup_tasks_file(tmp_path, monkeypatch,
             content="- [x] Task A\n")
         goal = _make_goal("G", related_tasks=["Task A"])

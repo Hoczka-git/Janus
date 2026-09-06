@@ -775,3 +775,116 @@ def handle_goal_next(args: list[str]) -> None:
     print(f"Next action: {action.title} ({action.kind})")
     print(f"  Reason: {action.reason}")
     print(f"  Goal: {action.goal_title}")
+
+
+def handle_goal_health(args: list[str]) -> None:
+    """janus goal health [<title>]
+    Display health assessment for one or all active goals.
+
+    Without a title: lists all active goals with health state, sorted by
+    severity (stalled first, then watch, then healthy).
+    With a title: shows full health assessment for that single goal.
+    """
+    from janus.integrations.markdown_goals import load_goals
+    from janus.integrations.markdown_tasks import load_tasks, TASKS_PATH
+    from janus.services.weekly_review import _read_completed_task_titles
+    from janus.services.goal_health import assess_goal_health
+    from datetime import date
+
+    goals = load_goals()
+    open_task_titles: set[str] = set()
+    all_task_titles: set[str] = set()
+    if TASKS_PATH.exists():
+        tasks = load_tasks()
+        open_task_titles = {t.title for t in tasks}
+        all_task_titles = {t.title for t in tasks}
+    completed_titles = _read_completed_task_titles()
+    all_task_titles |= set(completed_titles)
+
+    # Build completed_task_dates for days_since_last_activity
+    today = date.today()
+    completed_task_dates: dict[str, date] | None = None
+    # We don't have task completion timestamps in the current model;
+    # this is a known limitation (design §13.4 / open question 1).
+    # Pass None to indicate no completion date data available.
+
+    if args:
+        # Single goal
+        title = " ".join(args)
+        matching = [g for g in goals if g.title == title]
+        if not matching:
+            print(f"Error: goal not found: {title}", file=sys.stderr)
+            sys.exit(1)
+        goal = matching[0]
+        if goal.status != "active":
+            print(f"Goal '{goal.title}' is {goal.status} — health assessment only "
+                  f"applies to active goals.", file=sys.stderr)
+            sys.exit(1)
+        assessment = assess_goal_health(
+            goal, today, open_task_titles, all_task_titles,
+            completed_task_dates=completed_task_dates,
+        )
+        if assessment is None:
+            print(f"Goal '{goal.title}' has no health assessment (inactive).",
+                  file=sys.stderr)
+            sys.exit(1)
+        _print_health_detail(assessment)
+        return
+
+    # All goals
+    assessments = []
+    for g in goals:
+        if g.status != "active":
+            continue
+        a = assess_goal_health(
+            g, today, open_task_titles, all_task_titles,
+            completed_task_dates=completed_task_dates,
+        )
+        if a is not None:
+            assessments.append(a)
+
+    # Sort by severity: stalled, watch, healthy
+    severity_order = {"stalled": 0, "watch": 1, "healthy": 2, "completed": 3}
+    assessments.sort(
+        key=lambda a: (severity_order.get(a.health_state, 4), a.goal_title)
+    )
+
+    print("JANUS — GOAL HEALTH")
+    print("=" * 60)
+    if not assessments:
+        print("No active goals to assess.")
+        return
+    for a in assessments:
+        dom = a.dominant_signal
+        if dom:
+            print(f"  {a.goal_title:<40} {a.health_state:<8} "
+                  f"[score: {dom.score}] {dom.reason}")
+        else:
+            print(f"  {a.goal_title:<40} {a.health_state:<8}")
+
+
+def _print_health_detail(assessment) -> None:
+    """Print full health assessment for a single goal."""
+    print(f"JANUS — GOAL HEALTH: {assessment.goal_title}")
+    print("=" * 60)
+    print(f"  Health state:     {assessment.health_state}")
+    print(f"  Progress:         {assessment.progress:.1f}%" if assessment.progress is not None else "  Progress:         N/A")
+    if assessment.progress_delta is not None:
+        print(f"  Progress delta:   {assessment.progress_delta:+.1f}%")
+    else:
+        print("  Progress delta:   N/A")
+    if assessment.days_since_last_activity is not None:
+        print(f"  Last activity:    {assessment.days_since_last_activity} days ago")
+    else:
+        print("  Last activity:    N/A")
+    print(f"  Measurements overdue: {assessment.measurement_overdue_count}")
+    print()
+
+    if assessment.signals:
+        print("  Signals:")
+        for s in sorted(assessment.signals, key=lambda x: x.score, reverse=True):
+            marker = " * " if s == assessment.dominant_signal else "   "
+            print(f"  {marker} [{s.score:3d}] {s.signal}: {s.reason}")
+    else:
+        print("  Signals: none (healthy)")
+

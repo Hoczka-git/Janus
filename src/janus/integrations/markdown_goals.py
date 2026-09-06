@@ -88,6 +88,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "milestones": [],
                     "measurement_requirements": [],
                     "research_artifact_titles": [],
+                    "inactivity_window_days": None,
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -207,6 +208,15 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         current["direction"] = raw
                     else:
                         raise ValueError(f"Invalid Direction at line {line_num}: {raw}")
+                elif stripped.startswith("InactivityWindowDays:"):
+                    raw = stripped[20:].strip()
+                    if raw:
+                        try:
+                            current["inactivity_window_days"] = int(raw)
+                        except ValueError:
+                            raise ValueError(
+                                f"Invalid InactivityWindowDays at line {line_num}: {raw}"
+                            )
                 if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:"):
                     # Determine which list section we're entering
                     if stripped.startswith("Research artifacts:"):
@@ -318,6 +328,7 @@ def _finalize_goal(data: dict) -> Goal:
         milestones=data["milestones"],
         measurement_requirements=data["measurement_requirements"],
         research_artifact_titles=data["research_artifact_titles"],
+        inactivity_window_days=data["inactivity_window_days"],
     )
 
 
@@ -346,6 +357,8 @@ def _format_goal_block(goal: Goal) -> list[str]:
         lines.append(f"Target: {goal.target_value}")
     if goal.direction:
         lines.append(f"Direction: {goal.direction}")
+    if goal.inactivity_window_days is not None:
+        lines.append(f"InactivityWindowDays: {goal.inactivity_window_days}")
 
     if goal.related_tasks is not None and goal.related_tasks:
         lines.append("Related tasks:")

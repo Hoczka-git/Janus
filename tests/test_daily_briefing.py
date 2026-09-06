@@ -202,8 +202,16 @@ class TestDailyBriefing:
         ]
         briefing = create_daily_briefing([], tasks, goals, today)
 
-        assert len(briefing.attention_items) == 1
+        # G1: all tasks completed → goal_stalled (40)
+        # G2: missing related task, no metric/deadline/milestone, no recent activity
+        #     → no_recent_activity (35) fires
+        assert len(briefing.attention_items) == 2
+        titles = {i.title for i in briefing.attention_items}
+        assert "G1" in titles
+        assert "G2" in titles
+        # G1 should be the higher-scoring item (40 > 35)
         assert briefing.attention_items[0].title == "G1"
+        assert briefing.attention_items[0].category == "goal_stalled"
 
     def test_goal_deadline_today_becomes_suggested_focus(self):
         """A goal deadline-today signal (score 90) can be the suggested focus
