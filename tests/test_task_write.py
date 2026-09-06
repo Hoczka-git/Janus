@@ -91,8 +91,13 @@ class TestAddTaskService:
         with pytest.raises(ValueError, match="Priority must be >= 1"):
             add_task("Bad task", priority=-1)
 
-    def test_valid_due_date_accepted(self):
+    def test_valid_due_date_accepted(self, tmp_path, monkeypatch):
+        tasks_path = tmp_path / "tasks.md"
+
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_path)
+
         task = add_task("Valid due", due_date=date(2026, 12, 31))
+
         assert task.due_date == date(2026, 12, 31)
 
     def test_empty_tasks_file_before_append(self, tmp_path, monkeypatch):
