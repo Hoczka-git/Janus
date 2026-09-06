@@ -92,7 +92,7 @@ Persistent Data
 The following items represent planned implementation work derived from
 existing design and planning artifacts in this repository.
 
-- [ ] Implement the execution planning extension described in
+- [x] Implement the execution planning extension described in
   [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
 - [ ] Implement the structured observability log schema and instrumentation
   described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
