@@ -3,7 +3,7 @@
 **Task:** t_e1dc741c
 **Date:** 2026-09-06
 **Status:** Design complete — awaiting implementation
-**Depends on:** Research findings (t_adc16d5c) — `reports/goal_measurement_research_findings.md`
+**Depends on:** Research findings (t_adc16d5c) — `reports/goal_system_discovery.md` (Goal model §2, persistence format §5, attention/stall detection §8).
 
 ---
 
