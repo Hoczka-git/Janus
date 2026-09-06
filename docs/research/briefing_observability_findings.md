@@ -115,7 +115,7 @@ Error handling pattern:
 
 Two prior research artifacts exist in the repo root:
 
-1. **`research_observability_logging.md`** (214 lines) — Research report from t_8da8ead6. Covers: pipeline map, no-logging finding, recommended insertion points (5 priority tiers), library choice (stdlib `logging`), conventions.
+1. **`research_observability_logging.md`** (214 lines) — Research report from t_8da8ead6 (file later removed as redundant). Covers: pipeline map, no-logging finding, recommended insertion points (5 priority tiers), library choice (stdlib `logging`), conventions.
 2. **`OBSERVABILITY_PLAN.md`** (515 lines) — Detailed instrumentation plan from t_abd4c594. Covers: 12 event types with exact schemas, field propagation strategy (`briefing_id`), per-file instrumentation map, implementation order, verification steps.
 
 These documents are comprehensive and this report aligns with them — see §4 for the recommended integration approach.
@@ -304,7 +304,7 @@ Tests use `unittest.mock.patch` extensively to mock data sources — this patter
 1. **Briefings are CLI-triggered only** — no automation exists. The pipeline is synchronous and single-shot: load → score → format → deliver.
 2. **Zero logging infrastructure** — the codebase uses `print()` exclusively. Error handling is `ValueError` + stderr + `sys.exit(1)`.
 3. **Natural attachment points are well-defined** — the service/integration split creates clear boundaries where logs can be inserted without crossing concerns.
-4. **Two prior research documents exist** (`research_observability_logging.md`, `OBSERVABILITY_PLAN.md`) and provide detailed schemas — this report confirms and synthesizes their findings.
+4. **Two prior research documents exist** (`research_observability_logging.md` [removed as redundant], `OBSERVABILITY_PLAN.md`) and provide detailed schemas — this report confirms and synthesizes their findings.
 5. **Python stdlib `logging` is the right fit** — no new dependencies, minimal footprint, future-proof for when automation is added.
 6. **Workouts exist but are not wired into briefing pipelines** — instrumentation is contingent on future integration.
 7. **Test infrastructure is compatible** — mocking patterns already in place will not conflict with logging; `briefing_id` defaults to `None` preserve backward compatibility.

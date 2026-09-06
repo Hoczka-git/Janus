@@ -80,7 +80,7 @@ Links: t_27cf102a → t_b01ff44e → t_5dcad317, with t_a665778c as the root wai
 - Bug: `_parse_forbidden_symbols` constructs a frozen `ForbiddenSymbolEntry()` then mutates its fields — raises FrozenInstanceError
 - 22 of 23 Phase 3.5 scenarios blocked by F-03 at contract load time
 - Per frozen scope, NOT fixed in Phase 3.5 — documented for separate remediation task
-- Files created (untracked at time of report): tests/test_verification_phase3_5.py, docs/verification_pipeline_phase3_5_report.md, docs/verification_pipeline_phase3_5_findings.md
+- Files created (untracked at time of report): tests/test_verification_phase3_5.py, docs/verification_pipeline_phase3_5_report.md (removed as redundant), docs/verification_pipeline_phase3_5_findings.md (removed as redundant)
 - Adversarial validation task t_05e5b18e ("F-04") — assignee reviewer, completed 1788165006, 31 scenarios tested, 0 defects found, f04_found=false — Phase 3.5 validation passed without finding F-04
 
 ---
