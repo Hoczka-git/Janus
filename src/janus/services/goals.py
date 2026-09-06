@@ -30,6 +30,7 @@ def add_goal(
     direction: str | None = None,
     related_tasks: list[str] | None = None,
     measurement_requirements: list[dict] | None = None,
+    research_artifact_titles: list[str] | None = None,
 ) -> Goal:
     """Validate and persist a new Goal.
 
@@ -53,6 +54,7 @@ def add_goal(
         direction=direction,
         related_tasks=related_tasks,
         measurement_requirements=measurement_requirements,
+        research_artifact_titles=research_artifact_titles,
     )
     # Check for duplicate title before saving
     existing = load_goals()
@@ -91,7 +93,9 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
                   start_value, current_value, target_value, direction,
                   add_related_task, remove_related_task,
                   add_measurement_requirement, remove_measurement_requirement,
-                  set_measurement_requirements.
+                  set_measurement_requirements,
+                  add_research_artifact, remove_research_artifact,
+                  set_research_artifacts.
     Returns the updated Goal. Raises ValueError if goal not found or validation fails.
     """
     goal = get_goal(title)
@@ -117,6 +121,17 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
             for req in value:
                 _validate_measurement_requirement(req)
             goal.measurement_requirements = list(value)
+        elif key == "add_research_artifact":
+            if value not in goal.research_artifact_titles:
+                goal.research_artifact_titles.append(value)
+                changes.setdefault("research_artifact_titles", []).append(value)
+        elif key == "remove_research_artifact":
+            if value in goal.research_artifact_titles:
+                goal.research_artifact_titles.remove(value)
+                changes.setdefault("research_artifact_titles_removed", []).append(value)
+        elif key == "set_research_artifacts":
+            goal.research_artifact_titles = list(value)
+            changes["research_artifact_titles"] = list(value)
         else:
             old_val = getattr(goal, key, None)
             setattr(goal, key, value)
@@ -137,6 +152,7 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         related_tasks=goal.related_tasks,
         milestones=goal.milestones,
         measurement_requirements=goal.measurement_requirements,
+        research_artifact_titles=goal.research_artifact_titles,
     )
 
     update_goal(goal)

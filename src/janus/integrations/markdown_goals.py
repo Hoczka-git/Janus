@@ -47,6 +47,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
     current_milestone: dict | None = None
     in_measurement_requirements = False
     current_requirement: dict | None = None
+    in_list_section: str | None = None  # "related_tasks" or "research_artifacts"
     lines_scanned = 0
     validation_errors = 0
 
@@ -86,6 +87,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "related_tasks": None,
                     "milestones": [],
                     "measurement_requirements": [],
+                    "research_artifact_titles": [],
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -205,13 +207,21 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         current["direction"] = raw
                     else:
                         raise ValueError(f"Invalid Direction at line {line_num}: {raw}")
-                if stripped.startswith("Related tasks:"):
-                    current["related_tasks"] = []
-                elif stripped.startswith("- ") and "related_tasks" in current \
-                        and current["related_tasks"] is not None:
-                    task = stripped[2:].strip()
-                    if task:
-                        current["related_tasks"].append(task)
+                if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:"):
+                    # Determine which list section we're entering
+                    if stripped.startswith("Research artifacts:"):
+                        current["research_artifact_titles"] = []
+                        in_list_section = "research_artifacts"
+                    else:
+                        current["related_tasks"] = []
+                        in_list_section = "related_tasks"
+                elif stripped.startswith("- ") and in_list_section is not None:
+                    item = stripped[2:].strip()
+                    if item:
+                        if in_list_section == "related_tasks":
+                            current["related_tasks"].append(item)
+                        elif in_list_section == "research_artifacts":
+                            current["research_artifact_titles"].append(item)
                 # else: unknown field — ignore
 
             else:
@@ -307,6 +317,7 @@ def _finalize_goal(data: dict) -> Goal:
         related_tasks=data["related_tasks"],
         milestones=data["milestones"],
         measurement_requirements=data["measurement_requirements"],
+        research_artifact_titles=data["research_artifact_titles"],
     )
 
 
@@ -340,6 +351,11 @@ def _format_goal_block(goal: Goal) -> list[str]:
         lines.append("Related tasks:")
         for task in goal.related_tasks:
             lines.append(f"- {task}")
+
+    if goal.research_artifact_titles:
+        lines.append("Research artifacts:")
+        for artifact in goal.research_artifact_titles:
+            lines.append(f"- {artifact}")
 
     if goal.milestones:
         lines.append("## Milestones")

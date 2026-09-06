@@ -9,6 +9,7 @@ from janus.models.research_artifact import Finding, ResearchArtifact, Source
 from janus.services.knowledge_pipeline import (
     PipelineValidationError,
     ValidationWarning,
+    emit_knowledge_gaps_as_attention,
     generate_summary,
     validate_artifact,
 )
@@ -331,3 +332,158 @@ class TestMinimalArtifact:
         )
         ks = generate_summary(art)
         assert ks.knowledge_gaps == []
+
+
+# =============================================================================
+# emit_knowledge_gaps_as_attention (Stage 3 bridge)
+# =============================================================================
+
+class TestEmitKnowledgeGapsAsAttention:
+    def test_empty_gaps_returns_empty(self):
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[TopicBlock(
+                topic="t",
+                findings=[_finding("A", confidence="wyzszy")],
+            )],
+        )
+        items = emit_knowledge_gaps_as_attention(ks)
+        assert items == []
+
+    def test_single_gap_produces_item(self):
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[TopicBlock(
+                topic="t",
+                findings=[_finding("X", confidence="niski")],
+            )],
+        )
+        items = emit_knowledge_gaps_as_attention(ks)
+        assert len(items) == 1
+        item = items[0]
+        assert item["category"] == "knowledge_gap"
+        assert item["score"] == 50
+        assert item["title"] == ks.knowledge_gaps[0]
+        assert item["reason"] == ks.knowledge_gaps[0]
+
+    def test_goal_title_scoped(self):
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[TopicBlock(
+                topic="t",
+                findings=[_finding("X", confidence="niski")],
+            )],
+        )
+        items = emit_knowledge_gaps_as_attention(ks, goal_title="My Goal")
+        assert len(items) == 1
+        assert "[Gap]" in items[0]["title"]
+        assert "My Goal" in items[0]["title"]
+        assert "My Goal" in items[0]["reason"]
+        assert items[0]["category"] == "knowledge_gap"
+
+    def test_multiple_gaps(self):
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[
+                TopicBlock(topic="a", findings=[_finding("A", confidence="niski")]),
+                TopicBlock(topic="b", findings=[_finding("B", confidence="niski")]),
+            ],
+            knowledge_gaps=["Gap one", "Gap two", "Gap three"],
+        )
+        items = emit_knowledge_gaps_as_attention(ks)
+        assert len(items) == 3
+        assert items[0]["reason"] == "Gap one"
+        assert items[1]["reason"] == "Gap two"
+        assert items[2]["reason"] == "Gap three"
+
+    def test_is_pure_no_mutation(self):
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[TopicBlock(
+                topic="t",
+                findings=[_finding("X", confidence="niski")],
+            )],
+        )
+        gaps_before = list(ks.knowledge_gaps)
+        emit_knowledge_gaps_as_attention(ks, goal_title="G")
+        assert ks.knowledge_gaps == gaps_before
+
+    def test_long_gap_truncated_in_title(self):
+        long_gap = "X" * 200
+        ks = KnowledgeSummary(
+            target="T", title="T", summary_text="T", conclusions="T",
+            topic_blocks=[TopicBlock(
+                topic="t",
+                findings=[_finding("X", confidence="niski")],
+            )],
+            knowledge_gaps=[long_gap],
+        )
+        items = emit_knowledge_gaps_as_attention(ks)
+        assert len(items) == 1
+        assert len(items[0]["title"]) <= 83  # 77 chars + "..."
+        assert items[0]["reason"] == long_gap  # reason is not truncated
+
+
+# =============================================================================
+# Loop closure: artifact -> summary -> gaps -> attention
+# =============================================================================
+
+class TestLoopClosure:
+    """End-to-end: create artifact → generate summary → emit gaps → verify."""
+
+    def test_full_loop(self, tmp_path, monkeypatch):
+        """AC6: End-to-end test of the research→finding→attention loop.
+
+        create artifact → link to goal → generate summary → emit gaps
+        → verify goal has artifact reference.
+        """
+        # Set up goals file with a goal
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text("# Goals\n\n## Goal: GLUE Research\nStatus: active\n")
+        monkeypatch.setattr(
+            "janus.integrations.markdown_goals.GOALS_PATH", goals_file
+        )
+
+        # Stage 1: Research → Artifact
+        artifact = ResearchArtifact(
+            title="GLUE Report",
+            target="GLUE",
+            summary="Clinical-stage biotech.",
+            conclusions="High-risk/high-reward.",
+            findings=[
+                Finding(
+                    statement="MRT-2359 Phase 2: 100% PSA response rate",
+                    topic="pipeline",
+                    confidence="wyzszy",
+                    sources=[_src("http://example.com")],
+                ),
+                Finding(
+                    statement="Market cap ~$1.88B (unverified)",
+                    topic="valuation",
+                    confidence="niski",
+                    sources=[_src("http://example.com")],
+                ),
+            ],
+            linked_goal_titles=["GLUE Research"],
+        )
+
+        # Link artifact → goal (bidirectional)
+        from janus.services.artifact_linking import link_artifact_to_goal
+        link_artifact_to_goal("GLUE Report", "GLUE Research", artifact)
+
+        # Stage 2: Artifact → KnowledgeSummary
+        summary = generate_summary(artifact)
+        assert summary.target == "GLUE"
+        assert len(summary.knowledge_gaps) >= 1
+
+        # Stage 3: Summary → attention
+        attention_items = emit_knowledge_gaps_as_attention(summary, goal_title="GLUE Research")
+        assert len(attention_items) >= 1
+        assert all(item["category"] == "knowledge_gap" for item in attention_items)
+        assert all("GLUE Research" in item["title"] for item in attention_items)
+
+        # Verify: goal has artifact reference (loop closure condition 1 & 2)
+        from janus.services.goals import get_goal
+        goal = get_goal("GLUE Research")
+        assert "GLUE Report" in goal.research_artifact_titles  # type: ignore[operator]
+        assert "GLUE Research" in artifact.linked_goal_titles

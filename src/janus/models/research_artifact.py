@@ -76,6 +76,7 @@ class ResearchArtifact:
     updated_at: datetime | None = None
     version: int = 1
     target: str = ""
+    linked_goal_titles: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
@@ -93,3 +94,23 @@ class ResearchArtifact:
                     f"ResearchArtifact.findings must contain Finding instances, "
                     f"got {type(f).__name__}"
                 )
+        if self.linked_goal_titles is None:
+            self.linked_goal_titles = []
+        self.linked_goal_titles = self._dedup(self.linked_goal_titles)
+        for t in self.linked_goal_titles:
+            if not isinstance(t, str):
+                raise ValueError(
+                    f"ResearchArtifact.linked_goal_titles must contain str instances, "
+                    f"got {type(t).__name__}"
+                )
+
+    @staticmethod
+    def _dedup(titles: list[str]) -> list[str]:
+        """Deduplicate preserving order."""
+        seen = set()
+        result = []
+        for t in titles:
+            if t not in seen:
+                seen.add(t)
+                result.append(t)
+        return result
