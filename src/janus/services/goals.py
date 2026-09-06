@@ -9,6 +9,7 @@ import logging
 from janus._log import emit
 from janus.models.goal import Goal
 from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
+from janus.integrations.metric_history import append_metric_snapshot, MetricSnapshot
 
 _VALID_FREQUENCIES = {"daily", "twice_weekly", "weekly", "weekends", "custom"}
 _VALID_PREFERRED_TIMES = {"morning", "afternoon", "evening", "anytime"}
@@ -31,6 +32,7 @@ def add_goal(
     related_tasks: list[str] | None = None,
     measurement_requirements: list[dict] | None = None,
     research_artifact_titles: list[str] | None = None,
+    inactivity_window_days: int | None = None,
 ) -> Goal:
     """Validate and persist a new Goal.
 
@@ -55,6 +57,7 @@ def add_goal(
         related_tasks=related_tasks,
         measurement_requirements=measurement_requirements,
         research_artifact_titles=research_artifact_titles,
+        inactivity_window_days=inactivity_window_days,
     )
     # Check for duplicate title before saving
     existing = load_goals()
@@ -95,7 +98,8 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
                   add_measurement_requirement, remove_measurement_requirement,
                   set_measurement_requirements,
                   add_research_artifact, remove_research_artifact,
-                  set_research_artifacts.
+                  set_research_artifacts,
+                  inactivity_window_days.
     Returns the updated Goal. Raises ValueError if goal not found or validation fails.
     """
     goal = get_goal(title)
@@ -153,9 +157,28 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         milestones=goal.milestones,
         measurement_requirements=goal.measurement_requirements,
         research_artifact_titles=goal.research_artifact_titles,
+        inactivity_window_days=goal.inactivity_window_days,
     )
 
     update_goal(goal)
+
+    # Record a metric snapshot when current_value is updated and the goal
+    # has a metric configured (design §7.3 / §12.4).
+    if "current_value" in changes and goal.metric_name is not None:
+        from datetime import datetime
+        snapshot = MetricSnapshot(
+            timestamp=datetime.now().astimezone(),
+            goal_title=goal.title,
+            metric_name=goal.metric_name,
+            value=float(goal.current_value),
+            source="manual",
+        )
+        append_metric_snapshot(snapshot)
+        emit(logger, "service.goal.snapshot_created",
+             trace_id=None, span_id="service",
+             operation="update", goal_title=title,
+             metric_name=goal.metric_name,
+             message=f"Metric snapshot recorded for goal '{title}'")
 
     if changes:
         emit(logger, "service.goal.mutated",

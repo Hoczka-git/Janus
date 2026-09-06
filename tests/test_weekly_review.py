@@ -547,3 +547,104 @@ class TestWeeklyCLIRendering:
 
         out = capsys.readouterr().out
         assert "✓ All currently linked tasks completed" in out
+
+
+# ===========================================================================
+# 4. Weekly review health state integration (§12.5)
+# ===========================================================================
+
+class TestWeeklyReviewHealthIntegration:
+    """GoalReview includes health_state, days_since_last_activity, and
+    progress_delta (design §6.4.2 / §12.5)."""
+
+    def test_stalled_goal_has_health_state(self, tmp_path, monkeypatch):
+        """All tasks completed → health_state='stalled'.
+        days_since_last_activity is None when no metric snapshots and no
+        completed_task_dates are available (task completion timestamps are
+        not currently recorded — design §13.4 / open question 1)."""
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Old Task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: G\nStatus: active\nRelated tasks:\n- Old Task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        assert gr.health_state == "stalled"
+
+    def test_healthy_goal_with_open_task(self, tmp_path, monkeypatch):
+        """Goal with open related task → health_state='healthy'."""
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: G\nStatus: active\nRelated tasks:\n- Open task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        assert review.goals[0].health_state == "healthy"
+
+    def test_completed_goal_excluded_from_health(self, tmp_path, monkeypatch):
+        """Completed goals are excluded from weekly review entirely."""
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Active\nStatus: active\nRelated tasks:\n- Open task\n"
+            "## Goal: Done\nStatus: completed\nRelated tasks:\n- Open task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        assert review.goals[0].goal.title == "Active"
+
+    def test_progress_delta_populated_for_metric_goal(self, tmp_path, monkeypatch):
+        """Weekly review includes progress_delta for metric-based goals with history.
+
+        The snapshot must be older than PROGRESS_LOOKBACK_DAYS (14) to compute
+        a progress delta. We use a snapshot from 20+ days ago.
+        """
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Body fat\n"
+            "Status: active\n"
+            "Metric: Body fat %\n"
+            "Unit: %\n"
+            "Start: 23.0\n"
+            "Current: 20.0\n"
+            "Target: 15.0\n"
+            "Direction: decrease\n"
+        )
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        snap_ts = now - timedelta(days=20)
+        metric_history = tmp_path / "metric_history.md"
+        metric_history.write_text(
+            "# Metric History\n"
+            "# Format: ISO-timestamp | goal_title | metric_name | value | source\n"
+            f"# {snap_ts.isoformat()} | Body fat | Body fat % | 22.0 | manual\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_history)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        assert gr.progress is not None
+        # progress_delta should be populated (20.0 vs 22.0 snapshot)
+        assert gr.progress_delta is not None
+        assert gr.progress_delta > 0  # progress improved
