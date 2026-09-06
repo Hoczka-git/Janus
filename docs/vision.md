@@ -83,6 +83,12 @@ The emphasis is on usefulness, continuity, and trust over time rather than on ex
 
 ---
 
+# Next Actions
+
+- [ ] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
+
+---
+
 # System Model
 
 The system consists of several complementary layers.

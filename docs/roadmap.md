@@ -94,5 +94,7 @@ existing design and planning artifacts in this repository.
 
 - [x] Implement the execution planning extension described in
   [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
-- [ ] Implement the structured observability log schema and instrumentation
+- [x] Implement the structured observability log schema and instrumentation
   described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
+- [ ] Verify roadmap-driven task replenishment end-to-end (triage targeting,
+  idempotency, audit trail) — see `docs/replenishment_sources.md`

@@ -21,9 +21,10 @@ Status definitions:
 
 # Next
 
-# Product Capabilities
+- [ ] Implement the structured observability log schema and instrumentation
+  described in OBSERVABILITY_PLAN.md
 
-## [ready] Configure roadmap-driven replenishment for Janus
+## [done] Configure roadmap-driven replenishment for Janus
 
 Configure and validate the Hermes replenishment plugin for the Janus project.
 
