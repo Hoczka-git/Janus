@@ -33,6 +33,8 @@ def load_goals() -> list[Goal]:
     in_milestones = False       # inside a goal's ## Milestones section
     in_milestone = False        # inside a single ### Milestone: block
     current_milestone: dict | None = None
+    in_measurement_requirements = False
+    current_requirement: dict | None = None
 
     with GOALS_PATH.open() as f:
         for line_num, line in enumerate(f, start=1):
@@ -49,6 +51,10 @@ def load_goals() -> list[Goal]:
                             current["milestones"] = []
                         current["milestones"].append(current_milestone)
                         current_milestone = None
+                    # Flush any pending measurement requirement
+                    if current_requirement is not None:
+                        current["measurement_requirements"].append(current_requirement)
+                        current_requirement = None
                     goals.append(_finalize_goal(current))
                 title = stripped[8:].strip()
                 current = {
@@ -64,6 +70,7 @@ def load_goals() -> list[Goal]:
                     "direction": None,
                     "related_tasks": None,
                     "milestones": [],
+                    "measurement_requirements": [],
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -71,13 +78,28 @@ def load_goals() -> list[Goal]:
                 in_milestones = False
                 in_milestone = False
                 current_milestone = None
+                in_measurement_requirements = False
+                current_requirement = None
                 continue
 
             if current is None:
                 continue
 
+            # --- Measurement requirements section detection ---
+            if stripped == "Measurement requirements:":
+                in_measurement_requirements = True
+                in_milestones = False
+                in_milestone = False
+                current_milestone = None
+                continue
+
             # --- Milestone section detection ---
             if stripped == "## Milestones":
+                # Flush any pending measurement requirement
+                if current_requirement is not None:
+                    current["measurement_requirements"].append(current_requirement)
+                    current_requirement = None
+                in_measurement_requirements = False
                 in_milestones = True
                 in_milestone = False
                 current_milestone = None
@@ -89,6 +111,43 @@ def load_goals() -> list[Goal]:
                 in_milestone = False
                 current_milestone = None
                 # Fall through to process this line as a goal-level field
+
+            # --- Handle measurement requirements lines ---
+            if in_measurement_requirements:
+                if stripped.startswith("- metric:"):
+                    # Finalize any pending requirement
+                    if current_requirement is not None:
+                        current["measurement_requirements"].append(current_requirement)
+                    current_requirement = {"metric": stripped[9:].strip()}
+                elif current_requirement is not None and ":" in stripped:
+                    key, _, val = stripped.partition(":")
+                    key = key.strip()
+                    val = val.strip()
+                    if key in ("unit", "frequency", "preferred_time"):
+                        if val:
+                            current_requirement[key] = val
+                    elif key == "interval_days":
+                        if val:
+                            try:
+                                current_requirement["interval_days"] = int(val)
+                            except ValueError:
+                                raise ValueError(
+                                    f"Invalid interval_days at line {line_num}: {val}"
+                                )
+                    # Unknown keys are ignored (forward compatibility)
+                elif not stripped:
+                    # Blank line inside requirements — finalize pending requirement
+                    if current_requirement is not None:
+                        current["measurement_requirements"].append(current_requirement)
+                        current_requirement = None
+                # If the line does not look like a requirement field, exit the section
+                elif not (stripped.startswith("- ") or stripped.startswith("    ")):
+                    if current_requirement is not None:
+                        current["measurement_requirements"].append(current_requirement)
+                        current_requirement = None
+                    in_measurement_requirements = False
+                    # Fall through to let the line be processed as a goal-level field
+                continue
 
             if not in_milestones:
                 if stripped.startswith("Description:"):
@@ -191,6 +250,9 @@ def load_goals() -> list[Goal]:
     if current is not None:
         if current_milestone is not None:
             current["milestones"].append(_finalize_milestone(current_milestone))
+        if current_requirement is not None:
+            current["measurement_requirements"].append(current_requirement)
+            current_requirement = None
         goals.append(_finalize_goal(current))
 
     return goals
@@ -220,6 +282,7 @@ def _finalize_goal(data: dict) -> Goal:
         direction=data["direction"],
         related_tasks=data["related_tasks"],
         milestones=data["milestones"],
+        measurement_requirements=data["measurement_requirements"],
     )
 
 
@@ -270,6 +333,19 @@ def _format_goal_block(goal: Goal) -> list[str]:
             # Note: task-to-milestone membership is NOT serialized.
             # Related tasks are stored on the Goal model and derived
             # dynamically at query time (see derive_milestone_tasks).
+
+    if goal.measurement_requirements:
+        lines.append("Measurement requirements:")
+        for req in goal.measurement_requirements:
+            lines.append(f"  - metric: {req['metric']}")
+            if req.get("unit"):
+                lines.append(f"    unit: {req['unit']}")
+            if req.get("frequency") and req["frequency"] != "daily":
+                lines.append(f"    frequency: {req['frequency']}")
+            if req.get("preferred_time") and req["preferred_time"] != "anytime":
+                lines.append(f"    preferred_time: {req['preferred_time']}")
+            if req.get("interval_days"):
+                lines.append(f"    interval_days: {req['interval_days']}")
 
     return lines
 

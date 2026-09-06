@@ -291,3 +291,133 @@ class TestNoDeleteGoal:
         assert not hasattr(i, "delete_goal"), (
             "delete_goal must not be implemented in markdown_goals either"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. Measurement requirements in add_goal / update_goal_fields
+# ---------------------------------------------------------------------------
+
+
+class TestMeasurementRequirementsService:
+    def _seed(self, tmp_path, monkeypatch, goals_content="# Goals\n"):
+        goals_file = _write_goals_file(tmp_path, goals_content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        return goals_file
+
+    def test_add_goal_with_measurement_requirements(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        g = add_goal(
+            "Body fat",
+            measurement_requirements=[
+                {"metric": "weight", "unit": "kg", "frequency": "daily"},
+                {"metric": "waist", "unit": "cm", "frequency": "twice_weekly"},
+            ],
+        )
+        assert len(g.measurement_requirements) == 2
+        assert g.measurement_requirements[0]["metric"] == "weight"
+        assert g.measurement_requirements[1]["metric"] == "waist"
+
+    def test_add_goal_without_measurement_requirements_defaults_empty(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        g = add_goal("Simple goal")
+        assert g.measurement_requirements == []
+
+    def test_add_goal_invalid_frequency_raises(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="Invalid frequency"):
+            add_goal(
+                "Bad",
+                measurement_requirements=[{"metric": "x", "frequency": "monthly"}],
+            )
+
+    def test_add_goal_empty_metric_raises(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="non-empty"):
+            add_goal("Bad", measurement_requirements=[{"metric": ""}])
+
+    def test_add_goal_custom_without_interval_raises(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="interval_days"):
+            add_goal("Bad", measurement_requirements=[{"metric": "x", "frequency": "custom"}])
+
+    def test_add_goal_invalid_preferred_time_raises(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        with pytest.raises(ValueError, match="preferred_time"):
+            add_goal(
+                "Bad",
+                measurement_requirements=[{"metric": "x", "preferred_time": "noon"}],
+            )
+
+    def test_update_add_measurement_requirement(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        g = update_goal_fields(
+            "Body fat",
+            add_measurement_requirement={"metric": "weight", "unit": "kg", "frequency": "daily"},
+        )
+        assert len(g.measurement_requirements) == 1
+        assert g.measurement_requirements[0]["metric"] == "weight"
+
+    def test_update_add_duplicate_metric_appends(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        update_goal_fields("Body fat", add_measurement_requirement={"metric": "weight", "unit": "kg"})
+        g = update_goal_fields("Body fat", add_measurement_requirement={"metric": "weight", "unit": "lb"})
+        assert len(g.measurement_requirements) == 2
+
+    def test_update_remove_measurement_requirement(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        update_goal_fields("Body fat", add_measurement_requirement={"metric": "weight", "unit": "kg"})
+        g = update_goal_fields("Body fat", remove_measurement_requirement="weight")
+        assert g.measurement_requirements == []
+
+    def test_update_remove_nonexistent_metric_no_change(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        update_goal_fields("Body fat", add_measurement_requirement={"metric": "weight", "unit": "kg"})
+        g = update_goal_fields("Body fat", remove_measurement_requirement="waist")
+        assert len(g.measurement_requirements) == 1
+        assert g.measurement_requirements[0]["metric"] == "weight"
+
+    def test_update_set_measurement_requirements(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        update_goal_fields(
+            "Body fat",
+            add_measurement_requirement={"metric": "weight", "unit": "kg"},
+        )
+        g = update_goal_fields(
+            "Body fat",
+            set_measurement_requirements=[{"metric": "steps", "unit": "steps", "frequency": "daily"}],
+        )
+        assert len(g.measurement_requirements) == 1
+        assert g.measurement_requirements[0]["metric"] == "steps"
+
+    def test_update_add_invalid_measurement_requirement_raises(self, tmp_path, monkeypatch):
+        self._seed(
+            tmp_path, monkeypatch,
+            "## Goal: Body fat\nStatus: active\n",
+        )
+        with pytest.raises(ValueError, match="Invalid frequency"):
+            update_goal_fields(
+                "Body fat",
+                add_measurement_requirement={"metric": "x", "frequency": "monthly"},
+            )
+
+    def test_add_goal_requires_persists_to_file(self, tmp_path, monkeypatch):
+        goals_file = self._seed(tmp_path, monkeypatch)
+        add_goal("X", measurement_requirements=[{"metric": "weight", "unit": "kg"}])
+        content = goals_file.read_text()
+        assert "Measurement requirements:" in content
+        assert "- metric: weight" in content
