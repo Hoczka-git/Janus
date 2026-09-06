@@ -94,7 +94,30 @@ existing design and planning artifacts in this repository.
 
 - [x] Implement the execution planning extension described in
   [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
+
 - [x] Implement the structured observability log schema and instrumentation
   described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
+
 - [ ] Verify roadmap-driven task replenishment end-to-end (triage targeting,
   idempotency, audit trail) — see `docs/replenishment_sources.md`
+
+- [ ] Extend goal management with goal health, progress signals, and
+  stalled-goal detection
+
+- [ ] Extend execution planning with goal → milestone → project → task
+  hierarchy and goal-aware task recommendations
+
+- [ ] Implement a unified inbox and follow-up model for capturing and
+  tracking actionable items that do not yet belong to an active task
+
+- [ ] Close the research → finding → decision → action loop by connecting
+  research artifacts with decisions, goals, projects, and follow-up tasks
+
+- [ ] Implement Janus ↔ Hermes execution feedback, including task handoff,
+  execution results, evidence, and resulting state updates
+
+- [ ] Add evidence-based skill tracking linking completed work and project
+  outcomes to career-development goals
+
+- [ ] Add strategic state summaries that surface meaningful changes,
+  neglected goals, stalled work, and recommended next actions
