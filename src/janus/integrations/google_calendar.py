@@ -1,3 +1,4 @@
+import logging
 import tomllib
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -7,6 +8,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+from janus._log import emit
 from janus.models.event import Event
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -14,6 +16,8 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CREDENTIALS_PATH = PROJECT_ROOT / "credentials.json"
 TOKEN_PATH = PROJECT_ROOT / "token.json"
+
+logger = logging.getLogger(__name__)
 
 
 def get_calendar_service():
@@ -35,7 +39,6 @@ def get_calendar_service():
         )
 
         credentials = flow.run_local_server(port=0)
-
         TOKEN_PATH.write_text(credentials.to_json())
 
     return build(
@@ -82,10 +85,8 @@ def _load_config() -> list[tuple[str, str]]:
     config_path = PROJECT_ROOT / "config" / "config.toml"
     if not config_path.exists():
         return []
-
     with config_path.open("rb") as f:
         data = tomllib.load(f)
-
     calendars: list[tuple[str, str]] = []
     gc = data.get("google_calendar", {})
     for entry in gc.get("calendars", []):
@@ -93,7 +94,6 @@ def _load_config() -> list[tuple[str, str]]:
         calendar_name = entry.get("name", calendar_id)
         if calendar_id:
             calendars.append((calendar_id, calendar_name))
-
     return calendars
 
 
@@ -120,7 +120,7 @@ def list_events(calendar_id: str) -> list[Event]:
     ]
 
 
-def list_upcoming_events() -> list[Event]:
+def list_upcoming_events(trace_id: str | None = None) -> list[Event]:
     calendars = _load_config()
 
     if not calendars:
@@ -130,6 +130,15 @@ def list_upcoming_events() -> list[Event]:
 
     for calendar_id, calendar_name in calendars:
         events = list_events(calendar_id)
+        events_returned = len(events)
+        emit(logger, "source.calendar.fetched",
+             trace_id=trace_id, span_id="calendar_fetch",
+             correlation_id=trace_id,
+             calendar_id=calendar_id,
+             calendar_name=calendar_name,
+             events_returned=events_returned,
+             parse_errors=0,
+             message=f"Fetched {events_returned} events from '{calendar_name}'")
         for event in events:
             event.source = calendar_name
         all_events.extend(events)
@@ -140,5 +149,4 @@ def list_upcoming_events() -> list[Event]:
     ))
 
     return all_events
-
 

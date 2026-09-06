@@ -8,6 +8,10 @@ from pathlib import Path
 
 from datetime import date
 
+import logging
+import time
+
+from janus._log import emit
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.markdown_tasks import load_tasks
@@ -16,6 +20,8 @@ from janus.services.next_action import derive_next_action
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
+
+logger = logging.getLogger(__name__)
 
 
 def _read_completed_task_titles() -> list[str]:
@@ -33,14 +39,21 @@ def _read_completed_task_titles() -> list[str]:
     return completed
 
 
-def create_weekly_review() -> WeeklyReview:
+def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     """Create a weekly review from current tasks and goals.
 
     Does not pretend to know historical completion timestamps.
     Reports current completed state only.
     """
-    goals = load_goals()
-    tasks = load_tasks()
+    start = time.monotonic()
+    emit(logger, "briefing.generation.started",
+         trace_id=trace_id, span_id="build_weekly",
+         correlation_id=trace_id,
+         briefing_type="weekly",
+         message="Weekly review generation started")
+
+    goals = load_goals(trace_id=trace_id)
+    tasks = load_tasks(trace_id=trace_id)
     today = date.today()
 
     # Build lookup structures
@@ -99,6 +112,17 @@ def create_weekly_review() -> WeeklyReview:
                     review.all_related_tasks_completed = True
 
         goal_reviews.append(review)
+
+    duration_ms = (time.monotonic() - start) * 1000
+    emit(logger, "briefing.generation.finished",
+         trace_id=trace_id, span_id="build_weekly",
+         correlation_id=trace_id,
+         briefing_type="weekly",
+         duration_ms=duration_ms,
+         completed_tasks=len(completed_titles),
+         open_tasks=len(all_open_titles),
+         goal_reviews=len(goal_reviews),
+         message=f"Weekly review finished: {len(completed_titles)} completed, {len(all_open_titles)} open, {len(goal_reviews)} goal reviews")
 
     return WeeklyReview(
         completed_tasks=completed_titles,

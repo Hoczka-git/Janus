@@ -21,6 +21,7 @@ def create_daily_briefing(
     tasks: list["Task"],
     goals: list[Goal],
     today: date,
+    trace_id: str | None = None,
 ) -> DailyBriefing:
     """Create a daily briefing from today's events, tasks, and goals.
 
@@ -29,7 +30,7 @@ def create_daily_briefing(
     from janus.services.attention import get_attention_items
     from janus.integrations.google_calendar import _load_config
 
-    attention_items = get_attention_items(events, tasks, goals, today)
+    attention_items = get_attention_items(events, tasks, goals, today, trace_id=trace_id)
     suggested_focus = attention_items[:MAX_SUGGESTED_FOCUS_ITEMS]
 
     calendar_configured = bool(_load_config())
