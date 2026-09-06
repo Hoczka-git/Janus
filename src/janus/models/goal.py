@@ -27,6 +27,12 @@ class Goal:
     # Milestone objects from the dicts when needed.
     milestones: list[dict] | None = None     # list of milestone dicts (see spec)
 
+    # Measurement requirements (optional, see design §3.1)
+    # Stored as list[dict] for the same rationale as milestones. Each dict:
+    #   {"metric": str, "unit": str, "frequency": str, "preferred_time": str,
+    #    "interval_days": int}
+    measurement_requirements: list[dict] | None = None
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
@@ -34,6 +40,8 @@ class Goal:
         self.related_tasks = self._dedup_related_tasks(self.related_tasks)
         if self.milestones is None:
             self.milestones = []
+        if self.measurement_requirements is None:
+            self.measurement_requirements = []
         if self.status not in ("active", "completed", "inactive"):
             raise ValueError(
                 f"Invalid goal status: {self.status!r}. "

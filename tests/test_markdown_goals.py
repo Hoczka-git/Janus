@@ -111,6 +111,18 @@ class TestGoalModel:
         g = Goal("Test")
         assert g.related_tasks == []
 
+    def test_measurement_requirements_default_empty(self):
+        from janus.models.goal import Goal
+
+        g = Goal("Test")
+        assert g.measurement_requirements == []
+
+    def test_measurement_requirements_none_defaults_empty(self):
+        from janus.models.goal import Goal
+
+        g = Goal("Test", measurement_requirements=None)
+        assert g.measurement_requirements == []
+
 
 # ===========================================================================
 # 2. Persistence round-trip (markdown_goals)
@@ -486,3 +498,222 @@ class TestMalformedFieldParsing:
         monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
         with pytest.raises(ValueError, match="Invalid Deadline"):
             load_goals()
+
+
+# ===========================================================================
+# 7. Measurement requirements parsing & serialization
+# ===========================================================================
+
+
+class TestMeasurementRequirementsParsing:
+    def test_parse_full_requirements(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: Reduce body fat\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: weight\n"
+            "    unit: kg\n"
+            "    frequency: daily\n"
+            "    preferred_time: morning\n"
+            "  - metric: waist\n"
+            "    unit: cm\n"
+            "    frequency: twice_weekly\n"
+            "    preferred_time: evening\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert len(goals) == 1
+        reqs = goals[0].measurement_requirements
+        assert len(reqs) == 2
+        assert reqs[0]["metric"] == "weight"
+        assert reqs[0]["unit"] == "kg"
+        assert reqs[0]["frequency"] == "daily"
+        assert reqs[0]["preferred_time"] == "morning"
+        assert reqs[1]["metric"] == "waist"
+        assert reqs[1]["frequency"] == "twice_weekly"
+
+    def test_parse_partial_requirements(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: steps\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert len(goals[0].measurement_requirements) == 1
+        assert goals[0].measurement_requirements[0]["metric"] == "steps"
+        assert "frequency" not in goals[0].measurement_requirements[0]
+        assert "unit" not in goals[0].measurement_requirements[0]
+
+    def test_parse_unknown_keys_ignored(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: steps\n"
+            "    frequency: daily\n"
+            "    unknown_field: should_be_ignored\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        reqs = goals[0].measurement_requirements
+        assert len(reqs) == 1
+        assert reqs[0] == {"metric": "steps", "frequency": "daily"}
+
+    def test_parse_no_requirements_defaults_empty(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = "# Goals\n\n## Goal: X\nStatus: active\n"
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert goals[0].measurement_requirements == []
+
+    def test_parse_requirements_ends_at_new_section(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: steps\n"
+            "    frequency: daily\n"
+            "## Milestones\n"
+            "### Milestone: M1 (order: 0)\n"
+            "Status: open\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert goals[0].measurement_requirements == [
+            {"metric": "steps", "frequency": "daily"}
+        ]
+        assert len(goals[0].milestones) == 1
+
+    def test_parse_multiple_goals_with_requirements(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: A\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: weight\n"
+            "    unit: kg\n"
+            "## Goal: B\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: balance\n"
+            "    unit: PLN\n"
+            "    frequency: weekly\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        assert len(goals) == 2
+        assert goals[0].measurement_requirements[0]["metric"] == "weight"
+        assert goals[1].measurement_requirements[0]["metric"] == "balance"
+
+    def test_parse_custom_interval_days(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: checkup\n"
+            "    frequency: custom\n"
+            "    interval_days: 14\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        reqs = goals[0].measurement_requirements
+        assert reqs[0]["frequency"] == "custom"
+        assert reqs[0]["interval_days"] == 14
+
+    def test_parse_invalid_interval_days_raises(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: checkup\n"
+            "    frequency: custom\n"
+            "    interval_days: abc\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        with pytest.raises(ValueError, match="Invalid interval_days"):
+            load_goals()
+
+    def test_roundtrip_measurement_requirements(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals, update_goal
+        from janus.models.goal import Goal
+
+        content = (
+            "# Goals\n\n"
+            "## Goal: X\n"
+            "Status: active\n"
+            "Measurement requirements:\n"
+            "  - metric: weight\n"
+            "    unit: kg\n"
+            "    frequency: daily\n"
+            "  - metric: waist\n"
+            "    unit: cm\n"
+            "    frequency: twice_weekly\n"
+            "    preferred_time: evening\n"
+        )
+        goals_file = _write_goals_file(tmp_path, content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        goals = load_goals()
+        g = goals[0]
+        g.description = "updated"
+        update_goal(g)
+        goals2 = load_goals()
+        assert len(goals2[0].measurement_requirements) == 2
+        assert goals2[0].measurement_requirements[0]["metric"] == "weight"
+        assert goals2[0].measurement_requirements[1]["frequency"] == "twice_weekly"
+
+    def test_save_goal_with_requirements(self, tmp_path, monkeypatch):
+        from janus.integrations.markdown_goals import load_goals, save_goal
+        from janus.models.goal import Goal
+
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text("# Goals\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        g = Goal(
+            "Test goal",
+            measurement_requirements=[
+                {"metric": "steps", "unit": "steps", "frequency": "daily"},
+                {"metric": "study", "unit": "hours", "frequency": "weekly", "preferred_time": "evening"},
+            ],
+        )
+        save_goal(g)
+        content = goals_file.read_text()
+        assert "Measurement requirements:" in content
+        assert "- metric: steps" in content
+        assert "unit: steps" in content
+        # daily frequency is default, should be omitted
+        assert "frequency: daily" not in content
+        assert "- metric: study" in content
+        assert "frequency: weekly" in content
+        assert "preferred_time: evening" in content
+
