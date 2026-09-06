@@ -5,10 +5,12 @@ No delete_goal — goals can be set to inactive.
 """
 
 import logging
+from datetime import datetime
 
 from janus._log import emit
 from janus.models.goal import Goal
 from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
+from janus.integrations.metric_history import MetricSnapshot, append_snapshot
 
 _VALID_FREQUENCIES = {"daily", "twice_weekly", "weekly", "weekends", "custom"}
 _VALID_PREFERRED_TIMES = {"morning", "afternoon", "evening", "anytime"}
@@ -153,9 +155,24 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         milestones=goal.milestones,
         measurement_requirements=goal.measurement_requirements,
         research_artifact_titles=goal.research_artifact_titles,
+        inactivity_window_days=goal.inactivity_window_days,
     )
 
     update_goal(goal)
+
+    # ── Metric snapshot recording (§7.3, §10.2) ─────────────────────────
+    # When current_value is updated on a goal with a metric, append a snapshot
+    # to data/metric_history.md so progress_slow and days_since_last_activity
+    # can be computed.
+    if "current_value" in changes and goal.metric_name and goal.current_value is not None:
+        snapshot = MetricSnapshot(
+            timestamp=datetime.now().astimezone(),
+            goal_title=goal.title,
+            metric_name=goal.metric_name,
+            value=goal.current_value,
+            source="manual",
+        )
+        append_snapshot(snapshot)
 
     if changes:
         emit(logger, "service.goal.mutated",

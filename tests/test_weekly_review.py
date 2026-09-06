@@ -547,3 +547,114 @@ class TestWeeklyCLIRendering:
 
         out = capsys.readouterr().out
         assert "✓ All currently linked tasks completed" in out
+
+
+# ===========================================================================
+# 4. Weekly review — goal health integration (§12.5)
+# ===========================================================================
+
+class TestWeeklyGoalHealth:
+    """Goal health state is surfaced in weekly review output (§12.5)."""
+
+    def test_healthy_goal_in_weekly(self, capsys, tmp_path, monkeypatch):
+        """An active goal with open tasks is assessed as healthy."""
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Healthy\nStatus: active\nRelated tasks:\n- Open task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "Goal: Healthy" in out
+        assert "Health: healthy" in out
+
+    def test_stalled_goal_in_weekly(self, capsys, tmp_path, monkeypatch):
+        """A goal with no open tasks, no deadline, far-future deadline → stalled."""
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Done task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Stalled\nStatus: active\nRelated tasks:\n- Done task\nDeadline: 2027-01-01\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "Goal: Stalled" in out
+        assert "Health: stalled" in out
+
+    def test_watch_goal_in_weekly(self, capsys, tmp_path, monkeypatch):
+        """A goal with a deadline within 7 days and no open tasks → watch."""
+        from datetime import timedelta
+        today = date.today()
+        soon = (today + timedelta(days=3)).isoformat()  # 3 days → deadline soon
+        # No related tasks → no open-task exception → deadline_soon → watch
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Some other task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            f"# Goals\n\n## Goal: Watch\nStatus: active\nDeadline: {soon}\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "Goal: Watch" in out
+        assert "Health: watch" in out
+
+    def test_progress_delta_in_health(self, tmp_path, monkeypatch):
+        """GoalReview.progress_delta is set for metric goals with snapshots."""
+        from janus.services.weekly_review import create_weekly_review
+        from janus.services.goal_health import (
+            assess_goal_health, HEALTH_WATCH,
+        )
+        from janus.models.goal import Goal
+        from datetime import date, datetime, timedelta, timezone
+
+        snapshots = [
+            type("S", (), {
+                "timestamp": datetime.combine(
+                    date(2026, 9, 1) - timedelta(days=20), datetime.min.time(),
+                    tzinfo=timezone.utc
+                ),
+                "goal_title": "Metric Goal",
+                "metric_name": "Metric",
+                "value": 0.0,
+                "source": "manual",
+            })(),
+            type("S", (), {
+                "timestamp": datetime.combine(
+                    date(2026, 9, 1), datetime.min.time(),
+                    tzinfo=timezone.utc
+                ),
+                "goal_title": "Metric Goal",
+                "metric_name": "Metric",
+                "value": 10.0,
+                "source": "manual",
+            })(),
+        ]
+        # Just verify the function doesn't crash with metric data
+        goal = Goal(
+            title="Metric Goal", status="active",
+            metric_name="Metric", metric_unit="%",
+            start_value=0.0, current_value=10.0, target_value=100.0,
+            direction="increase",
+        )
+        result = assess_goal_health(
+            goal, date(2026, 9, 1), set(), set(),
+            metric_snapshots=snapshots,
+        )
+        assert result.progress_delta is not None
+        assert result.progress_delta == pytest.approx(10.0, abs=0.1)

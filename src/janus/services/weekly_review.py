@@ -15,7 +15,9 @@ from janus._log import emit
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.integrations.markdown_goals import load_goals
 from janus.integrations.markdown_tasks import load_tasks
+from janus.integrations.metric_history import load_snapshots
 from janus.services.goal_progress import compute_goal_progress
+from janus.services.goal_health import assess_goal_health
 from janus.services.next_action import derive_next_action
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -60,15 +62,18 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     completed_titles = _read_completed_task_titles()
     open_task_map = {t.title: t for t in tasks}
     all_open_titles = list(open_task_map.keys())
+    open_task_titles = set(open_task_map.keys())
+    all_task_titles = open_task_titles | set(completed_titles)
+
+    # Load metric snapshots once for all goals (§7.4, §12.5).
+    metric_snapshots = load_snapshots()
 
     goal_reviews: list[GoalReview] = []
-
     for goal in goals:
         if goal.status != "active":
             continue
 
         review = GoalReview(goal=goal)
-
         for related_title in goal.related_tasks:
             if related_title in completed_titles:
                 review.completed_related_tasks.append(related_title)
@@ -110,6 +115,16 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
                         and all(rt in completed_titles
                                 for rt in goal.related_tasks):
                     review.all_related_tasks_completed = True
+
+        # ── Goal health assessment (§12.5) ──────────────────────────────
+        assessment = assess_goal_health(
+            goal, today, open_task_titles, all_task_titles,
+            metric_snapshots=metric_snapshots,
+            completed_task_dates=None,  # task completion dates not tracked yet
+        )
+        review.health_state = assessment.health_state
+        review.progress_delta = assessment.progress_delta
+        review.days_since_last_activity = assessment.days_since_last_activity
 
         goal_reviews.append(review)
 

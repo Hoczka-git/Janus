@@ -34,6 +34,9 @@ class Goal:
     measurement_requirements: list[dict] | None = None
     research_artifact_titles: list[str] | None = field(default_factory=list)
 
+    # Per-goal inactivity window override (§6.2.2). Default: 30 days.
+    inactivity_window_days: int | None = None
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []

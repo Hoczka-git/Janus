@@ -4,6 +4,7 @@ All tests use temp fixtures ONLY.
 """
 import pytest
 import sys
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -335,3 +336,115 @@ class TestNoDeleteGoal:
     def test_no_delete_goal_in_service(self):
         import janus.services.goals as svc
         assert not hasattr(svc, "delete_goal")
+
+
+# ===========================================================================
+# Goal health CLI tests (§12.6)
+# ===========================================================================
+
+class TestGoalHealthCLI:
+    def test_health_list_no_goals(self, tmp_path, monkeypatch, capsys):
+        """`janus goal health` with no active goals prints 'No active goals.'"""
+        goals_file = _write_goals_file(tmp_path, "# Goals\n")
+        tasks_file = _write_tasks_file(tmp_path, "")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        handle_goal_health([])
+        out = capsys.readouterr().out
+        assert "No active goals." in out
+
+    def test_health_list_shows_healthy_goal(self, tmp_path, monkeypatch, capsys):
+        """Health list shows a healthy goal with its state."""
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: My Goal\nStatus: active\nRelated tasks:\n- Open task\n"
+        )
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        handle_goal_health([])
+        out = capsys.readouterr().out
+        assert "My Goal" in out
+        assert "healthy" in out
+
+    def test_health_list_sorts_by_severity(self, tmp_path, monkeypatch, capsys):
+        """Health list sorts stalled first, then watch, then healthy."""
+        from datetime import timedelta
+        today = date.today()
+        soon = (today + timedelta(days=3)).isoformat()
+        far = (today + timedelta(days=365)).isoformat()
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            f"## Goal: Stalled Goal\nStatus: active\nDeadline: {far}\n"
+            f"## Goal: Watch Goal\nStatus: active\nDeadline: {soon}\n"
+            "## Goal: Healthy Goal\nStatus: active\nRelated tasks:\n- Open task\n"
+        )
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Done task\n- [ ] Open task\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        handle_goal_health([])
+
+        out = capsys.readouterr().out
+        stalled_idx = next(i for i, l in enumerate(out.split("\n")) if "Stalled Goal" in l)
+        watch_idx = next(i for i, l in enumerate(out.split("\n")) if "Watch Goal" in l)
+        healthy_idx = next(i for i, l in enumerate(out.split("\n")) if "Healthy Goal" in l)
+        assert stalled_idx < watch_idx < healthy_idx
+
+    def test_health_single_goal_healthy(self, tmp_path, monkeypatch, capsys):
+        """`janus goal health <title>` shows full assessment for a single goal."""
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: My Goal\nStatus: active\nRelated tasks:\n- Open task\n"
+        )
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Open task\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        handle_goal_health(["My Goal"])
+        out = capsys.readouterr().out
+        assert "JANUS — GOAL HEALTH: My Goal" in out
+        assert "State:" in out
+        assert "healthy" in out
+        assert "Progress:" in out
+
+    def test_health_single_goal_stalled(self, tmp_path, monkeypatch, capsys):
+        """Single goal health shows stalled with dominant signal."""
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Stalled Goal\nStatus: active\nDeadline: 2027-01-01\n"
+        )
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Done task\n")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        handle_goal_health(["Stalled Goal"])
+        out = capsys.readouterr().out
+        assert "stalled" in out
+        assert "Dominant:" in out
+
+    def test_health_single_goal_not_found(self, tmp_path, monkeypatch, capsys):
+        """Goal not found prints error and exits with code 1."""
+        goals_file = _write_goals_file(tmp_path, "# Goals\n")
+        tasks_file = _write_tasks_file(tmp_path, "")
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.goals_cli import handle_goal_health
+        with pytest.raises(SystemExit) as exc_info:
+            handle_goal_health(["Nonexistent Goal"])
+        assert exc_info.value.code == 1

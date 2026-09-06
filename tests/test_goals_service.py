@@ -200,6 +200,41 @@ class TestUpdateGoalFields:
         g = update_goal_fields("Body fat", current_value=18.0)
         assert g.current_value == 18.0
 
+    def test_update_current_value_appends_snapshot(self, tmp_path, monkeypatch):
+        """Setting current_value on a metric goal appends a snapshot (§12.4)."""
+        goals_file = self._seed_with_metric(tmp_path, monkeypatch)
+        # Redirect metric history to a temp file so we don't touch real data.
+        metric_file = tmp_path / "metric_history.md"
+        monkeypatch.setattr(
+            "janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_file
+        )
+        g = update_goal_fields("Body fat", current_value=18.0)
+        assert g.current_value == 18.0
+        assert metric_file.exists()
+        content = metric_file.read_text()
+        assert "Body fat" in content  # goal title appears in snapshot
+        assert "Body fat %" in content  # metric name also appears
+        assert "18.0" in content
+        assert "manual" in content
+
+    def test_update_current_value_no_snapshot_without_metric(self, tmp_path, monkeypatch):
+        """No snapshot appended when goal has no metric_name."""
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text(
+            "# Goals\n\n## Goal: Simple\nStatus: active\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        metric_file = tmp_path / "metric_history.md"
+        monkeypatch.setattr(
+            "janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_file
+        )
+        # current_value on a goal without metric — metric_name is None
+        # so update_goal_fields won't see current_value as a metric change
+        # Actually, current_value is just a float field; the service checks
+        # goal.metric_name. Since Simple has no metric, no snapshot.
+        update_goal_fields("Simple", current_value=5.0)
+        assert not metric_file.exists()
+
     def test_update_add_related_task_new(self, tmp_path, monkeypatch):
         self._seed_with_metric(tmp_path, monkeypatch)
         g = update_goal_fields("Body fat", add_related_task="New task")

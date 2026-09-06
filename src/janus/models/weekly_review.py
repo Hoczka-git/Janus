@@ -14,6 +14,10 @@ class GoalReview:
     missing_related_tasks: list[str] = field(default_factory=list)
     suggested_next_step: str | None = None
     all_related_tasks_completed: bool = False
+    # ── Goal health & progress signals (§12.5) ─────────────────────────
+    health_state: str | None = None        # healthy | watch | stalled | completed | None
+    progress_delta: float | None = None    # progress change over lookback window
+    days_since_last_activity: int | None = None  # days since last snapshot or task completion
 
 
 @dataclass

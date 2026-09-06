@@ -307,6 +307,7 @@ def get_attention_items(
     tasks_path = Path(__file__).resolve().parents[3] / "data" / "tasks.md"
     all_task_titles = _load_all_task_titles(tasks_path)
 
+    goal_signals: dict[str, list[dict]] = {}
     for goal in goals:
         if goal.status != "active":
             continue
@@ -332,6 +333,10 @@ def get_attention_items(
             score=signal.score,
             category=category,
         ))
+        goal_signals[goal.title] = [
+            {"signal": s[0].signal, "score": s[0].score, "reason": s[0].reason}
+            for s in signals
+        ]
 
     # ── Deterministic sort: highest score first, then category, then title ──
     items.sort(key=lambda i: (-i.score, i.category, i.title))
@@ -352,6 +357,7 @@ def get_attention_items(
          correlation_id=trace_id,
          items_returned=len(items),
          category_counts=category_counts,
+         goal_signals=goal_signals,
          max_score=max_score,
          min_score=min_score,
          message=f"Attention engine computed {len(items)} items")

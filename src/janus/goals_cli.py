@@ -775,3 +775,93 @@ def handle_goal_next(args: list[str]) -> None:
     print(f"Next action: {action.title} ({action.kind})")
     print(f"  Reason: {action.reason}")
     print(f"  Goal: {action.goal_title}")
+
+
+def handle_goal_health(args: list[str]) -> None:
+    """janus goal health [<title>]
+    Display goal health assessment.
+
+    Without a title: lists all active goals sorted by health state severity
+    (stalled first, then watch, then healthy), showing dominant signal and score.
+    With a title: shows the full GoalHealthAssessment for a single goal.
+    """
+    from janus.integrations.markdown_goals import load_goals
+    from janus.integrations.markdown_tasks import load_tasks
+    from janus.integrations.metric_history import load_snapshots
+    from janus.services.goal_health import (
+        assess_goal_health, assess_all_goals_health,
+        HEALTH_STALLED, HEALTH_WATCH, HEALTH_HEALTHY,
+        _HEALTH_SEVERITY,
+    )
+    from janus.services.attention import _load_all_task_titles
+    from janus.integrations.markdown_tasks import TASKS_PATH
+
+    today = date.today()
+    tasks = load_tasks()
+    open_task_titles = {t.title for t in tasks}
+    all_task_titles = _load_all_task_titles(TASKS_PATH)
+    metric_snapshots = load_snapshots()
+
+    if not args:
+        # List all goals sorted by health state severity.
+        goals = load_goals()
+        assessments = assess_all_goals_health(
+            goals, today, open_task_titles, all_task_titles,
+            metric_snapshots=metric_snapshots,
+        )
+        # Sort by severity (stalled first, then watch, then healthy).
+        assessments.sort(key=lambda a: (
+            _HEALTH_SEVERITY.get(a.health_state or "healthy", 99),
+            a.goal_title,
+        ))
+        print("JANUS — GOAL HEALTH")
+        print("=" * 60)
+        if not assessments:
+            print("No active goals.")
+            return
+        print(f"{'Goal':<40} {'Health':<10} {'Signal':<25} {'Score'}")
+        print("-" * 80)
+        for a in assessments:
+            dom = a.dominant_signal.signal if a.dominant_signal else "—"
+            score = a.dominant_signal.score if a.dominant_signal else 0
+            print(f"{a.goal_title:<40} {a.health_state:<10} {dom:<25} {score}")
+        return
+
+    # Single goal detail.
+    title = " ".join(args)
+    from janus.services.goals import get_goal
+    try:
+        goal = get_goal(title)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    assessment = assess_goal_health(
+        goal, today, open_task_titles, all_task_titles,
+        metric_snapshots=metric_snapshots,
+    )
+    print(f"JANUS — GOAL HEALTH: {assessment.goal_title}")
+    print("=" * 60)
+    print(f"  State:       {assessment.health_state}")
+    if assessment.dominant_signal:
+        print(f"  Dominant:    {assessment.dominant_signal.signal} (score {assessment.dominant_signal.score})")
+        print(f"  Reason:      {assessment.dominant_signal.reason}")
+    else:
+        print("  Dominant:    — (healthy)")
+    if assessment.progress is not None:
+        print(f"  Progress:    {assessment.progress:.1f}%")
+    else:
+        print("  Progress:    N/A")
+    if assessment.progress_delta is not None:
+        print(f"  Delta:       {assessment.progress_delta:+.1f}% (over lookback)")
+    else:
+        print("  Delta:       N/A")
+    if assessment.days_since_last_activity is not None:
+        print(f"  Last activity: {assessment.days_since_last_activity} days ago")
+    else:
+        print("  Last activity: N/A")
+    print(f"  Measurements overdue: {assessment.measurement_overdue_count}")
+    if assessment.signals:
+        print("\n  All signals:")
+        for sig in assessment.signals:
+            print(f"    [{sig.score:3d}] {sig.signal:<25} {sig.reason}")
