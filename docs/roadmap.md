@@ -96,7 +96,7 @@ existing design and planning artifacts in this repository.
   [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
 - [x] Implement the structured observability log schema and instrumentation
   described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
-- [ ] Verify roadmap-driven task replenishment end-to-end (triage targeting,
+- [x] Verify roadmap-driven task replenishment end-to-end (triage targeting,
   idempotency, audit trail) — see `docs/replenishment_sources.md`
 - [ ] Extend goal management with goal health, progress signals, and
   stalled-goal detection
