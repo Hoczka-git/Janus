@@ -614,6 +614,25 @@ class TestWeeklyGoalHealth:
         assert "Goal: Watch" in out
         assert "Health: watch" in out
 
+    def test_stalled_goal_in_weekly_shows_dominant_signal_reason(self, capsys, tmp_path, monkeypatch):
+        """Spec §12.5: weekly review flags stalled goals with their dominant signal reason."""
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Done task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n## Goal: Stalled\nStatus: active\nDeadline: 2027-01-01\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "Goal: Stalled" in out
+        assert "Health: stalled" in out
+        assert "Reason:" in out
+
     def test_progress_delta_in_health(self, tmp_path, monkeypatch):
         """GoalReview.progress_delta is set for metric goals with snapshots."""
         from janus.services.weekly_review import create_weekly_review

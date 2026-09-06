@@ -125,6 +125,9 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
         review.health_state = assessment.health_state
         review.progress_delta = assessment.progress_delta
         review.days_since_last_activity = assessment.days_since_last_activity
+        if assessment.dominant_signal is not None:
+            review.dominant_signal = assessment.dominant_signal.signal
+            review.dominant_signal_reason = assessment.dominant_signal.reason
 
         goal_reviews.append(review)
 

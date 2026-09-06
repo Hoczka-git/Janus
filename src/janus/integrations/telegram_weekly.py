@@ -71,6 +71,8 @@ def format_weekly_message(review: "WeeklyReview") -> str:
                 lines.append(f"Health: {gr.health_state}")
                 if gr.health_state == "stalled":
                     lines.append("  ⚠ STALLED")
+                    if gr.dominant_signal_reason:
+                        lines.append(f"  Reason: {gr.dominant_signal_reason}")
             if gr.progress_delta is not None:
                 lines.append(f"  Progress delta: {gr.progress_delta:+.1f}%")
             if gr.days_since_last_activity is not None:

@@ -39,7 +39,9 @@ def show_weekly(trace_id: str | None = None) -> None:
             if gr.health_state is not None:
                 print(f"Health: {gr.health_state}")
                 if gr.health_state == "stalled":
-                    print(f"  ⚠ STALLED")
+                    print("  ⚠ STALLED")
+                    if gr.dominant_signal_reason:
+                        print(f"  Reason: {gr.dominant_signal_reason}")
             if gr.progress_delta is not None:
                 print(f"  Progress delta: {gr.progress_delta:+.1f}%")
             if gr.days_since_last_activity is not None:

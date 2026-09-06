@@ -18,6 +18,8 @@ class GoalReview:
     health_state: str | None = None        # healthy | watch | stalled | completed | None
     progress_delta: float | None = None    # progress change over lookback window
     days_since_last_activity: int | None = None  # days since last snapshot or task completion
+    dominant_signal: str | None = None     # highest-severity signal name, if any
+    dominant_signal_reason: str | None = None  # human-readable reason for the dominant signal
 
 
 @dataclass
