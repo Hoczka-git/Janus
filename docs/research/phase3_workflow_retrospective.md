@@ -322,11 +322,11 @@ The profile documentation changes (R1, R6, R7, R8, R9) are also implementation t
 
 - t_c6bb2bd7 repository inspection: workspace at /home/dan11hermes/workspaces/janus/.worktrees/t_c6bb2bd7. Findings: Phase 3 commit bf4e182, 18 test files, 417 tests, 3 ci.yml typos, validate_ci.py coverage gap, verification.md typo.
 - t_3117f0a2 Kanban history inspection: phase3_kanban_history_inspection.md in workspace. Findings: REJECT→remediate→commit→re-verify cycle, uncommitted-worktree defect caught by reviewer, implementer metadata inconsistency, retrospective decomposed with no body, 2/3 inspector runs crashed, F-03 present in committed code, F-04 found 0 defects.
-- t_a1c50f71 profile/doc inspection: profile-instruction-inspection-findings.md in workspace. Findings: researcher SOUL.md strongest on durability; implementer handoff evidence under-specified; reviewer SOUL.md thinner than sdlc-review skill expects; no consolidated handoff contract; completion criteria are task-dependent; operational config not mentioned in profiles.
+- t_a1c50f71 profile/doc inspection: `profile-instruction-inspection-findings.md` in workspace (file later removed as redundant). Findings: researcher SOUL.md strongest on durability; implementer handoff evidence under-specified; reviewer SOUL.md thinner than sdlc-review skill expects; no consolidated handoff contract; completion criteria are task-dependent; operational config not mentioned in profiles.
 
 ## Appendix B: What this retrospective did not cover
 
-- The Phase 3.5 F-03 discovery is mentioned as context but was not investigated in depth. The Phase 3.5 tests and findings (tests/test_verification_phase3_5.py, docs/verification_pipeline_phase3_5_report.md, docs/verification_pipeline_phase3_5_findings.md) werenot inspected for this retrospective.
+- The Phase 3.5 F-03 discovery is mentioned as context but was not investigated in depth. The Phase 3.5 tests and findings (tests/test_verification_phase3_5.py, docs/verification_pipeline_phase3_5_report.md [removed as redundant], docs/verification_pipeline_phase3_5_findings.md [removed as redundant]) werenot inspected for this retrospective.
 - The auto-decomposer behavior and config are not inspectable from this workspace. R10's implementation cost is therefore uncertain.
 - The current root worktree (master) has uncommitted changes from later phases (Phase 5, Phase 6, goal system, Telegram weekly). These were not investigated for this Phase 3 retrospective.
 
