@@ -12,6 +12,9 @@ Exports:
     ResearchArtifact
     TopicBlock
     KnowledgeSummary
+    GoalSignal
+    GoalHealthAssessment
+    MetricSnapshot
 """
 
 from janus.models.task import Task
@@ -23,6 +26,9 @@ from janus.models.attention import AttentionItem
 from janus.models.research_artifact import Finding, ResearchArtifact, Source
 from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
 from janus.models.decision import Decision
+from janus.models.goal_signal import GoalSignal
+from janus.models.goal_health_assessment import GoalHealthAssessment
+from janus.models.metric_snapshot import MetricSnapshot
 
 __all__ = [
     "Task",
@@ -38,4 +44,7 @@ __all__ = [
     "TopicBlock",
     "KnowledgeSummary",
     "Decision",
+    "GoalSignal",
+    "GoalHealthAssessment",
+    "MetricSnapshot",
 ]
