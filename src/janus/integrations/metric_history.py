@@ -4,6 +4,8 @@ Reads and writes ``data/metric_history.md`` in a simple comment-line format.
 The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
+
+Design reference: docs/goal_health_progress_signals_stalled_detection_spec.md §7.
 """
 
 import logging
@@ -28,8 +30,8 @@ _HEADER_LINES = [
 def _parse_line(line: str) -> MetricSnapshot | None:
     """Parse a single metric history comment line into a MetricSnapshot.
 
-    Returns None for blank or non-data lines (headers, comments without
-    the 5-field pipe format).
+    Returns ``None`` for blank or non-data lines (headers, comments without
+    the 5-field pipe format, or lines with invalid timestamp/value).
     """
     stripped = line.strip()
     if not stripped or not stripped.startswith("#"):
@@ -66,8 +68,8 @@ def get_metric_snapshots(
 
     Args:
         goal_title: Goal title to match (identity is the title string).
-        since: Inclusive lower bound on timestamp (None = no lower bound).
-        until: Inclusive upper bound on timestamp (None = no upper bound).
+        since: Inclusive lower bound on timestamp (``None`` = no lower bound).
+        until: Inclusive upper bound on timestamp (``None`` = no upper bound).
         path: Override the history file path (used by tests).
 
     Returns:
