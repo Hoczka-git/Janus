@@ -4,10 +4,12 @@ Reads and writes ``data/metric_history.md`` in a simple comment-line format.
 The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
+
+Design reference: docs/goal_health_progress_signals_stalled_detection_spec.md §7.
 """
 
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +28,16 @@ _HEADER_LINES = [
 
 @dataclass
 class MetricSnapshot:
-    """A single metric value recorded for a goal at a point in time."""
+    """A single metric value recorded for a goal at a point in time.
+
+    Attributes:
+        timestamp: ISO datetime with timezone.
+        goal_title: Goal title (persistence identity).
+        metric_name: The metric being recorded.
+        value: The metric value.
+        source: How the value was obtained (``manual`` | ``measurement`` |
+            ``import``).
+    """
 
     timestamp: datetime
     goal_title: str
@@ -38,8 +49,8 @@ class MetricSnapshot:
 def _parse_line(line: str) -> MetricSnapshot | None:
     """Parse a single metric history comment line into a MetricSnapshot.
 
-    Returns None for blank or non-data lines (headers, comments without
-    the 5-field pipe format).
+    Returns ``None`` for blank or non-data lines (headers, comments without
+    the 5-field pipe format, or lines with invalid timestamp/value).
     """
     stripped = line.strip()
     if not stripped or not stripped.startswith("#"):
@@ -76,8 +87,8 @@ def get_metric_snapshots(
 
     Args:
         goal_title: Goal title to match (identity is the title string).
-        since: Inclusive lower bound on timestamp (None = no lower bound).
-        until: Inclusive upper bound on timestamp (None = no upper bound).
+        since: Inclusive lower bound on timestamp (``None`` = no lower bound).
+        until: Inclusive upper bound on timestamp (``None`` = no upper bound).
         path: Override the history file path (used by tests).
 
     Returns:
