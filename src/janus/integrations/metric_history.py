@@ -8,7 +8,7 @@ trends, inactivity, and measurement-due signals.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -42,11 +42,15 @@ def _parse_line(line: str) -> MetricSnapshot | None:
     the 5-field pipe format).
     """
     stripped = line.strip()
-    if not stripped or not stripped.startswith("#"):
+    if not stripped:
         return None
-    # Remove the leading "#"
-    content = stripped[1:].strip()
-    parts = [p.strip() for p in content.split("|")]
+    # Strip optional leading "#" comment prefix so both
+    # "# ts | G | M | v | src" and "ts | G | M | v | src" work.
+    if stripped.startswith("#"):
+        stripped = stripped[1:].strip()
+        if not stripped:  # comment-only line
+            return None
+    parts = [p.strip() for p in stripped.split("|")]
     if len(parts) != 5:
         return None
     try:
@@ -57,6 +61,9 @@ def _parse_line(line: str) -> MetricSnapshot | None:
         val = float(parts[3])
     except ValueError:
         return None
+    # Reject lines with empty required string fields.
+    if not parts[1] or not parts[2]:
+        return None
     return MetricSnapshot(
         timestamp=ts,
         goal_title=parts[1],
@@ -64,6 +71,11 @@ def _parse_line(line: str) -> MetricSnapshot | None:
         value=val,
         source=parts[4],
     )
+
+
+def _validate_snapshot_fields(goal_title: str, metric_name: str) -> bool:
+    """Check that required string fields are non-empty."""
+    return bool(goal_title and metric_name)
 
 
 def get_metric_snapshots(
@@ -88,6 +100,14 @@ def get_metric_snapshots(
     if not history_path.exists():
         return []
 
+    # Normalize date objects to datetimes for comparison.
+    def _to_datetime(t):
+        if isinstance(t, datetime):
+            if t.tzinfo is None:
+                return t.replace(tzinfo=timezone.utc)
+            return t.astimezone(timezone.utc)
+        return datetime.combine(t, datetime.min.time(), tzinfo=timezone.utc)
+
     results: list[MetricSnapshot] = []
     with history_path.open() as f:
         for line in f:
@@ -96,9 +116,9 @@ def get_metric_snapshots(
                 continue
             if snap.goal_title != goal_title:
                 continue
-            if since is not None and snap.timestamp < since:
+            if since is not None and snap.timestamp < _to_datetime(since):
                 continue
-            if until is not None and snap.timestamp > until:
+            if until is not None and snap.timestamp > _to_datetime(until):
                 continue
             results.append(snap)
     results.sort(key=lambda s: s.timestamp)
