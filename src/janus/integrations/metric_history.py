@@ -4,17 +4,22 @@ Reads and writes ``data/metric_history.md`` in a simple comment-line format.
 The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
+
+Backward compatibility: MetricSnapshot is re-exported from this module so
+existing imports from janus.integrations.metric_history continue to work
+(per design §5.2).
 """
 
 import logging
-from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
+from janus.models.metric_snapshot import MetricSnapshot
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
 
 # Field order for the comment-line format.
 # Format: # <timestamp> | <goal_title> | <metric_name> | <value> | <source>
@@ -22,17 +27,6 @@ _HEADER_LINES = [
     "# Metric History",
     "# Format: ISO-timestamp | goal_title | metric_name | value | source",
 ]
-
-
-@dataclass
-class MetricSnapshot:
-    """A single metric value recorded for a goal at a point in time."""
-
-    timestamp: datetime
-    goal_title: str
-    metric_name: str
-    value: float
-    source: str  # manual | measurement | import
 
 
 def _parse_line(line: str) -> MetricSnapshot | None:
