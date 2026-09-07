@@ -4,6 +4,7 @@ Reads and writes ``data/metric_history.md`` in a simple comment-line format.
 The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
+<<<<<<< HEAD
 """
 
 import logging
@@ -11,6 +12,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+=======
+
+Design reference: docs/goal_health_progress_signals_stalled_detection_spec.md §7.
+"""
+
+import logging
+from datetime import datetime
+from pathlib import Path
+
+from janus.models.metric_snapshot import MetricSnapshot
+
+>>>>>>> origin/master
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
 
@@ -24,6 +37,7 @@ _HEADER_LINES = [
 ]
 
 
+<<<<<<< HEAD
 @dataclass
 class MetricSnapshot:
     """A single metric value recorded for a goal at a point in time."""
@@ -51,6 +65,20 @@ def _parse_line(line: str) -> MetricSnapshot | None:
         if not stripped:  # comment-only line
             return None
     parts = [p.strip() for p in stripped.split("|")]
+=======
+def _parse_line(line: str) -> MetricSnapshot | None:
+    """Parse a single metric history comment line into a MetricSnapshot.
+
+    Returns ``None`` for blank or non-data lines (headers, comments without
+    the 5-field pipe format, or lines with invalid timestamp/value).
+    """
+    stripped = line.strip()
+    if not stripped or not stripped.startswith("#"):
+        return None
+    # Remove the leading "#"
+    content = stripped[1:].strip()
+    parts = [p.strip() for p in content.split("|")]
+>>>>>>> origin/master
     if len(parts) != 5:
         return None
     try:
@@ -61,9 +89,12 @@ def _parse_line(line: str) -> MetricSnapshot | None:
         val = float(parts[3])
     except ValueError:
         return None
+<<<<<<< HEAD
     # Reject lines with empty required string fields.
     if not parts[1] or not parts[2]:
         return None
+=======
+>>>>>>> origin/master
     return MetricSnapshot(
         timestamp=ts,
         goal_title=parts[1],
@@ -73,11 +104,14 @@ def _parse_line(line: str) -> MetricSnapshot | None:
     )
 
 
+<<<<<<< HEAD
 def _validate_snapshot_fields(goal_title: str, metric_name: str) -> bool:
     """Check that required string fields are non-empty."""
     return bool(goal_title and metric_name)
 
 
+=======
+>>>>>>> origin/master
 def get_metric_snapshots(
     goal_title: str,
     since: datetime | None = None,
@@ -88,8 +122,13 @@ def get_metric_snapshots(
 
     Args:
         goal_title: Goal title to match (identity is the title string).
+<<<<<<< HEAD
         since: Inclusive lower bound on timestamp (None = no lower bound).
         until: Inclusive upper bound on timestamp (None = no upper bound).
+=======
+        since: Inclusive lower bound on timestamp (``None`` = no lower bound).
+        until: Inclusive upper bound on timestamp (``None`` = no upper bound).
+>>>>>>> origin/master
         path: Override the history file path (used by tests).
 
     Returns:
@@ -100,6 +139,7 @@ def get_metric_snapshots(
     if not history_path.exists():
         return []
 
+<<<<<<< HEAD
     # Normalize date objects to datetimes for comparison.
     def _to_datetime(t):
         if isinstance(t, datetime):
@@ -108,6 +148,8 @@ def get_metric_snapshots(
             return t.astimezone(timezone.utc)
         return datetime.combine(t, datetime.min.time(), tzinfo=timezone.utc)
 
+=======
+>>>>>>> origin/master
     results: list[MetricSnapshot] = []
     with history_path.open() as f:
         for line in f:
@@ -116,9 +158,15 @@ def get_metric_snapshots(
                 continue
             if snap.goal_title != goal_title:
                 continue
+<<<<<<< HEAD
             if since is not None and snap.timestamp < _to_datetime(since):
                 continue
             if until is not None and snap.timestamp > _to_datetime(until):
+=======
+            if since is not None and snap.timestamp < since:
+                continue
+            if until is not None and snap.timestamp > until:
+>>>>>>> origin/master
                 continue
             results.append(snap)
     results.sort(key=lambda s: s.timestamp)
@@ -163,6 +211,7 @@ def append_metric_snapshot(
         snapshot.value,
         snapshot.source,
     )
+<<<<<<< HEAD
 
 
 # ── Aliases for backward compatibility ─────────────────────────────────────
@@ -196,3 +245,5 @@ load_snapshots
 get_metric_snapshots
 MetricSnapshot
 append_snapshot
+=======
+>>>>>>> origin/master

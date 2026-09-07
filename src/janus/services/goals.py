@@ -10,7 +10,11 @@ from datetime import datetime
 from janus._log import emit
 from janus.models.goal import Goal
 from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
+<<<<<<< HEAD
 from janus.integrations.metric_history import MetricSnapshot, append_snapshot
+=======
+from janus.integrations.metric_history import append_metric_snapshot, MetricSnapshot
+>>>>>>> origin/master
 
 _VALID_FREQUENCIES = {"daily", "twice_weekly", "weekly", "weekends", "custom"}
 _VALID_PREFERRED_TIMES = {"morning", "afternoon", "evening", "anytime"}
@@ -33,6 +37,7 @@ def add_goal(
     related_tasks: list[str] | None = None,
     measurement_requirements: list[dict] | None = None,
     research_artifact_titles: list[str] | None = None,
+    inactivity_window_days: int | None = None,
 ) -> Goal:
     """Validate and persist a new Goal.
 
@@ -57,6 +62,7 @@ def add_goal(
         related_tasks=related_tasks,
         measurement_requirements=measurement_requirements,
         research_artifact_titles=research_artifact_titles,
+        inactivity_window_days=inactivity_window_days,
     )
     # Check for duplicate title before saving
     existing = load_goals()
@@ -97,7 +103,8 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
                   add_measurement_requirement, remove_measurement_requirement,
                   set_measurement_requirements,
                   add_research_artifact, remove_research_artifact,
-                  set_research_artifacts.
+                  set_research_artifacts,
+                  inactivity_window_days.
     Returns the updated Goal. Raises ValueError if goal not found or validation fails.
     """
     goal = get_goal(title)
@@ -160,6 +167,7 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
 
     update_goal(goal)
 
+<<<<<<< HEAD
     # ── Metric snapshot recording (§7.3, §10.2) ─────────────────────────
     # When current_value is updated on a goal with a metric, append a snapshot
     # to data/metric_history.md so progress_slow and days_since_last_activity
@@ -168,6 +176,12 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         from datetime import datetime
         from janus.integrations.metric_history import append_metric_snapshot, MetricSnapshot
 
+=======
+    # Record a metric snapshot when current_value is updated and the goal
+    # has a metric configured (design §7.3 / §12.4).
+    if "current_value" in changes and goal.metric_name is not None:
+        from datetime import datetime
+>>>>>>> origin/master
         snapshot = MetricSnapshot(
             timestamp=datetime.now().astimezone(),
             goal_title=goal.title,

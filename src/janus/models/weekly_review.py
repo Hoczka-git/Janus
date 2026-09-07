@@ -14,12 +14,18 @@ class GoalReview:
     missing_related_tasks: list[str] = field(default_factory=list)
     suggested_next_step: str | None = None
     all_related_tasks_completed: bool = False
+<<<<<<< HEAD
     # ── Goal health & progress signals (§12.5) ─────────────────────────
     health_state: str | None = None        # healthy | watch | stalled | completed | None
     progress_delta: float | None = None    # progress change over lookback window
     days_since_last_activity: int | None = None  # days since last snapshot or task completion
     dominant_signal: str | None = None     # highest-severity signal name, if any
     dominant_signal_reason: str | None = None  # human-readable reason for the dominant signal
+=======
+    health_state: str | None = None        # healthy | watch | stalled | completed
+    days_since_last_activity: int | None = None
+    progress_delta: float | None = None    # progress change over lookback window
+>>>>>>> origin/master
 
 
 @dataclass

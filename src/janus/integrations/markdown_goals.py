@@ -209,7 +209,11 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     else:
                         raise ValueError(f"Invalid Direction at line {line_num}: {raw}")
                 elif stripped.startswith("InactivityWindowDays:"):
+<<<<<<< HEAD
                     raw = stripped[21:].strip()
+=======
+                    raw = stripped[20:].strip()
+>>>>>>> origin/master
                     if raw:
                         try:
                             current["inactivity_window_days"] = int(raw)

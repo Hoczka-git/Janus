@@ -34,8 +34,11 @@ def show_weekly(trace_id: str | None = None) -> None:
                 print(f"Progress: {gr.progress:.1f}%")
                 if gr.progress_detail:
                     print(f"  {gr.progress_detail}")
+                if gr.progress_delta is not None:
+                    print(f"  Progress delta (14d): {gr.progress_delta:+.1f}%")
             else:
                 print("Progress: N/A")
+<<<<<<< HEAD
             if gr.health_state is not None:
                 print(f"Health: {gr.health_state}")
                 if gr.health_state == "stalled":
@@ -46,6 +49,14 @@ def show_weekly(trace_id: str | None = None) -> None:
                 print(f"  Progress delta: {gr.progress_delta:+.1f}%")
             if gr.days_since_last_activity is not None:
                 print(f"  Days since last activity: {gr.days_since_last_activity}")
+=======
+            if gr.health_state:
+                print(f"Health: {gr.health_state}")
+            if gr.days_since_last_activity is not None:
+                print(f"Days since last activity: {gr.days_since_last_activity}")
+            if gr.health_state == "stalled":
+                print("  ⚠ STALLED — attention required")
+>>>>>>> origin/master
             if gr.suggested_next_step:
                 print("Suggested next step:")
                 print(f"- {gr.suggested_next_step}")

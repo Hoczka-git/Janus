@@ -33,6 +33,7 @@ class Goal:
     #    "interval_days": int}
     measurement_requirements: list[dict] | None = None
     research_artifact_titles: list[str] | None = field(default_factory=list)
+    inactivity_window_days: int | None = None  # per-goal override of system default (design §6.3)
 
     # Per-goal inactivity window override (§6.2.2). Default: 30 days.
     inactivity_window_days: int | None = None

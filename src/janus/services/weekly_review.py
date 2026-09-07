@@ -65,9 +65,18 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
 
     # Load all task titles (open + completed) for stall detection
     from janus.services.attention import _load_all_task_titles
+<<<<<<< HEAD
     all_task_titles = _load_all_task_titles(
         Path(__file__).resolve().parents[3] / "data" / "tasks.md"
     )
+=======
+    from janus.integrations.metric_history import get_metric_snapshots
+    all_task_titles = _load_all_task_titles(
+        Path(__file__).resolve().parents[3] / "data" / "tasks.md"
+    )
+
+    goal_reviews: list[GoalReview] = []
+>>>>>>> origin/master
 
     # Load metric snapshots once for all goals (§7.4, §12.5).
     from janus.integrations.metric_history import load_snapshots
@@ -121,11 +130,18 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
                                 for rt in goal.related_tasks):
                     review.all_related_tasks_completed = True
 
+<<<<<<< HEAD
         # ── Goal health assessment (§12.5) ──────────────────────────────
+=======
+        # Compute health assessment (design §6.4.2).
+        from janus.services.goal_health import assess_goal_health
+        metric_snaps = get_metric_snapshots(goal.title) if goal.metric_name else []
+>>>>>>> origin/master
         assessment = assess_goal_health(
             goal, today,
             open_task_titles={t.title for t in tasks},
             all_task_titles=all_task_titles,
+<<<<<<< HEAD
             metric_snapshots=metric_snapshots,
             completed_task_dates=None,  # task completion dates not tracked yet
         )
@@ -135,6 +151,14 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
         if assessment.dominant_signal is not None:
             review.dominant_signal = assessment.dominant_signal.signal
             review.dominant_signal_reason = assessment.dominant_signal.reason
+=======
+            metric_snapshots=metric_snaps,
+        )
+        if assessment is not None:
+            review.health_state = assessment.health_state
+            review.progress_delta = assessment.progress_delta
+            review.days_since_last_activity = assessment.days_since_last_activity
+>>>>>>> origin/master
 
         goal_reviews.append(review)
 

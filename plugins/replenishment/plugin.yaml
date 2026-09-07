@@ -1,0 +1,17 @@
+name: replenishment
+version: "1.0.0"
+description: >-
+  Roadmap-driven task replenishment. Hooks into `kanban_task_completed` in the
+  worker process, resolves the project/workspace of the just-completed task,
+  loads the project's configured planning sources from `projects.db`, and pulls
+  the next item(s) onto the board as new tasks parented on the completed task —
+  keeping the board fed from roadmap files, swarms, webhooks, and LLM plans
+  without a new scheduler or a new Kanban-DB column.
+
+  Opt-in: enabled via `hermes plugins enable replenishment` (or
+  `plugins.enabled` in config.yaml). Fires only for tasks whose title carries
+  the configured replenish-eligibility marker prefix (default `[plan]`), so the
+  common completion path is untouched when nothing subscribes.
+author: NousResearch
+hooks:
+  - kanban_task_completed

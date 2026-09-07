@@ -96,6 +96,7 @@ def _assess_no_recent_activity(
         return None
 
     window = goal.inactivity_window_days or INACTIVITY_WINDOW_DAYS
+<<<<<<< HEAD
     window_start = datetime.combine(
         today - timedelta(days=window), datetime.min.time(), tzinfo=timezone.utc
     )
@@ -104,6 +105,15 @@ def _assess_no_recent_activity(
     if metric_snapshots:
         for s in metric_snapshots:
             if s.goal_title == goal.title and s.timestamp >= window_start:
+=======
+    now = datetime.now().astimezone()
+    window_start = now - timedelta(days=window)
+
+    # Recent metric snapshot?
+    if metric_snapshots:
+        for s in metric_snapshots:
+            if s.timestamp >= window_start:
+>>>>>>> origin/master
                 return None
 
     # Recent task completion?
@@ -237,6 +247,7 @@ def assess_goal_stall(
                     reason=f"Milestone '{m.title}' deadline in {(m_deadline - today).days} days",
                 ), "milestone_deadline_soon"))
 
+<<<<<<< HEAD
     # --- Finalize: add no_recent_activity if not suppressed ---
     # no_recent_activity (35) is suppressed when any signal with score > 35
     # fires (goal_stalled=40, milestone_slipped=50, etc.) OR when goal_inactive
@@ -251,6 +262,19 @@ def assess_goal_stall(
             has_inactive = any(s[0].signal == "goal_inactive" for s in signals)
             if not higher_score and not has_inactive:
                 signals.append(no_activity_signal)
+=======
+    # --- No recent activity (time-based, design §6.2.2) ---
+    # Fires when the goal is active but has had no metric update or task
+    # completion within the configured inactivity window, AND there are no
+    # upcoming milestones or deadlines explaining the pause.
+    # Score 35 — distinct from goal_inactive (30, all tasks done, no future
+    # plans) and goal_stalled (40, fallback). Suppressed by any higher-
+    # severity signal (deadline/milestone/stall signals).
+    no_activity_signal = _assess_no_recent_activity(
+        goal, today, metric_snapshots, completed_task_dates,
+        milestones, goal_deadline, has_open_related,
+    )
+>>>>>>> origin/master
 
     # --- No recent activity (heuristic) ---
     # Fires when: all related tasks completed (no open), no future milestone
@@ -294,6 +318,16 @@ def assess_goal_stall(
                 score=40,
                 reason="All linked tasks are completed. Define the next milestone, add a new action, or mark the goal as complete.",
             ), "goal_stalled"))
+
+    # --- Finalize: add no_recent_activity if not suppressed ---
+    # no_recent_activity (35) is suppressed when any signal with score > 35
+    # fires (goal_stalled=40, milestone_slipped=50, etc.) OR when goal_inactive
+    # fires (structural signal takes precedence over the temporal one).
+    if no_activity_signal is not None:
+        higher_score = any(s[0].score > 35 for s in signals)
+        has_inactive = any(s[0].signal == "goal_inactive" for s in signals)
+        if not higher_score and not has_inactive:
+            signals.append(no_activity_signal)
 
     return signals
 
