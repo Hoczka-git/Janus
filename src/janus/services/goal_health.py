@@ -1,12 +1,18 @@
 """Goal health assessment service for Janus.
 
 Provides the ``assess_goal_health()`` entry point and supporting dataclasses
-that compute a goal's health state (healthy | watch | stalled | completed)
-from the union of stall/deadline signals and progress/measurement/inactivity
-signals.
+that compute a goal's health state (``healthy`` | ``watch`` | ``stalled`` |
+``completed``) from the union of stall/deadline signals (from the attention
+engine) and progress/measurement/inactivity signals (emitted here).
 
-This implements the design in
-``docs/goal_health_progress_signals_stalled_detection_spec.md``.
+This implements the signal emission and aggregation logic described in
+``docs/goal_health_progress_signals_stalled_detection_spec.md`` §5 and §4.
+
+Signal emission points (design §5.3):
+- ``progress_slow`` — emitted here when metric history shows slow progress.
+- ``measurement_due`` — emitted here when measurement requirements are overdue.
+- ``no_recent_activity`` — emitted by ``assess_goal_stall()`` in attention.py
+  (part of stalled-goal detection, a separate task).
 """
 
 import logging
@@ -18,7 +24,10 @@ from janus.models.goal_health_assessment import GoalHealthAssessment
 from janus.models.metric_snapshot import MetricSnapshot
 from janus.services.attention import StallSignal, assess_goal_stall
 from janus.services.goal_progress import compute_goal_progress
-from janus.integrations.metric_history import get_metric_snapshots
+from janus.integrations.metric_history import (
+    MetricSnapshot,  # re-exported at historical import location (backward compat)
+    get_metric_snapshots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +48,26 @@ _FREQUENCY_INTERVAL_DAYS = {
 }
 
 
-# Health states in order of severity for sorting.
-_HEALTH_SEVERITY = {"healthy": 0, "watch": 1, "stalled": 2, "completed": 3}
+# ── Health state resolution ──────────────────────────────────────────────────
+
+# Maps each signal to the health state it produces. The highest-scoring
+# signal determines the health state (design §4.2).
+_SIGNAL_TO_HEALTH_STATE = {
+    "goal_overdue": "stalled",
+    "goal_deadline_today": "watch",
+    "goal_deadline_soon": "healthy",  # exception handled in _health_from_signals
+    "milestone_slipped": "stalled",
+    "milestone_deadline_soon": "healthy",  # exception handled in _health_from_signals
+    "goal_stalled": "stalled",
+    "goal_inactive": "watch",
+    "no_recent_activity": "stalled",
+    "progress_slow": "watch",
+    "measurement_due": "watch",
+}
+
+# Signals that by themselves do NOT downgrade health (the deadline-soon
+# exception — design §4.2 / §135).
+_DEADLINE_SOON_EXCEPTIONS = frozenset({"goal_deadline_soon", "milestone_deadline_soon"})
 
 
 def _health_from_signals(signals: list[GoalSignal]) -> str:
@@ -52,43 +79,26 @@ def _health_from_signals(signals: list[GoalSignal]) -> str:
     if not signals:
         return "healthy"
 
-    # Severity order maps each signal to the health state it produces.
-    # The highest-scoring signal determines the health state.
-    signal_to_state = {
-        "goal_overdue": "stalled",
-        "goal_deadline_today": "watch",
-        "goal_deadline_soon": "healthy",  # exception below
-        "milestone_slipped": "stalled",
-        "milestone_deadline_soon": "healthy",  # exception below
-        "goal_stalled": "stalled",
-        "goal_inactive": "watch",
-        "no_recent_activity": "stalled",
-        "progress_slow": "watch",
-        "measurement_due": "watch",
-    }
-
     best_signal = max(signals, key=lambda s: s.score)
 
-    # Exception: deadline_soon / milestone_deadline_soon do NOT downgrade to
-    # watch if there are open related tasks AND no progress_slow signal.
-    # (design §4.2 exception + §135 / §135)
-    if best_signal.signal in ("goal_deadline_soon", "milestone_deadline_soon"):
-        # Check whether open tasks exist — we need that info. Since
-        # assess_goal_health receives context, we check via the signal set:
-        # progress_slow would only fire if tasks are open but progress is slow.
-        # If progress_slow is NOT among the signals, and there are open tasks,
-        # the goal is healthy (actively working toward the deadline).
+    # Exception: goal_deadline_soon / milestone_deadline_soon do NOT
+    # downgrade to ``watch`` if there are open related tasks AND no
+    # ``progress_slow`` signal. The goal is actively working toward the
+    # deadline (design §4.2 exception, §135).
+    if best_signal.signal in _DEADLINE_SOON_EXCEPTIONS:
         has_progress_slow = any(s.signal == "progress_slow" for s in signals)
         if not has_progress_slow:
             return "healthy"
-        return "watch"  # deadline_soon + progress_slow → watch
+        return "watch"
 
-    return signal_to_state.get(best_signal.signal, "healthy")
+    return _SIGNAL_TO_HEALTH_STATE.get(best_signal.signal, "healthy")
 
+
+# ── Signal computation: progress_slow ────────────────────────────────────────
 
 def _compute_progress_slow(
     goal: Goal,
-    today: date,
+    now: datetime,
     metric_snapshots: list[MetricSnapshot],
     completed_task_titles: set[str] | None,
 ) -> GoalSignal | None:
@@ -101,17 +111,10 @@ def _compute_progress_slow(
     if goal.status != "active":
         return None
 
-    now = datetime.now().astimezone()
     lookback_start = now - timedelta(days=PROGRESS_LOOKBACK_DAYS)
 
     # Need at least some progress configuration
-    has_metric = (
-        goal.metric_name
-        and goal.target_value is not None
-        and goal.direction
-        and goal.start_value is not None
-        and goal.current_value is not None
-    )
+    has_metric = _has_metric_config(goal)
     has_tasks = bool(goal.related_tasks)
     if not has_metric and not has_tasks:
         return None
@@ -131,21 +134,7 @@ def _compute_progress_slow(
         past_snapshot = max(past_snapshots, key=lambda s: s.timestamp)
 
         # Reconstruct a goal-as-of snapshot to compute past progress.
-        past_goal = Goal(
-            title=goal.title,
-            status=goal.status,
-            deadline=goal.deadline,
-            metric_name=goal.metric_name,
-            metric_unit=goal.metric_unit,
-            start_value=goal.start_value,
-            current_value=past_snapshot.value,
-            target_value=goal.target_value,
-            direction=goal.direction,
-            related_tasks=goal.related_tasks,
-            milestones=goal.milestones,
-            measurement_requirements=goal.measurement_requirements,
-            research_artifact_titles=goal.research_artifact_titles,
-        )
+        past_goal = _reconstruct_goal_as_of(goal, past_snapshot.value)
         past_progress = compute_goal_progress(past_goal, completed_task_titles)
         if past_progress is None:
             return None
@@ -156,21 +145,23 @@ def _compute_progress_slow(
         # completion timestamps are recorded (design §13.4).
         progress_delta = current_progress
 
+    # Regression is a different problem (design §13.3 / open question 3).
     if progress_delta < 0:
-        # Regression is a different problem (design §13.3 / open question 3).
         return None
 
     if progress_delta < PROGRESS_SLOW_THRESHOLD:
-        # The lookback check: ensure the goal has existed for at least the
-        # lookback window. Without a creation date stored, we check whether
-        # a metric snapshot exists that is at least PROGRESS_LOOKBACK_DAYS old.
-        has_lookback_history = has_metric and any(
-            s.timestamp <= (now - timedelta(days=PROGRESS_LOOKBACK_DAYS))
-            for s in metric_snapshots
-            if s.metric_name == goal.metric_name
-        )
-        if has_metric and not has_lookback_history:
-            return None
+        # Ensure the lookback window has elapsed: for metric goals we
+        # already checked for past_snapshots; for task-based goals with no
+        # metric, we need at least one snapshot that is old enough OR at
+        # least some task-based progress configuration.
+        if has_metric:
+            has_lookback_history = any(
+                s.timestamp <= lookback_start
+                for s in metric_snapshots
+                if s.metric_name == goal.metric_name
+            )
+            if not has_lookback_history:
+                return None
         if not has_metric and not has_tasks:
             return None
         return GoalSignal(
@@ -189,7 +180,7 @@ def _compute_progress_slow(
 
 def _compute_measurement_due(
     goal: Goal,
-    today: date,
+    now: datetime,
     metric_snapshots: list[MetricSnapshot],
 ) -> GoalSignal | None:
     """Evaluate the ``measurement_due`` signal (design §9).
@@ -202,7 +193,6 @@ def _compute_measurement_due(
     if not goal.measurement_requirements:
         return None
 
-    now = datetime.now().astimezone()
     overdue_metrics: list[str] = []
 
     for req in goal.measurement_requirements:
@@ -212,6 +202,7 @@ def _compute_measurement_due(
         frequency = req.get("frequency", "daily")
         interval_days = req.get("interval_days")
 
+        # Skip malformed requirements
         if frequency == "custom" and interval_days is None:
             continue
         if frequency not in _FREQUENCY_INTERVAL_DAYS and frequency != "custom":
@@ -244,6 +235,143 @@ def _compute_measurement_due(
     return None
 
 
+# ── Supporting helpers ───────────────────────────────────────────────────────
+
+def _has_metric_config(goal: Goal) -> bool:
+    """True if the goal has all fields needed for metric-based progress."""
+    return (
+        bool(goal.metric_name)
+        and goal.target_value is not None
+        and goal.direction is not None
+        and goal.start_value is not None
+        and goal.current_value is not None
+    )
+
+
+def _reconstruct_goal_as_of(goal: Goal, current_value: float) -> Goal:
+    """Build a copy of *goal* with ``current_value`` set to a past snapshot value."""
+    return Goal(
+        title=goal.title,
+        status=goal.status,
+        deadline=goal.deadline,
+        metric_name=goal.metric_name,
+        metric_unit=goal.metric_unit,
+        start_value=goal.start_value,
+        current_value=current_value,
+        target_value=goal.target_value,
+        direction=goal.direction,
+        related_tasks=goal.related_tasks,
+        milestones=goal.milestones,
+        measurement_requirements=goal.measurement_requirements,
+        research_artifact_titles=goal.research_artifact_titles,
+        inactivity_window_days=goal.inactivity_window_days,
+    )
+
+
+def _compute_progress_delta(
+    goal: Goal,
+    now: datetime,
+    metric_snapshots: list[MetricSnapshot],
+    completed_task_titles: set[str] | None,
+) -> float | None:
+    """Compute the progress delta over the lookback window (design §8.2)."""
+    if goal.status != "active":
+        return None
+
+    has_metric = _has_metric_config(goal)
+    has_tasks = bool(goal.related_tasks)
+    if not has_metric and not has_tasks:
+        return None
+
+    lookback_start = now - timedelta(days=PROGRESS_LOOKBACK_DAYS)
+    current_progress = compute_goal_progress(goal, completed_task_titles)
+    if current_progress is None:
+        return None
+
+    if has_metric:
+        relevant = [s for s in metric_snapshots if s.metric_name == goal.metric_name]
+        past_snapshots = [s for s in relevant if s.timestamp <= lookback_start]
+        if not past_snapshots:
+            return None  # insufficient history
+        past_snapshot = max(past_snapshots, key=lambda s: s.timestamp)
+        past_goal = _reconstruct_goal_as_of(goal, past_snapshot.value)
+        past_progress = compute_goal_progress(past_goal, completed_task_titles)
+        if past_progress is None:
+            return None
+        return current_progress - past_progress
+
+    # Task-based: use current completed state (conservative, §13.4).
+    return current_progress
+
+
+def _compute_days_since_last_activity(
+    metric_snapshots: list[MetricSnapshot],
+    completed_task_dates: dict[str, date] | None,
+    today: date,
+    now: datetime,
+) -> int | None:
+    """Days since the most recent metric snapshot or task completion.
+
+    Returns ``0`` if activity happened today. Returns ``None`` if no activity
+    exists at all (no snapshots and no completions).
+    """
+    candidates: list[datetime] = []
+    for s in metric_snapshots:
+        candidates.append(s.timestamp)
+    if completed_task_dates:
+        for d in completed_task_dates.values():
+            candidates.append(
+                datetime.combine(d, datetime.min.time()).astimezone()
+            )
+    if not candidates:
+        return None
+    most_recent = max(candidates)
+    delta = now - most_recent
+    return max(0, delta.days)
+
+
+def _count_overdue_measurements(
+    goal: Goal,
+    now: datetime,
+    metric_snapshots: list[MetricSnapshot],
+) -> int:
+    """Count how many measurement requirements are overdue (design §9)."""
+    if not goal.measurement_requirements:
+        return 0
+
+    overdue = 0
+    for req in goal.measurement_requirements:
+        metric = req.get("metric")
+        if not metric:
+            continue
+        frequency = req.get("frequency", "daily")
+        interval_days = req.get("interval_days")
+
+        if frequency == "custom" and interval_days is None:
+            continue
+        if frequency not in _FREQUENCY_INTERVAL_DAYS and frequency != "custom":
+            continue
+
+        if frequency == "custom":
+            interval = interval_days
+        else:
+            interval = _FREQUENCY_INTERVAL_DAYS[frequency]
+        assert interval is not None
+        due_after = interval + MEASUREMENT_DUE_GRACE_DAYS
+
+        metric_snaps = [s for s in metric_snapshots if s.metric_name == metric]
+        if not metric_snaps:
+            overdue += 1
+            continue
+        most_recent = max(metric_snaps, key=lambda s: s.timestamp)
+        if (now - most_recent.timestamp).days >= due_after:
+            overdue += 1
+
+    return overdue
+
+
+# ── Public API ───────────────────────────────────────────────────────────────
+
 def assess_goal_health(
     goal: Goal,
     today: date,
@@ -259,15 +387,15 @@ def assess_goal_health(
         today: Current date.
         open_task_titles: Currently-open task titles.
         all_task_titles: All task titles (open + completed) from raw file.
-        metric_snapshots: Pre-loaded snapshots for this goal. If None,
+        metric_snapshots: Pre-loaded snapshots for this goal. If ``None``,
             loaded from ``metric_history``.
         completed_task_dates: Mapping of task title → completion date. If
-            None, task-based progress delta is not computed precisely.
+            ``None``, task-based progress delta is not computed precisely.
 
     Returns:
-        A GoalHealthAssessment, or None if the goal should be excluded
-        (completed goals return a completed-state assessment; inactive goals
-        return None entirely per design §4.4).
+        A ``GoalHealthAssessment``, or ``None`` if the goal should be
+        excluded (inactive goals return ``None`` per design §4.4). Completed
+        goals return a completed-state assessment.
     """
     now = datetime.now().astimezone()
 
@@ -298,6 +426,8 @@ def assess_goal_health(
         metric_snapshots = get_metric_snapshots(goal.title)
 
     # 1. Existing stall/deadline signals from the attention engine.
+    #    Includes no_recent_activity (design §6.2.2) when metric data
+    #    and/or completed_task_dates are provided.
     stall_signals = assess_goal_stall(
         goal, today, open_task_titles, all_task_titles,
         metric_snapshots=metric_snapshots,
@@ -312,39 +442,38 @@ def assess_goal_health(
             timestamp=now,
         ))
 
-    # 2. progress_slow signal.
+    # 2. progress_slow signal (design §8) — emitted here.
+    completed_titles = set(completed_task_dates.keys()) if completed_task_dates else None
     progress_slow = _compute_progress_slow(
-        goal, today, metric_snapshots,
-        set(completed_task_dates.keys()) if completed_task_dates else None,
+        goal, now, metric_snapshots, completed_titles,
     )
     if progress_slow is not None:
         signals.append(progress_slow)
 
-    # 3. measurement_due signal.
-    measurement_due = _compute_measurement_due(goal, today, metric_snapshots)
+    # 3. measurement_due signal (design §9) — emitted here.
+    measurement_due = _compute_measurement_due(goal, now, metric_snapshots)
     if measurement_due is not None:
         signals.append(measurement_due)
-        # Also count overdue measurements.
-        # (measurement_overdue_count computed below separately)
 
     # 4. no_recent_activity is handled by assess_goal_stall above (passed
-    #    metric_snapshots). No duplicate computation needed here — the signal
-    #    is already in `signals` if it fired and wasn't suppressed.
+    #    metric_snapshots). No duplicate computation needed — the signal
+    #    is already in ``signals`` if it fired and wasn't suppressed.
 
     # Compute progress.
-    completed_titles = set(completed_task_dates.keys()) if completed_task_dates else None
     current_progress = compute_goal_progress(goal, completed_titles)
 
     # Compute progress_delta.
-    progress_delta = _compute_progress_delta(goal, today, metric_snapshots, completed_titles)
+    progress_delta = _compute_progress_delta(
+        goal, now, metric_snapshots, completed_titles,
+    )
 
     # Compute days_since_last_activity.
     days_since_activity = _compute_days_since_last_activity(
-        metric_snapshots, completed_task_dates, today,
+        metric_snapshots, completed_task_dates, today, now,
     )
 
     # Count overdue measurements.
-    overdue_count = _count_overdue_measurements(goal, today, metric_snapshots)
+    overdue_count = _count_overdue_measurements(goal, now, metric_snapshots)
 
     # Resolve health state.
     health_state = _health_from_signals(signals)
@@ -363,123 +492,3 @@ def assess_goal_health(
         measurement_overdue_count=overdue_count,
         evaluated_at=now,
     )
-
-
-def _compute_progress_delta(
-    goal: Goal,
-    today: date,
-    metric_snapshots: list[MetricSnapshot],
-    completed_task_titles: set[str] | None,
-) -> float | None:
-    """Compute the progress delta over the lookback window (design §8.2)."""
-    if goal.status != "active":
-        return None
-
-    has_metric = (
-        goal.metric_name
-        and goal.target_value is not None
-        and goal.direction
-        and goal.start_value is not None
-        and goal.current_value is not None
-    )
-    has_tasks = bool(goal.related_tasks)
-    if not has_metric and not has_tasks:
-        return None
-
-    now = datetime.now().astimezone()
-    lookback_start = now - timedelta(days=PROGRESS_LOOKBACK_DAYS)
-
-    current_progress = compute_goal_progress(goal, completed_task_titles)
-    if current_progress is None:
-        return None
-
-    if has_metric:
-        relevant = [s for s in metric_snapshots if s.metric_name == goal.metric_name]
-        past_snapshots = [s for s in relevant if s.timestamp <= lookback_start]
-        if not past_snapshots:
-            return None  # insufficient history
-        past_snapshot = max(past_snapshots, key=lambda s: s.timestamp)
-        past_goal = Goal(
-            title=goal.title,
-            status=goal.status,
-            deadline=goal.deadline,
-            metric_name=goal.metric_name,
-            metric_unit=goal.metric_unit,
-            start_value=goal.start_value,
-            current_value=past_snapshot.value,
-            target_value=goal.target_value,
-            direction=goal.direction,
-            related_tasks=goal.related_tasks,
-            milestones=goal.milestones,
-            measurement_requirements=goal.measurement_requirements,
-            research_artifact_titles=goal.research_artifact_titles,
-        )
-        past_progress = compute_goal_progress(past_goal, completed_task_titles)
-        if past_progress is None:
-            return None
-        return current_progress - past_progress
-
-    # Task-based: use current completed state (conservative, §13.4).
-    return current_progress
-
-
-def _compute_days_since_last_activity(
-    metric_snapshots: list[MetricSnapshot],
-    completed_task_dates: dict[str, date] | None,
-    today: date,
-) -> int | None:
-    """Days since the most recent metric snapshot or task completion.
-
-    Returns 0 if activity happened today. Returns None if no activity
-    exists at all (no snapshots and no completions).
-    """
-    now = datetime.now().astimezone()
-    candidates: list[datetime] = []
-    for s in metric_snapshots:
-        candidates.append(s.timestamp)
-    if completed_task_dates:
-        for d in completed_task_dates.values():
-            candidates.append(
-                datetime.combine(d, datetime.min.time()).astimezone()
-            )
-    if not candidates:
-        return None
-    most_recent = max(candidates)
-    delta = now - most_recent
-    return max(0, delta.days)
-
-
-def _count_overdue_measurements(
-    goal: Goal,
-    today: date,
-    metric_snapshots: list[MetricSnapshot],
-) -> int:
-    """Count how many measurement requirements are overdue (design §9)."""
-    if not goal.measurement_requirements:
-        return 0
-    now = datetime.now().astimezone()
-    overdue = 0
-    for req in goal.measurement_requirements:
-        metric = req.get("metric")
-        if not metric:
-            continue
-        frequency = req.get("frequency", "daily")
-        interval_days = req.get("interval_days")
-        if frequency == "custom" and interval_days is None:
-            continue
-        if frequency not in _FREQUENCY_INTERVAL_DAYS and frequency != "custom":
-            continue
-        if frequency == "custom":
-            interval = interval_days
-        else:
-            interval = _FREQUENCY_INTERVAL_DAYS[frequency]
-        assert interval is not None  # guaranteed by guards above
-        due_after = interval + MEASUREMENT_DUE_GRACE_DAYS
-        metric_snaps = [s for s in metric_snapshots if s.metric_name == metric]
-        if not metric_snaps:
-            overdue += 1
-            continue
-        most_recent = max(metric_snaps, key=lambda s: s.timestamp)
-        if (now - most_recent.timestamp).days >= due_after:
-            overdue += 1
-    return overdue

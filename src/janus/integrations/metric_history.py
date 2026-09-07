@@ -5,9 +5,7 @@ The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
 
-Backward compatibility: MetricSnapshot is re-exported from this module so
-existing imports from janus.integrations.metric_history continue to work
-(per design §5.2).
+Design reference: docs/goal_health_progress_signals_stalled_detection_spec.md §7.
 """
 
 import logging
@@ -16,10 +14,10 @@ from pathlib import Path
 
 from janus.models.metric_snapshot import MetricSnapshot
 
-logger = logging.getLogger(__name__)
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
+
+logger = logging.getLogger(__name__)
 
 # Field order for the comment-line format.
 # Format: # <timestamp> | <goal_title> | <metric_name> | <value> | <source>
@@ -32,8 +30,8 @@ _HEADER_LINES = [
 def _parse_line(line: str) -> MetricSnapshot | None:
     """Parse a single metric history comment line into a MetricSnapshot.
 
-    Returns None for blank or non-data lines (headers, comments without
-    the 5-field pipe format).
+    Returns ``None`` for blank or non-data lines (headers, comments without
+    the 5-field pipe format, or lines with invalid timestamp/value).
     """
     stripped = line.strip()
     if not stripped or not stripped.startswith("#"):
@@ -70,8 +68,8 @@ def get_metric_snapshots(
 
     Args:
         goal_title: Goal title to match (identity is the title string).
-        since: Inclusive lower bound on timestamp (None = no lower bound).
-        until: Inclusive upper bound on timestamp (None = no upper bound).
+        since: Inclusive lower bound on timestamp (``None`` = no lower bound).
+        until: Inclusive upper bound on timestamp (``None`` = no upper bound).
         path: Override the history file path (used by tests).
 
     Returns:
