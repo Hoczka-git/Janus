@@ -7,9 +7,10 @@ trends, inactivity, and measurement-due signals.
 """
 
 import logging
-from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
+
+from janus.models.metric_snapshot import MetricSnapshot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 METRIC_HISTORY_PATH = PROJECT_ROOT / "data" / "metric_history.md"
@@ -22,17 +23,6 @@ _HEADER_LINES = [
     "# Metric History",
     "# Format: ISO-timestamp | goal_title | metric_name | value | source",
 ]
-
-
-@dataclass
-class MetricSnapshot:
-    """A single metric value recorded for a goal at a point in time."""
-
-    timestamp: datetime
-    goal_title: str
-    metric_name: str
-    value: float
-    source: str  # manual | measurement | import
 
 
 def _parse_line(line: str) -> MetricSnapshot | None:

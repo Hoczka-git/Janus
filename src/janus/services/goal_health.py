@@ -1,23 +1,27 @@
 """Goal health assessment service for Janus.
 
-Provides the ``assess_goal_health()`` entry point and supporting dataclasses
-that compute a goal's health state (healthy | watch | stalled | completed)
-from the union of stall/deadline signals and progress/measurement/inactivity
-signals.
+Provides the ``assess_goal_health()`` entry point that computes a goal's
+health state (healthy | watch | stalled | completed) from the union of
+stall/deadline signals and progress/measurement/inactivity signals.
+
+The dataclasses (``GoalSignal``, ``GoalHealthAssessment``,
+``MetricSnapshot``) live in the ``janus.models`` package.
 
 This implements the design in
 ``docs/goal_health_progress_signals_stalled_detection_spec.md``.
 """
 
 import logging
-from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from janus.models.goal import Goal
+from janus.models.goal_signal import GoalSignal
+from janus.models.goal_health_assessment import GoalHealthAssessment
+from janus.models.metric_snapshot import MetricSnapshot
 from janus.services.attention import StallSignal, assess_goal_stall
 from janus.services.goal_progress import compute_goal_progress
 from janus.integrations.metric_history import (
-    MetricSnapshot,
+    MetricSnapshot,  # re-exported at historical import location (backward compat)
     get_metric_snapshots,
 )
 
@@ -38,26 +42,6 @@ _FREQUENCY_INTERVAL_DAYS = {
     "biweekly": 14,
     "monthly": 30,
 }
-
-
-@dataclass
-class GoalSignal:
-    """A single signal emitted for a goal at a point in time.
-
-    Attributes:
-        signal: Signal identifier (matches StallSignal.signal).
-        score: Severity score (higher = more severe).
-        reason: Human-readable explanation.
-        timestamp: When the signal was evaluated.
-        stale_after: Optional auto-resolve duration (not used in v1).
-    """
-
-    signal: str
-    score: int
-    reason: str
-    timestamp: datetime
-    stale_after: timedelta | None = None
-
 
 # Health states in order of severity for sorting.
 _HEALTH_SEVERITY = {"healthy": 0, "watch": 1, "stalled": 2, "completed": 3}
@@ -262,25 +246,6 @@ def _compute_measurement_due(
             timestamp=now,
         )
     return None
-
-
-@dataclass
-class GoalHealthAssessment:
-    """The computed health assessment for a single goal.
-
-    Health state is a derived attribute — it is computed on demand from
-    current signals and NOT persisted (design §13.1).
-    """
-
-    goal_title: str
-    health_state: str                    # healthy | watch | stalled | completed
-    signals: list[GoalSignal]            # all signals that fired
-    dominant_signal: GoalSignal | None   # highest-severity signal (None if healthy)
-    progress: float | None               # current progress % (from compute_goal_progress)
-    progress_delta: float | None         # change in progress over lookback window
-    days_since_last_activity: int | None # days since last metric update or task completion
-    measurement_overdue_count: int       # number of overdue measurement requirements
-    evaluated_at: datetime
 
 
 def assess_goal_health(
