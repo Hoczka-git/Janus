@@ -95,6 +95,15 @@ def handle_task_add(args: list[str]) -> None:
     title = " ".join(title_parts)
     priority = priority if priority is not None else 1
 
+    existing = list_tasks()
+    if any(task.title == title for task in existing):
+        print(
+            f"Error: a task with title '{title}' already exists. "
+            "Use 'janus task complete' to close it first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     try:
         task = add_task(title, due_date, priority)
     except ValueError as e:
