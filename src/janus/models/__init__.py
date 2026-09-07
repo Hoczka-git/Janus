@@ -12,6 +12,7 @@ Exports:
     ResearchArtifact
     TopicBlock
     KnowledgeSummary
+    Decision
     GoalSignal
     GoalHealthAssessment
     MetricSnapshot
