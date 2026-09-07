@@ -108,7 +108,7 @@ The JANUS project record:
 
 ## Source Files
 
-- **Source files**: `docs/roadmap.md`, `docs/product_backlog.md`, `docs/vision.md` — the JANUS planning documents in markdown format. The plugin parses unchecked TODO items (`- [ ] ...`) from each file and pulls the first one as a new task, checking it off in the file as it goes (cursor advancement).
+- **Source files**: `docs/roadmap.md`, `docs/product_backlog.md`, `docs/vision.md` — the JANUS planning documents in markdown format. The plugin parses unchecked TODO items (`- [ ] ...`) from each file and pulls the first one as a new task, tracking pulled items in a `.complete` sidecar file. Items are only marked `[x]` in the source file when the corresponding Kanban task is actually completed (deferred completion).
 - **Plugin implementation**: `~/.hermes/hermes-agent/plugins/replenishment/__init__.py`
 - **Projects DB schema**: `~/.hermes/hermes-agent/hermes_cli/projects_db.py` (schema and `planning_sources` table)
 - **Kanban task creation**: `hermes_cli/kanban_db.py` (`create_task` with `triage=True`)
