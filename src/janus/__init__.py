@@ -9,6 +9,21 @@ from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, print_task_help
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary, print_workout_help
+from janus.inbox_cli import (
+    handle_inbox_list,
+    handle_inbox_triage,
+    handle_inbox_pending,
+    print_inbox_help,
+)
+from janus.followup_cli import (
+    handle_followup_list,
+    handle_followup_add,
+    handle_followup_show,
+    handle_followup_update,
+    handle_followup_complete,
+    handle_followup_convert,
+    print_followup_help,
+)
 from janus.goals_cli import (
     handle_goal_list,
     handle_goal_show,
@@ -135,6 +150,40 @@ def main() -> None:
                 print("       janus goal health [<title>]")
         elif command == "weekly":
             show_weekly(trace_id=trace_id)
+        elif command == "inbox":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
+                print_inbox_help()
+                return
+            sub = filtered[1]
+            if sub == "list":
+                handle_inbox_list(filtered[2:])
+            elif sub == "pending":
+                handle_inbox_pending(filtered[2:])
+            elif sub == "triage":
+                handle_inbox_triage(filtered[2:])
+            else:
+                print(f"Unknown inbox subcommand: {sub}")
+                print("Usage: janus inbox list|pending|triage ...")
+        elif command == "followup":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
+                print_followup_help()
+                return
+            sub = filtered[1]
+            if sub == "list":
+                handle_followup_list(filtered[2:])
+            elif sub == "add":
+                handle_followup_add(filtered[2:])
+            elif sub == "show":
+                handle_followup_show(filtered[2:])
+            elif sub == "update":
+                handle_followup_update(filtered[2:])
+            elif sub == "complete":
+                handle_followup_complete(filtered[2:])
+            elif sub == "convert-to-task":
+                handle_followup_convert(filtered[2:])
+            else:
+                print(f"Unknown followup subcommand: {sub}")
+                print("Usage: janus followup list|add|show|update|complete|convert-to-task ...")
         else:
             print(f"Unknown command: {command}")
     except Exception as e:
