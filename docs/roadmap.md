@@ -100,7 +100,7 @@ existing design and planning artifacts in this repository.
   idempotency, audit trail) — see `docs/replenishment_sources.md`
 - [x] Extend goal management with goal health, progress signals, and
   stalled-goal detection
-- [ ] Extend execution planning with goal → milestone → project → task
+- [x] Extend execution planning with goal → milestone → project → task
   hierarchy and goal-aware task recommendations
 - [ ] Janus CLI's complete_task finds all matching [ ] lines and errors on >1 match.
   Add safeguard, and return to user warning when trying to add duplicate entry to tasks 
