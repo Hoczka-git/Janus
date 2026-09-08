@@ -335,3 +335,79 @@ class TestNoDeleteGoal:
     def test_no_delete_goal_in_service(self):
         import janus.services.goals as svc
         assert not hasattr(svc, "delete_goal")
+
+
+# ===========================================================================
+# Help tests
+# ===========================================================================
+class TestGoalHelp:
+    def test_print_goal_help_outputs_usage(self, capsys):
+        from janus.goals_cli import print_goal_help
+        print_goal_help()
+        out = capsys.readouterr().out
+        assert "Usage: janus goal <command>" in out
+        assert "list" in out
+        assert "show" in out
+        assert "add" in out
+        assert "update" in out
+        assert "complete" in out
+        assert "milestone" in out
+        assert "next" in out
+        assert "health" in out
+
+    def test_print_goal_help_includes_goal_options(self, capsys):
+        from janus.goals_cli import print_goal_help
+        print_goal_help()
+        out = capsys.readouterr().out
+        for opt in (
+            "--description",
+            "--status",
+            "--deadline",
+            "--metric",
+            "--unit",
+            "--start",
+            "--current",
+            "--target",
+            "--direction",
+            "--related-task",
+        ):
+            assert opt in out
+
+    def test_help_flag_invokes_help(self, tmp_path, monkeypatch, capsys):
+        """``janus goal --help`` prints help, does not treat --help as a subcommand."""
+        from janus import main
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        sys.argv = ["janus", "goal", "--help"]
+        try:
+            main()
+        except SystemExit:
+            pass
+        out = capsys.readouterr().out
+        assert "Usage: janus goal <command>" in out
+        assert "Unknown goal subcommand" not in out
+
+    def test_short_help_flag_invokes_help(self, tmp_path, monkeypatch, capsys):
+        """``janus goal -h`` prints help."""
+        from janus import main
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        sys.argv = ["janus", "goal", "-h"]
+        try:
+            main()
+        except SystemExit:
+            pass
+        out = capsys.readouterr().out
+        assert "Usage: janus goal <command>" in out
+        assert "Unknown goal subcommand" not in out
+
+    def test_help_subcommand_invokes_help(self, tmp_path, monkeypatch, capsys):
+        """``janus goal help`` prints help."""
+        from janus import main
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        sys.argv = ["janus", "goal", "help"]
+        try:
+            main()
+        except SystemExit:
+            pass
+        out = capsys.readouterr().out
+        assert "Usage: janus goal <command>" in out
+        assert "Unknown goal subcommand" not in out
