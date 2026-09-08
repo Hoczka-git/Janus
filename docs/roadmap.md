@@ -104,7 +104,7 @@ existing design and planning artifacts in this repository.
   hierarchy and goal-aware task recommendations
 - [ ] Janus CLI's complete_task finds all matching [ ] lines and errors on >1 match.
   Add safeguard, and return to user warning when trying to add duplicate entry to tasks 
-- [ ] Implement a unified inbox and follow-up model for capturing and
+- [x] Implement a unified inbox and follow-up model for capturing and
   tracking actionable items that do not yet belong to an active task
 - [ ] Close the research → finding → decision → action loop by connecting
   research artifacts with decisions, goals, projects, and follow-up tasks
