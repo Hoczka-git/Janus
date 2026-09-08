@@ -16,12 +16,41 @@ from janus.services.tasks import (
 ALLOWED_STATES = frozenset({"todo", "in_progress", "blocked"})
 
 
+def print_task_help() -> None:
+    """Print help for the 'janus task' command."""
+    print("Usage: janus task <subcommand> [options]")
+    print("")
+    print("Manage tasks.")
+    print("")
+    print("Subcommands:")
+    print("  add        Add a new task")
+    print("  complete   Complete a task")
+    print("  list       List open tasks")
+    print("  state      Set task state")
+    print("  progress   Set task progress")
+    print("")
+    print("Options:")
+    print("  -h, --help  Show this help message")
+
+
 def handle_task_list(args: list[str]) -> None:
     """Display all open tasks.
 
     Usage:
         janus task list
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task list")
+        print("")
+        print("List all open tasks.")
+        print("")
+        print("Options:")
+        print("  -h, --help  Show this help message")
+        return
+
     if args:
         print("Error: 'task list' does not accept arguments", file=sys.stderr)
         sys.exit(1)
@@ -54,7 +83,21 @@ def handle_task_add(args: list[str]) -> None:
     Usage:
         janus task add "Title"
         janus task add "Title" --due 2026-09-04 --priority 2
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task add <title> [options]")
+        print("")
+        print("Add a new task.")
+        print("")
+        print("Options:")
+        print("  --due YYYY-MM-DD  Set a due date")
+        print("  --priority N      Set priority (integer >= 1, default 1)")
+        print("  -h, --help        Show this help message")
+        return
+
     title_parts: list[str] = []
     due_date: date | None = None
     priority: int | None = None
@@ -122,7 +165,19 @@ def handle_task_complete(args: list[str]) -> None:
 
     Usage:
         janus task complete "Title"
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task complete <title>")
+        print("")
+        print("Mark a task as completed.")
+        print("")
+        print("Options:")
+        print("  -h, --help  Show this help message")
+        return
+
     if not args:
         print("Error: task title is required", file=sys.stderr)
         sys.exit(1)
@@ -148,7 +203,20 @@ def handle_task_state(args: list[str]) -> None:
 
     The checkbox [x] remains the only completion authority.
     'state: done' is not accepted and cannot be written by the CLI.
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task state <title> --state <todo|in_progress|blocked>")
+        print("")
+        print("Update the state of a task.")
+        print("")
+        print("Options:")
+        print("  --state <todo|in_progress|blocked>  Set the task state")
+        print("  -h, --help                          Show this help message")
+        return
+
     title_parts: list[str] = []
     state: str | None = None
     i = 0
@@ -204,7 +272,20 @@ def handle_task_progress(args: list[str]) -> None:
 
     Progress 100 does NOT automatically complete the task.
     Completion still requires 'janus task complete'.
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task progress <title> --pct <0-100>")
+        print("")
+        print("Update the progress of a task.")
+        print("")
+        print("Options:")
+        print("  --pct <0-100>  Set the task progress percentage")
+        print("  -h, --help     Show this help message")
+        return
+
     title_parts: list[str] = []
     progress: int | None = None
     i = 0

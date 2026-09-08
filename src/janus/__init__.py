@@ -7,7 +7,7 @@ from janus.logging_config import setup_logging
 from janus._log import emit
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
-from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list
+from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, print_task_help
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary
 from janus.goals_cli import (
     handle_goal_list,
@@ -58,8 +58,8 @@ def main() -> None:
         elif command == "telegram":
             show_telegram(trace_id=trace_id)
         elif command == "task":
-            if len(filtered) < 2:
-                print("Usage: janus task <add|complete|list|state|progress> ...")
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
+                print_task_help()
                 return
             sub = filtered[1]
             if sub == "add":
