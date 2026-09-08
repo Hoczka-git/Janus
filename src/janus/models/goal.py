@@ -29,10 +29,11 @@ class Goal:
     # Milestone objects from the dicts when needed.
     milestones: list[dict] | None = None     # list of milestone dicts (see spec)
 
-    # Projects: explicit task assignment within milestones.
-    # Stored as list[dict] internally for persistence compatibility, but
-    # the domain model exposes list[Project] objects.
-    projects: list = None
+# Projects: explicit task assignment within milestones.
+    # Stored as list[dict] internally for markdown serialization; the service
+    # layer constructs Project objects from the dicts when needed.
+    # The domain model Goal.projects exposes list[Project] (via the service).
+    projects: list[dict] | None = None     # list of project dicts
 
     # Measurement requirements (optional, see design §3.1)
     # Stored as list[dict] for the same rationale as milestones. Each dict:
