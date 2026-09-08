@@ -509,6 +509,51 @@ def handle_goal_complete(args: list[str]) -> None:
 _VALID_MILESTONE_STATUSES = ("open", "in_progress", "completed", "skipped")
 
 
+def print_goal_help() -> None:
+    """Print usage and available options for the ``janus goal`` command.
+
+    Invoked when ``janus goal --help`` or ``janus goal -h`` is passed.
+    """
+    help_text = """\
+Usage: janus goal <command> [options]
+
+Manage long-term goals with metrics, deadlines, and related tasks.
+
+Commands:
+  list                            Display all goals grouped by status
+  show <title>                    Display full details for a single goal
+  add <title> [options]           Create a new goal
+  update <title> [options]        Update fields of an existing goal
+  complete <title>                Mark a goal as completed
+  next <title>                    Print the derived next action for a goal
+  health [<title>]                Show health assessment for goals
+  milestone <action> ...          Manage milestones for a goal
+
+Goal options:
+  --description D                 Goal description
+  --status <active|completed|inactive>  Goal status (default: active)
+  --deadline YYYY-MM-DD           Goal deadline
+  --metric NAME                   Metric being tracked
+  --unit UNIT                     Metric unit
+  --start VALUE                   Starting metric value
+  --current VALUE                 Current metric value
+  --target VALUE                  Target metric value
+  --direction <increase|decrease>  Metric direction
+  --related-task TITLE            Link a related task (repeatable)
+
+Milestone subcommands:
+  add <goal> <title> [options]    Create a milestone
+  list <goal>                     List milestones for a goal
+  show <goal> <title>             Show a single milestone
+  complete <goal> <title>         Mark a milestone as completed
+  update <goal> <title> [options] Update a milestone
+  --description D                 Milestone description
+  --deadline YYYY-MM-DD           Milestone deadline
+  --status <open|in_progress|completed|skipped>  Milestone status
+"""
+    print(help_text)
+
+
 def handle_goal_milestone_list(args: list[str]) -> None:
     """janus goal milestone list <goal_title>
     Display ordered milestones for a goal.

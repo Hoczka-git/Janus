@@ -138,6 +138,12 @@ janus goal add "Run a marathon" --related-task "Prepare training plan" --deadlin
 janus goal complete "Run a marathon"
 ```
 
+Pass `--help` (or `-h`) to any goal subcommand for usage and available options:
+
+```bash
+janus goal --help
+```
+
 Goals are stored in `data/goals.md` as structured blocks:
 
 ```markdown
