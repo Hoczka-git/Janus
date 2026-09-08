@@ -24,7 +24,8 @@ Key subsystems:
 - **Task management** (`janus task`) — list, add, complete, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
 - **Goal tracking** (`janus goal`) — goals with optional metrics (`--metric`, `--unit`, `--start`, `--current`, `--target`, `--direction`), deadlines, status (`active`/`completed`/`inactive`), and links to related tasks.
 - **Fitness tracking** (`janus workout`) — strength workouts (exercises, sets, weights, RPE) and running workouts (distance, duration, heart rate, elevation). Analytics: overall, running-specific, and per-exercise progression.
-- **Weekly review** (`janus weekly`) — completed tasks, open/needs-attention tasks, and goal progress with next-step suggestions.
+- **Weekly review** (`janus weekly`) — completed tasks, open tasks, and goal progress with next-step suggestions.
+- **Goal health monitoring** (`janus goal health`) — assess the health state (`healthy`/`watch`/`stalled`/`completed`) of active goals from automated signals (deadline proximity, progress-slow, measurement-due, recent activity). Goals are ranked by severity.
 - **Telegram delivery** — push the daily briefing or weekly review to a Telegram chat via bot.
 - **Verification pipeline** (`janus verify-contract`) — validate an implementation contract (`contract.yaml`) against the repository: file creation/immutability checks, modified-file scope, untracked-file detection, AST-based required/forbidden symbol checks, and verification command execution.
 
@@ -155,6 +156,15 @@ Related tasks:
 - Prepare training plan
 ```
 
+### Goal health
+
+```bash
+janus goal health                  # list all active goals, ranked by severity
+janus goal health "Lose 5 kg"      # full health assessment for a single goal
+```
+
+Health states: `healthy` (on track), `watch` (at risk), `stalled` (not making meaningful progress), `completed`. Health is derived from automated signals such as deadline proximity, slow progress, overdue measurements, and recent activity. See [`docs/goal_health_progress_signals_stalled_detection_spec.md`](docs/goal_health_progress_signals_stalled_detection_spec.md) for the full design.
+
 ### Workouts
 
 ```bash
@@ -239,11 +249,12 @@ src/janus/
 ├── telegram_weekly_cli.py
 ├── tasks_cli.py             # janus task <add|complete|state|progress>
 ├── workout_cli.py           # janus workout <add|show|summary>
-├── goals_cli.py             # janus goal <list|show|add|update|complete>
+├── goals_cli.py             # janus goal <list|show|add|update|complete|milestone|next|health>
 ├── verification.py          # Implementation contract verification pipeline
 ├── integrations/            # External integrations (Google Calendar, Telegram, markdown persistence)
 ├── models/                  # Domain models (Task, Goal, Workout, Event, AttentionItem, DailyBriefing,
-│                              Source, Finding, ResearchArtifact, TopicBlock, KnowledgeSummary)
+│                              GoalSignal, GoalHealthAssessment, MetricSnapshot, Source, Finding,
+│                              ResearchArtifact, TopicBlock, KnowledgeSummary, Milestone, Decision)
 ├── services/                # Business logic (briefing, goals, tasks, workouts, weekly review,
 │                              knowledge pipeline — validation + summary generation)
 data/                        # Tracked markdown data files
