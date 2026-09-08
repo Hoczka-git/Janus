@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from janus.models.goal import Goal
+from janus.models.project_progress import ProjectProgress
 
 
 @dataclass
@@ -17,6 +18,7 @@ class GoalReview:
     health_state: str | None = None        # healthy | watch | stalled | completed
     days_since_last_activity: int | None = None
     progress_delta: float | None = None    # progress change over lookback window
+    projects: list[ProjectProgress] = field(default_factory=list)
 
 
 @dataclass

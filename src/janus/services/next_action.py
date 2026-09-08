@@ -9,7 +9,16 @@ is earliest in ``order``. As earlier milestones complete or are skipped,
 the task becomes eligible for the next non-terminal milestone that
 contains it.
 
-See DESIGN_EXECUTION_PLANNING.md §4 for the full rule table.
+When a Goal has Projects (see design spec:
+docs/goal_milestone_project_task_hierarchy.md), the engine traverses
+the full hierarchy:
+
+    Goal -> Current Milestone -> Current Project -> Open Task
+
+Project assignment always overrides dynamic milestone derivation (I6).
+Goals without Projects retain the legacy R1-R5 behavior unchanged.
+
+See DESIGN_EXECUTION_PLANNING.md for the full rule table.
 """
 
 from dataclasses import dataclass
@@ -17,6 +26,7 @@ from datetime import date
 
 from janus.models.goal import Goal
 from janus.models.milestone import Milestone
+from janus.models.project import Project
 from janus.models.task import Task
 
 
@@ -24,13 +34,13 @@ from janus.models.task import Task
 class NextAction:
     """The derived next action for a goal.
 
-    ``kind`` is "task" or "milestone".
+    ``kind`` is "task", "milestone", or "project".
     ``score`` is 0 by default — the attention engine assigns scores based
     on urgency; next actions are not self-scoring.
     """
 
     title: str
-    kind: str          # "task" | "milestone"
+    kind: str          # "task" | "milestone" | "project"
     reason: str
     goal_title: str
     score: int = 0
@@ -50,6 +60,23 @@ def _milestone_objs(goal: Goal) -> list[Milestone]:
         mss.append(Milestone(**filtered))
     mss.sort(key=lambda m: m.order)
     return mss
+
+
+def _project_objs(goal: Goal) -> list[Project]:
+    """Construct Project objects from goal.projects dicts, ordered."""
+    projs = []
+    for d in goal.projects:
+        projs.append(Project(
+            title=d["title"],
+            milestone_title=d.get("milestone_title", ""),
+            description=d.get("description", ""),
+            deadline=d.get("deadline"),
+            status=d.get("status", "open"),
+            order=d.get("order", 0),
+            related_tasks=list(d.get("related_tasks", [])),
+        ))
+    projs.sort(key=lambda p: (p.order, p.title))
+    return projs
 
 
 def _open_task_titles(tasks: list[Task]) -> set[str]:
@@ -151,6 +178,50 @@ def derive_milestone_task_set(
     return set(derive_milestone_tasks(active_ms, milestones, goal, open_task_titles))
 
 
+# ── Project-aware helpers ────────────────────────────────────────────────────
+
+def _get_project_by_title(
+    projects: list[Project], milestone_title: str, project_title: str,
+) -> Project | None:
+    """Find a Project by milestone + title within a goal's project list."""
+    for p in projects:
+        if (p.milestone_title == milestone_title
+                and p.title == project_title):
+            return p
+    return None
+
+
+def _assigned_project_tasks(projects: list[Project]) -> set[str]:
+    """Return the set of task titles that are explicitly assigned to any Project.
+
+    Per I3/I6: tasks assigned to a Project override the dynamic derivation.
+    """
+    return {
+        t
+        for p in projects
+        for t in p.related_tasks
+    }
+
+
+def _find_project_for_milestone(
+    projects: list[Project], milestone_title: str,
+) -> Project | None:
+    """Return the first non-terminal Project for a given milestone, by order.
+
+    Excludes ``completed`` and ``skipped`` Projects. ``blocked`` projects
+    are not actionable as task containers but are still returned for
+    visibility — the caller decides whether to surface a task or the
+    project itself.
+    """
+    for p in sorted(projects, key=lambda p: p.order):
+        if p.milestone_title != milestone_title:
+            continue
+        if p.status in ("completed", "skipped"):
+            continue
+        return p
+    return None
+
+
 # ── Next-action engine ──────────────────────────────────────────────────────
 
 def derive_next_action(
@@ -158,91 +229,222 @@ def derive_next_action(
     tasks: list[Task],
     completed_task_titles: set[str],
     today: date,
+    projects: list[Project] | None = None,
 ) -> NextAction | None:
     """Derive the next action for a goal.
 
-    Rules (evaluated in priority order):
-      R1 — Open task in the current/next milestone
-      R2 — Open task outside any milestone
-      R3 — Next open or in_progress milestone (no open tasks)
-      R4 — First uncompleted milestone in sequence (all milestones done/skipped,
-           but one has order beyond the last completed — surfaces remaining open milestone)
-      R5 — No next action (all milestones completed and no open tasks)
+    When ``projects`` is None or empty, the existing R1-R5 legacy behavior
+    remains unchanged (backward compatibility, D9).
+
+    When Projects exist for the goal, the engine performs hierarchical
+    traversal (D8):
+
+        Goal -> Current Milestone -> Current Project -> Open Task
+
+    Project assignment always overrides dynamic milestone derivation (I6, D4).
+
+    Project-aware priority ordering (spec §10):
+      P1 — Current Project has an open Task        -> Task
+      P2 — Current Milestone has unassigned open  -> Task (legacy derivation)
+      P3 — Current Project has no open Tasks      -> Project
+      P4 — Next Milestone has an eligible Project -> Project
+      P5 — Next Milestone has unassigned open Task -> Task
+      P6 — Next Milestone exists, no actionable   -> Milestone
+      P7 — Nothing actionable                     -> None
 
     Args:
         goal: Goal with milestones loaded (list of dicts).
         tasks: Open (not completed) tasks.
         completed_task_titles: Set of completed task titles.
         today: Current date (reserved for future deadline-aware sorting).
+        projects: Optional explicit list of Project objects. When None or
+            empty, legacy R1-R5 logic is used.
     """
     del today  # reserved for future deadline-aware sorting
+
     open_titles = _open_task_titles(tasks)
     milestone_objs = _milestone_objs(goal)
 
-    # --- R1: Open task in the current/next milestone ---
-    # The "current/next milestone" is the first milestone whose status is not
-    # completed/skipped. Tasks are assigned dynamically — all open goal tasks
-    # belong to the earliest non-terminal milestone.
+    # When no Projects are provided, use legacy dynamic derivation.
+    # This preserves backward compatibility (D9): goals without Projects
+    # behave exactly as before.
+    if not projects:
+        # --- R1: Open task in the current/next milestone ---
+        current_ms = _first_active_milestone(milestone_objs)
+        if current_ms is not None:
+            current_ms_tasks = derive_milestone_task_set(
+                milestone_objs, goal, open_titles
+            )
+            for rt in goal.related_tasks:
+                if rt in open_titles and rt in current_ms_tasks:
+                    return NextAction(
+                        title=rt,
+                        kind="task",
+                        reason=f"Next task in milestone '{current_ms.title}'",
+                        goal_title=goal.title,
+                    )
+
+        # --- R2: Open task outside any milestone ---
+        if goal.related_tasks:
+            current_ms_task_set = derive_milestone_task_set(
+                milestone_objs, goal, open_titles
+            )
+            for rt in goal.related_tasks:
+                if rt in open_titles and rt not in current_ms_task_set:
+                    return NextAction(
+                        title=rt,
+                        kind="task",
+                        reason="No milestone assigned",
+                        goal_title=goal.title,
+                    )
+
+        # --- R3: Next open or in_progress milestone (no open tasks found) ---
+        if current_ms is not None:
+            return NextAction(
+                title=current_ms.title,
+                kind="milestone",
+                reason="Milestone not yet reached",
+                goal_title=goal.title,
+            )
+
+        # --- R4: First uncompleted milestone in sequence ---
+        if milestone_objs:
+            for m in milestone_objs:
+                if m.status in ("open", "in_progress"):
+                    return NextAction(
+                        title=m.title,
+                        kind="milestone",
+                        reason="Next milestone in sequence",
+                        goal_title=goal.title,
+                    )
+
+        # --- R5: No next action ---
+        return None
+
+    # ─── Project-aware hierarchical traversal ───
+
+    # Determine current (earliest non-terminal) milestone.
     current_ms = _first_active_milestone(milestone_objs)
+
+    # P1: Current Project has an open Task
+    if current_ms is not None:
+        current_proj = _find_project_for_milestone(projects, current_ms.title)
+        if current_proj is not None:
+            for t in current_proj.related_tasks:
+                if t in open_titles:
+                    return NextAction(
+                        title=t,
+                        kind="task",
+                        reason=(
+                            f"Open task in project '{current_proj.title}' "
+                            f"within milestone '{current_ms.title}'"
+                        ),
+                        goal_title=goal.title,
+                    )
+            # P3: Current Project has no open Tasks
+            return NextAction(
+                title=current_proj.title,
+                kind="project",
+                reason=f"Project '{current_proj.title}' has no open tasks",
+                goal_title=goal.title,
+            )
+
+    # P2: Current Milestone has unassigned open Task (legacy derivation)
+    assigned = _assigned_project_tasks(projects)
     if current_ms is not None:
         current_ms_tasks = derive_milestone_task_set(
             milestone_objs, goal, open_titles
         )
         for rt in goal.related_tasks:
-            if rt in open_titles and rt in current_ms_tasks:
+            if (rt in open_titles
+                    and rt in current_ms_tasks
+                    and rt not in assigned):
                 return NextAction(
                     title=rt,
                     kind="task",
-                    reason=f"Next task in milestone '{current_ms.title}'",
+                    reason=f"Next unassigned task in milestone '{current_ms.title}'",
                     goal_title=goal.title,
                 )
 
-    # --- R2: Open task outside any milestone ---
-    # Collect task titles that are NOT in the current active milestone's
-    # dynamically-derived task set. Tasks in goal.related_tasks that are
-    # open but not assigned to the current milestone fall through to R2.
-    if goal.related_tasks:
-        current_ms_task_set = derive_milestone_task_set(
-            milestone_objs, goal, open_titles
-        )
-
-        for rt in goal.related_tasks:
-            if rt in open_titles and rt not in current_ms_task_set:
-                return NextAction(
-                    title=rt,
-                    kind="task",
-                    reason="No milestone assigned",
-                    goal_title=goal.title,
-                )
-
-    # --- R3: Next open or in_progress milestone (no open tasks found) ---
+    # P4: Next Milestone has an eligible Project
     if current_ms is not None:
+        start_idx = None
+        for i, m in enumerate(milestone_objs):
+            if m.order == current_ms.order:
+                start_idx = i + 1
+                break
+        if start_idx is not None:
+            for m in milestone_objs[start_idx:]:
+                if m.status in ("completed", "skipped"):
+                    continue
+                proj = _find_project_for_milestone(projects, m.title)
+                if proj is not None:
+                    return NextAction(
+                        title=proj.title,
+                        kind="project",
+                        reason=f"Eligible project in milestone '{m.title}'",
+                        goal_title=goal.title,
+                    )
+    else:
+        # No current milestone — start from the first non-terminal milestone
+        for m in milestone_objs:
+            if m.status in ("completed", "skipped"):
+                continue
+            proj = _find_project_for_milestone(projects, m.title)
+            if proj is not None:
+                return NextAction(
+                    title=proj.title,
+                    kind="project",
+                    reason=f"Eligible project in milestone '{m.title}'",
+                    goal_title=goal.title,
+                )
+
+    # P5: Next Milestone has an unassigned open Task
+    all_milestone = milestone_objs
+    if current_ms is not None:
+        # Look at milestones after the current one
+        start_idx = None
+        for i, m in enumerate(milestone_objs):
+            if m.order == current_ms.order:
+                start_idx = i + 1
+                break
+        search_range = milestone_objs[start_idx:] if start_idx else []
+    else:
+        search_range = milestone_objs
+    for m in search_range:
+        if m.status in ("completed", "skipped"):
+            continue
+        ms_tasks = derive_milestone_tasks(m, all_milestone, goal, open_titles)
+        for rt in goal.related_tasks:
+            if (rt in open_titles
+                    and rt in ms_tasks
+                    and rt not in assigned):
+                return NextAction(
+                    title=rt,
+                    kind="task",
+                    reason=f"Unassigned task in milestone '{m.title}'",
+                    goal_title=goal.title,
+                )
+
+    # P6: Next Milestone exists but has no actionable Project/Task
+    if current_ms is not None:
+        start_idx = None
+        for i, m in enumerate(milestone_objs):
+            if m.order == current_ms.order:
+                start_idx = i + 1
+                break
+        search_range = milestone_objs[start_idx:] if start_idx else []
+    else:
+        search_range = milestone_objs
+    for m in search_range:
+        if m.status in ("completed", "skipped"):
+            continue
         return NextAction(
-            title=current_ms.title,
+            title=m.title,
             kind="milestone",
-            reason="Milestone not yet reached",
+            reason=f"Next milestone '{m.title}' has no actionable projects or tasks",
             goal_title=goal.title,
         )
 
-    # --- R4: First uncompleted milestone in sequence ---
-    # All milestones are completed/skipped, but there may still be milestones
-    # in the list. Per spec: "All milestones are completed/skipped, but one
-    # has order beyond the last completed" — surface it.
-    if milestone_objs:
-        for m in milestone_objs:
-            if m.status in ("open", "in_progress"):
-                return NextAction(
-                    title=m.title,
-                    kind="milestone",
-                    reason="Next milestone in sequence",
-                    goal_title=goal.title,
-                )
-
-    # --- R5: No next action ---
-    # No milestones and no open related tasks.
-    if not milestone_objs and goal.related_tasks:
-        # Goal has related tasks but no milestones — R2 should have caught open ones.
-        # If we reach here, all related tasks are completed.
-        return None
-
+    # P7: Nothing actionable remains
     return None

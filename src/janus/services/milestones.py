@@ -156,3 +156,33 @@ def complete_milestone(goal_title: str, milestone_title: str) -> Milestone:
     return update_milestone(
         goal_title, milestone_title, status="completed"
     )
+
+
+def start_milestone(goal_title: str, milestone_title: str) -> Milestone:
+    """Mark a milestone as ``in_progress``.
+
+    Returns the updated Milestone. Raises ValueError if not found.
+    """
+    return update_milestone(
+        goal_title, milestone_title, status="in_progress"
+    )
+
+
+def skip_milestone(goal_title: str, milestone_title: str) -> Milestone:
+    """Mark a milestone as ``skipped`` (intentionally abandoned).
+
+    Returns the updated Milestone. Raises ValueError if not found.
+    """
+    return update_milestone(
+        goal_title, milestone_title, status="skipped"
+    )
+
+
+def reopen_milestone(goal_title: str, milestone_title: str) -> Milestone:
+    """Reopen a terminal milestone (completed or skipped) back to ``open``.
+
+    Returns the updated Milestone. Raises ValueError if not found.
+    """
+    return update_milestone(
+        goal_title, milestone_title, status="open"
+    )
