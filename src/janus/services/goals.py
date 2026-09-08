@@ -155,6 +155,7 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         direction=goal.direction,
         related_tasks=goal.related_tasks,
         milestones=goal.milestones,
+        projects=goal.projects,
         measurement_requirements=goal.measurement_requirements,
         research_artifact_titles=goal.research_artifact_titles,
         inactivity_window_days=goal.inactivity_window_days,

@@ -47,6 +47,11 @@ def show_weekly(trace_id: str | None = None) -> None:
             if gr.suggested_next_step:
                 print("Suggested next step:")
                 print(f"- {gr.suggested_next_step}")
+            if gr.projects:
+                print("  Projects:")
+                for pp in gr.projects:
+                    print(f"    [{pp.status}] {pp.project_title} "
+                          f"({pp.completed_tasks}/{pp.total_tasks} tasks)")
             if gr.all_related_tasks_completed:
                 print("✓ All currently linked tasks completed")
             if gr.missing_related_tasks:
