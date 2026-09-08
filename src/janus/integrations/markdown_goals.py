@@ -5,10 +5,9 @@ Loads, saves, and updates goals from data/goals.md.
 Backward compatible: parses existing fields (Description, Status, Related tasks)
 and 7 new optional fields (Metric, Unit, Start, Current, Target, Direction, Deadline).
 
-Unknown fields are ignored on parse and NOT preserved through update_goal rewrit.
+Unknown fields are ignored on parse and NOT preserved through update_goal rewrit
 Malformed numeric/date/direction values raise ValueError with line number.
 """
-
 import logging
 from datetime import date
 from pathlib import Path
@@ -39,22 +38,24 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
              validation_errors=0,
              message="Goals file not found")
         return []
-
     goals: list[Goal] = []
     current: dict | None = None
     in_milestones = False       # inside a goal's ## Milestones section
     in_milestone = False        # inside a single ### Milestone: block
     current_milestone: dict | None = None
+    in_projects = False          # inside a goal's ## Projects section
+    in_project = False           # inside a single ### Project block
+    current_project: dict | None = None
     in_measurement_requirements = False
     current_requirement: dict | None = None
-    in_list_section: str | None = None  # "related_tasks" or "research_artifacts"
+    in_list_section: str | None = None  # "related_tasks", "research_artifacts", or "project_related_tasks"
     lines_scanned = 0
     validation_errors = 0
 
     with GOALS_PATH.open() as f:
         for line_num, line in enumerate(f, start=1):
             lines_scanned += 1
-            stripped = lint = line.strip()
+            stripped = line.strip()
 
             if stripped.startswith("# Goals"):
                 continue
@@ -63,10 +64,12 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 if current is not None:
                     # Flush any pending milestone before finalizing
                     if current_milestone is not None:
-                        if "milestones" not in current:
-                            current["milestones"] = []
-                        current["milestones"].append(current_milestone)
+                        current["milestones"].append(_finalize_milestone(current_milestone))
                         current_milestone = None
+                    # Flush any pending project before finalizing
+                    if current_project is not None:
+                        current["projects"].append(_finalize_project(current_project))
+                        current_project = None
                     # Flush any pending measurement requirement
                     if current_requirement is not None:
                         current["measurement_requirements"].append(current_requirement)
@@ -86,6 +89,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "direction": None,
                     "related_tasks": None,
                     "milestones": [],
+                    "projects": [],
                     "measurement_requirements": [],
                     "research_artifact_titles": [],
                     "inactivity_window_days": None,
@@ -96,18 +100,34 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 in_milestones = False
                 in_milestone = False
                 current_milestone = None
+                in_projects = False
+                in_project = False
+                current_project = None
                 in_measurement_requirements = False
                 current_requirement = None
+                in_list_section = None
                 continue
 
             if current is None:
                 continue
+
             # --- Measurement requirements section detection ---
             if stripped == "Measurement requirements:":
-                in_measurement_requirements = True
+                # Flush any pending milestone
+                if current_milestone is not None:
+                    current["milestones"].append(_finalize_milestone(current_milestone))
+                    current_milestone = None
                 in_milestones = False
                 in_milestone = False
                 current_milestone = None
+                # Flush any pending project
+                if current_project is not None:
+                    current["projects"].append(_finalize_project(current_project))
+                    current_project = None
+                in_projects = False
+                in_project = False
+                current_project = None
+                in_measurement_requirements = True
                 continue
 
             # --- Milestone section detection ---
@@ -117,6 +137,13 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     current["measurement_requirements"].append(current_requirement)
                     current_requirement = None
                 in_measurement_requirements = False
+                # Flush any pending project before entering milestones
+                if current_project is not None:
+                    current["projects"].append(_finalize_project(current_project))
+                    current_project = None
+                in_projects = False
+                in_project = False
+                current_project = None
                 in_milestones = True
                 in_milestone = False
                 current_milestone = None
@@ -124,10 +151,34 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
 
             if in_milestones and stripped.startswith("## "):
                 # End of milestones section — another goal-level section
+                # Flush any pending milestone before leaving
+                if current_milestone is not None:
+                    current["milestones"].append(_finalize_milestone(current_milestone))
+                    current_milestone = None
                 in_milestones = False
                 in_milestone = False
                 current_milestone = None
                 # Fall through to process this line as a goal-level field
+
+            # --- Projects section detection ---
+            if stripped == "## Projects":
+                # Flush any pending milestone before leaving milestones section
+                if current_milestone is not None:
+                    current["milestones"].append(_finalize_milestone(current_milestone))
+                    current_milestone = None
+                in_milestones = False
+                in_milestone = False
+                current_milestone = None
+                # Flush any pending measurement requirement
+                if current_requirement is not None:
+                    current["measurement_requirements"].append(current_requirement)
+                    current_requirement = None
+                in_measurement_requirements = False
+                in_list_section = None
+                in_projects = True
+                in_project = False
+                current_project = None
+                continue
 
             # --- Handle measurement requirements lines ---
             if in_measurement_requirements:
@@ -164,6 +215,66 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         current_requirement = None
                     in_measurement_requirements = False
                     # Fall through to let the line be processed as a goal-level field
+                continue
+
+            # --- Handle projects lines ---
+            if in_projects:
+                if stripped.startswith("### Project:"):
+                    # Start a new project block
+                    if current_project is not None:
+                        current["projects"].append(_finalize_project(current_project))
+                    proj_title = stripped[13:].strip()
+                    if not proj_title:
+                        raise ValueError(
+                            f"Project missing title at line {line_num}"
+                        )
+                    current_project = {
+                        "title": proj_title,
+                        "goal_title": current["title"],
+                        "milestone_title": "",
+                        "description": "",
+                        "deadline": None,
+                        "status": "open",
+                        "order": 0,
+                        "related_tasks": [],
+                    }
+                    in_project = True
+                    in_list_section = None
+                elif in_project and current_project is not None:
+                    if stripped.startswith("Milestone:"):
+                        ms_ref = stripped[10:].strip()
+                        if not ms_ref:
+                            raise ValueError(
+                                f"Project missing Milestone reference at line {line_num}"
+                            )
+                        current_project["milestone_title"] = ms_ref
+                    elif stripped.startswith("Order:"):
+                        raw = stripped[6:].strip()
+                        try:
+                            current_project["order"] = int(raw) if raw else 0
+                        except ValueError:
+                            raise ValueError(
+                                f"Invalid Project Order at line {line_num}: {raw}"
+                            )
+                    elif stripped.startswith("Description:"):
+                        current_project["description"] = stripped[12:].strip()
+                    elif stripped.startswith("Deadline:"):
+                        raw = stripped[9:].strip()
+                        try:
+                            date.fromisoformat(raw)
+                        except ValueError:
+                            raise ValueError(f"Invalid Deadline at line {line_num}: {raw}")
+                        current_project["deadline"] = raw
+                    elif stripped.startswith("Status:"):
+                        current_project["status"] = stripped[7:].strip()
+                    elif stripped.startswith("Related tasks:"):
+                        current_project["related_tasks"] = []
+                        in_list_section = "project_related_tasks"
+                    elif stripped.startswith("- ") and in_list_section == "project_related_tasks":
+                        item = stripped[2:].strip()
+                        if item:
+                            current_project["related_tasks"].append(item)
+                    # Unknown field in project — ignore
                 continue
 
             if not in_milestones:
@@ -284,6 +395,8 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
     if current is not None:
         if current_milestone is not None:
             current["milestones"].append(_finalize_milestone(current_milestone))
+        if current_project is not None:
+            current["projects"].append(_finalize_project(current_project))
         if current_requirement is not None:
             current["measurement_requirements"].append(current_requirement)
             current_requirement = None
@@ -312,6 +425,21 @@ def _finalize_milestone(data: dict) -> dict:
     return data
 
 
+def _finalize_project(data: dict) -> dict:
+    """Apply final normalization to a parsed project dict.
+
+    Ensures all expected keys are present with defaults.
+    """
+    data.setdefault("goal_title", "")
+    data.setdefault("milestone_title", "")
+    data.setdefault("description", "")
+    data.setdefault("deadline", None)
+    data.setdefault("status", "open")
+    data.setdefault("order", 0)
+    data.setdefault("related_tasks", [])
+    return data
+
+
 def _finalize_goal(data: dict) -> Goal:
     return Goal(
         title=data["title"],
@@ -326,6 +454,7 @@ def _finalize_goal(data: dict) -> Goal:
         direction=data["direction"],
         related_tasks=data["related_tasks"],
         milestones=data["milestones"],
+        projects=data["projects"],
         measurement_requirements=data["measurement_requirements"],
         research_artifact_titles=data["research_artifact_titles"],
         inactivity_window_days=data["inactivity_window_days"],
@@ -335,7 +464,7 @@ def _finalize_goal(data: dict) -> Goal:
 def _format_goal_block(goal: Goal) -> list[str]:
     """Format a Goal as lines for goals.md. Only known fields are written.
 
-    Unknown fields are NOT preserved through rewrite.
+    Unknown fields are NOT preserved through update_goal rewrite.
     """
     lines: list[str] = [f"## Goal: {goal.title}"]
 
@@ -387,6 +516,25 @@ def _format_goal_block(goal: Goal) -> list[str]:
             # Related tasks are stored on the Goal model and derived
             # dynamically at query time (see derive_milestone_tasks).
 
+    if goal.projects:
+        lines.append("## Projects")
+        for proj in goal.projects:
+            lines.append("")
+            lines.append(f"### Project: {proj.get('title', '')}")
+            if proj.get("milestone_title"):
+                lines.append(f"Milestone: {proj['milestone_title']}")
+            lines.append(f"Order: {proj.get('order', 0)}")
+            if proj.get("deadline"):
+                lines.append(f"Deadline: {proj['deadline']}")
+            if proj.get("status"):
+                lines.append(f"Status: {proj['status']}")
+            if proj.get("description"):
+                lines.append(f"Description: {proj['description']}")
+            if proj.get("related_tasks"):
+                lines.append("Related tasks:")
+                for task in proj["related_tasks"]:
+                    lines.append(f"- {task}")
+
     if goal.measurement_requirements:
         lines.append("Measurement requirements:")
         for req in goal.measurement_requirements:
@@ -410,7 +558,6 @@ def save_goal(goal: Goal) -> None:
     """
     if not goal.title:
         raise ValueError("Goal title must not be empty")
-
     block = _format_goal_block(goal)
     with GOALS_PATH.open("a") as f:
         f.write("\n")

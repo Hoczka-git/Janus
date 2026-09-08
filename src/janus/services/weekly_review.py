@@ -17,6 +17,7 @@ from janus.integrations.markdown_goals import load_goals
 from janus.integrations.markdown_tasks import load_tasks
 from janus.services.goal_progress import compute_goal_progress
 from janus.services.next_action import derive_next_action
+from janus.services.project_progress import compute_all_project_progress
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
@@ -103,9 +104,17 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
         else:
             review.progress_detail = "N/A"
 
+        # Project progress (design §15): computed by dedicated service to
+        # avoid duplicating Project traversal logic in the weekly review.
+        review.projects = compute_all_project_progress(goal, set(completed_titles))
+
         # Suggested next step: use rules-based derive_next_action
+        # Pass project-aware objects so goals with Projects use the
+        # hierarchical traversal (P1-P7) while legacy goals use R1-R5.
+        from janus.services.next_action import _project_objs
         next_action = derive_next_action(
             goal, tasks, set(completed_titles), today,
+            projects=_project_objs(goal),
         )
         if next_action is not None:
             review.suggested_next_step = next_action.title
