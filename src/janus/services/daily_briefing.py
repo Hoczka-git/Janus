@@ -14,6 +14,7 @@ MAX_SUGGESTED_FOCUS_ITEMS = 3
 if TYPE_CHECKING:
     from janus.models.event import Event
     from janus.models.task import Task
+    from janus.models.follow_up import FollowUp
 
 
 def create_daily_briefing(
@@ -22,6 +23,7 @@ def create_daily_briefing(
     goals: list[Goal],
     today: date,
     trace_id: str | None = None,
+    followups: list["FollowUp"] | None = None,
 ) -> DailyBriefing:
     """Create a daily briefing from today's events, tasks, and goals.
 
@@ -30,7 +32,8 @@ def create_daily_briefing(
     from janus.services.attention import get_attention_items
     from janus.integrations.google_calendar import _load_config
 
-    attention_items = get_attention_items(events, tasks, goals, today, trace_id=trace_id)
+    attention_items = get_attention_items(events, tasks, goals, today,
+                                          trace_id=trace_id, followups=followups)
     suggested_focus = attention_items[:MAX_SUGGESTED_FOCUS_ITEMS]
 
     calendar_configured = bool(_load_config())

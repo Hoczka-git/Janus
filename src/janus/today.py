@@ -17,6 +17,7 @@ from janus._log import emit
 from janus.integrations.google_calendar import list_upcoming_events, _load_config
 from janus.integrations.markdown_tasks import load_tasks
 from janus.integrations.markdown_goals import load_goals
+from janus.integrations.markdown_followups import load_followups
 from janus.integrations.telegram import send_briefing
 from janus.services.daily_briefing import create_daily_briefing
 from janus.models.event import Event
@@ -57,7 +58,9 @@ def _build_today_briefing(trace_id: str | None = None) -> "DailyBriefing":
     ]
     tasks = load_tasks(trace_id=trace_id)
     goals = load_goals(trace_id=trace_id)
-    briefing = create_daily_briefing(today_events, tasks, goals, today, trace_id=trace_id)
+    followups = load_followups(trace_id=trace_id)
+    briefing = create_daily_briefing(today_events, tasks, goals, today,
+                                     trace_id=trace_id, followups=followups)
 
     # Build attention breakdown from the briefing for the finished event.
     attention_items_count = len(briefing.attention_items)

@@ -12,6 +12,7 @@ from janus.models.event import Event
 from janus.models.goal import Goal
 from janus.models.milestone import Milestone
 from janus.models.task import Task
+from janus.models.follow_up import FollowUp
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +322,7 @@ def get_attention_items(
     today: date,
     now: datetime | None = None,
     trace_id: str | None = None,
+    followups: list[FollowUp] | None = None,
 ) -> list[AttentionItem]:
     """Produce a deterministically sorted list of attention items.
 
@@ -447,6 +449,75 @@ def get_attention_items(
             {"signal": s.signal, "score": s.score, "category": c}
             for s, c in signals
         ]
+
+    # ── Follow-ups ────────────────────────────────────────────────────────────
+    if followups:
+        for fu in followups:
+            if fu.state == "completed":
+                continue
+            score = 0
+            reasons: list[str] = []
+            category = "follow_up_unsorted"
+
+            # Overdue
+            if fu.due_date is not None and fu.due_date < today:
+                score += 100
+                days_overdue = (today - fu.due_date).days
+                reasons.append(f"Overdue by {days_overdue} day{'s' if days_overdue != 1 else ''}")
+                category = "follow_up_overdue"
+            elif fu.due_date is not None and fu.due_date == today:
+                score += 80
+                reasons.append("Due today")
+                category = "follow_up_due_today"
+
+            # Scheduled today
+            if fu.scheduled_for is not None and fu.scheduled_for == today and fu.state in ("scheduled", "pending"):
+                score += 60
+                reasons.append("Scheduled for today")
+                if category == "follow_up_unsorted":
+                    category = "follow_up_scheduled_today"
+
+            # Scheduled within 3 days
+            if fu.scheduled_for is not None and fu.scheduled_for > today and (fu.scheduled_for - today).days <= 3 and fu.state == "scheduled":
+                score += 40
+                reasons.append(f"Scheduled in {(fu.scheduled_for - today).days} days")
+                if category == "follow_up_unsorted" and score == 40:
+                    category = "follow_up_scheduled_soon"
+
+            # Blocked
+            if fu.state == "blocked":
+                score += 50
+                reasons.append("Blocked")
+                category = "follow_up_blocked"
+
+            # In progress
+            if fu.state == "in_progress":
+                score += 30
+                reasons.append("In progress")
+                if category == "follow_up_unsorted":
+                    category = "follow_up_in_progress"
+
+            # Stale pending — no schedule, older than 7 days
+            if fu.state == "pending" and fu.due_date is None and fu.scheduled_for is None:
+                if (now or datetime.now().astimezone()).date() - fu.created_at.date() > timedelta(days=7):
+                    score += 20
+                    reasons.append("Pending — no schedule set")
+                    if category == "follow_up_unsorted":
+                        category = "follow_up_stale"
+
+            # Priority boost
+            if fu.priority >= 4 and score > 0:
+                score += 30
+            elif fu.priority == 3 and score > 0:
+                score += 20
+
+            if score > 0:
+                items.append(AttentionItem(
+                    title=fu.title,
+                    reason="; ".join(reasons) if reasons else "Requires attention",
+                    score=score,
+                    category=category,
+                ))
 
     # ── Deterministic sort: highest score first, then category, then title ──
     items.sort(key=lambda i: (-i.score, i.category, i.title))
