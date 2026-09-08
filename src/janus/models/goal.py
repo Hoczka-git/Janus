@@ -27,6 +27,13 @@ class Goal:
     # Milestone objects from the dicts when needed.
     milestones: list[dict] | None = None     # list of milestone dicts (see spec)
 
+    # Project hierarchy (optional, see design spec:
+    # docs/goal_milestone_project_task_hierarchy.md)
+    # Stored as list[dict] internally for markdown serialization; the service
+    # layer constructs Project objects from the dicts when needed.
+    # The domain model Goal.projects exposes list[Project] (via the service).
+    projects: list[dict] | None = None     # list of project dicts
+
     # Measurement requirements (optional, see design §3.1)
     # Stored as list[dict] for the same rationale as milestones. Each dict:
     #   {"metric": str, "unit": str, "frequency": str, "preferred_time": str,
@@ -42,6 +49,8 @@ class Goal:
         self.related_tasks = self._dedup_related_tasks(self.related_tasks)
         if self.milestones is None:
             self.milestones = []
+        if self.projects is None:
+            self.projects = []
         if self.measurement_requirements is None:
             self.measurement_requirements = []
         if self.research_artifact_titles is None:
