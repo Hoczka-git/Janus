@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+from janus.models.project import Project
+
 
 @dataclass
 class Goal:
@@ -27,8 +29,7 @@ class Goal:
     # Milestone objects from the dicts when needed.
     milestones: list[dict] | None = None     # list of milestone dicts (see spec)
 
-    # Project hierarchy (optional, see design spec:
-    # docs/goal_milestone_project_task_hierarchy.md)
+# Projects: explicit task assignment within milestones.
     # Stored as list[dict] internally for markdown serialization; the service
     # layer constructs Project objects from the dicts when needed.
     # The domain model Goal.projects exposes list[Project] (via the service).
