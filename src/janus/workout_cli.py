@@ -110,6 +110,21 @@ def _parse_sets(sets_str: str) -> list[Set]:
     return sets
 
 
+def print_workout_help() -> None:
+    """Print help for the 'janus workout' command."""
+    print("Usage: janus workout <subcommand> [options]")
+    print("")
+    print("Track and display workouts.")
+    print("")
+    print("Subcommands:")
+    print("  add      Log a new workout")
+    print("  show     Display workouts")
+    print("  summary  Show workout summary statistics")
+    print("")
+    print("Options:")
+    print("  -h, --help  Show this help message")
+
+
 def handle_workout_add(args: list[str]) -> None:
     """Parse 'janus workout add' arguments and save workout.
 
@@ -117,7 +132,28 @@ def handle_workout_add(args: list[str]) -> None:
         janus workout add --type strength --exercise "Back Squat" --sets "5x80kg@8,5x80kg@8.5"
         janus workout add --type running --distance 5.0 --duration 30
         janus workout add --type strength --exercise "Bench Press" --sets "8x60kg@7" --date 2026-09-01
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus workout add --type strength|running [options]")
+        print("")
+        print("Log a new workout.")
+        print("")
+        print("Options:")
+        print("  --type TYPE        Workout type: strength or running (required)")
+        print("  --exercise NAME    Exercise name (strength only, required for strength)")
+        print("  --sets STR         Sets string, e.g. '5x80kg@8,5x80kg@8.5' (strength)")
+        print("  --distance N       Distance in km (running, required for running)")
+        print("  --duration N       Duration in minutes (running, required for running)")
+        print("  --hr N             Average heart rate in bpm (running)")
+        print("  --elevation N      Elevation in meters (running)")
+        print("  --notes STR        Free-form notes")
+        print("  --source STR       Source label (default: manual)")
+        print("  --date YYYY-MM-DD  Workout date (default: today)")
+        print("  -h, --help         Show this help message")
+        return
     workout_type = None
     exercise_name = None
     sets_str = None
@@ -315,7 +351,24 @@ def handle_workout_show(args: list[str]) -> None:
         janus workout show --running         # only running workouts
         janus workout show --exercise "Back Squat"  # strength history
         janus workout show <id>              # single workout by ID
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus workout show [--last N] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--running] [--exercise NAME] [<id>]")
+        print("")
+        print("Display workouts.")
+        print("")
+        print("Options:")
+        print("  --last N           Number of recent workouts to show (default 5)")
+        print("  --from YYYY-MM-DD  Filter from date (inclusive)")
+        print("  --to YYYY-MM-DD    Filter to date (inclusive)")
+        print("  --running          Show only running workouts")
+        print("  --exercise NAME    Show history for a strength exercise")
+        print("  <id>               Show a single workout by ID")
+        print("  -h, --help         Show this help message")
+        return
     workout_id = None
     last_n = 5
     from_date = None
@@ -463,7 +516,20 @@ def handle_workout_summary(args: list[str]) -> None:
         janus workout summary              # overall summary
         janus workout summary --running   # running-specific summary
         janus workout summary --exercise "Back Squat"  # per-exercise summary
+
+    Options:
+        -h, --help  Show this help message
     """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus workout summary [--running] [--exercise NAME]")
+        print("")
+        print("Show workout summary statistics.")
+        print("")
+        print("Options:")
+        print("  --running          Show running-specific summary")
+        print("  --exercise NAME    Show summary for a specific exercise")
+        print("  -h, --help         Show this help message")
+        return
     show_running = False
     exercise_name = None
 

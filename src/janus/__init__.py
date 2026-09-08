@@ -8,7 +8,7 @@ from janus._log import emit
 from janus.today import show_today, show_telegram
 from janus.weekly import show_weekly
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list
-from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary
+from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary, print_workout_help
 from janus.goals_cli import (
     handle_goal_list,
     handle_goal_show,
@@ -80,8 +80,8 @@ def main() -> None:
                 print("       janus task state <title> --state <todo|in_progress|blocked>")
                 print("       janus task progress <title> --pct <0-100>")
         elif command == "workout":
-            if len(filtered) < 2:
-                print("Usage: janus workout <add|show|summary> ...")
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
+                print_workout_help()
                 return
             sub = filtered[1]
             if sub == "add":
