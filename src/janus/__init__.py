@@ -18,6 +18,7 @@ from janus.goals_cli import (
     handle_goal_next,
     handle_goal_milestone,
     handle_goal_health,
+    print_goal_help,
 )
 
 import logging
@@ -97,9 +98,12 @@ def main() -> None:
                 print("       janus workout summary [--running] [--exercise NAME]")
         elif command == "goal":
             if len(filtered) < 2:
-                print("Usage: janus goal <list|show|add|update|complete|milestone|next> ...")
+                print("Usage: janus goal <list|show|add|update|complete|milestone|next|health> ...")
                 return
             sub = filtered[1]
+            if sub in ("--help", "-h", "help"):
+                print_goal_help()
+                return
             if sub == "list":
                 handle_goal_list(filtered[2:])
             elif sub == "show":
