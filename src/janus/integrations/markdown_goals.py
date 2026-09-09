@@ -8,6 +8,7 @@ and 7 new optional fields (Metric, Unit, Start, Current, Target, Direction, Dead
 Unknown fields are ignored on parse and NOT preserved through update_goal rewrit
 Malformed numeric/date/direction values raise ValueError with line number.
 """
+import json
 import logging
 from datetime import date
 from pathlib import Path
@@ -49,6 +50,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
     in_measurement_requirements = False
     current_requirement: dict | None = None
     in_list_section: str | None = None  # "related_tasks", "research_artifacts", or "project_related_tasks"
+    in_recent_activity = False          # inside a goal's ## Recent activity section
     lines_scanned = 0
     validation_errors = 0
 
@@ -93,6 +95,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "measurement_requirements": [],
                     "research_artifact_titles": [],
                     "inactivity_window_days": None,
+                    "recent_activity": [],
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -106,6 +109,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 in_measurement_requirements = False
                 current_requirement = None
                 in_list_section = None
+                in_recent_activity = False
                 continue
 
             if current is None:
@@ -178,6 +182,31 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 in_projects = True
                 in_project = False
                 current_project = None
+                continue
+
+            # --- Recent activity section detection ---
+            if stripped == "## Recent activity":
+                # Flush any pending milestone before leaving milestones section
+                if current_milestone is not None:
+                    current["milestones"].append(_finalize_milestone(current_milestone))
+                    current_milestone = None
+                in_milestones = False
+                in_milestone = False
+                current_milestone = None
+                # Flush any pending project
+                if current_project is not None:
+                    current["projects"].append(_finalize_project(current_project))
+                    current_project = None
+                in_projects = False
+                in_project = False
+                current_project = None
+                # Flush any pending measurement requirement
+                if current_requirement is not None:
+                    current["measurement_requirements"].append(current_requirement)
+                    current_requirement = None
+                in_measurement_requirements = False
+                in_list_section = None
+                in_recent_activity = True
                 continue
 
             # --- Handle measurement requirements lines ---
@@ -275,6 +304,24 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         if item:
                             current_project["related_tasks"].append(item)
                     # Unknown field in project — ignore
+                continue
+
+            # --- Handle recent activity lines ---
+            if in_recent_activity:
+                if stripped.startswith("# "):
+                    # Comment line containing a JSON dict
+                    json_str = stripped[2:].strip()
+                    if json_str:
+                        try:
+                            entry = json.loads(json_str)
+                            if isinstance(entry, dict):
+                                current["recent_activity"].append(entry)
+                        except json.JSONDecodeError:
+                            validation_errors += 1
+                elif stripped.startswith("## ") or stripped.startswith("### "):
+                    # End of recent activity section
+                    in_recent_activity = False
+                    continue  # let the goal-level section handler process it
                 continue
 
             if not in_milestones:
@@ -458,6 +505,7 @@ def _finalize_goal(data: dict) -> Goal:
         measurement_requirements=data["measurement_requirements"],
         research_artifact_titles=data["research_artifact_titles"],
         inactivity_window_days=data["inactivity_window_days"],
+        recent_activity=data["recent_activity"],
     )
 
 
@@ -547,6 +595,11 @@ def _format_goal_block(goal: Goal) -> list[str]:
                 lines.append(f"    preferred_time: {req['preferred_time']}")
             if req.get("interval_days"):
                 lines.append(f"    interval_days: {req['interval_days']}")
+
+    if goal.recent_activity:
+        lines.append("## Recent activity")
+        for entry in goal.recent_activity:
+            lines.append(f"# {json.dumps(entry)}")
 
     return lines
 

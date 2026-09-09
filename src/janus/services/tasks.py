@@ -79,6 +79,110 @@ def complete_task(title: str) -> Task:
     return Task(title=title)
 
 
+def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
+    """Mark a Janus task complete with execution-feedback evidence.
+
+    Called by the Hermes-side execution-feedback sync listener when a
+    Kanban task that carries ``janus_domain: object: task`` linkage
+    completes.
+
+    Finds the open task by exact title, marks it completed (checkbox
+    ``- [x]``), and records evidence metadata on the task line.
+    The evidence dict (with keys ``task_id``, ``summary``,
+    ``completed_at``, ``changed_files``, ``tests_passed``, ``pr_url``)
+    is serialized into ``extra_metadata`` as ``janus_evidence_*`` fields.
+
+    Idempotent: if the task is already completed, it is re-written with
+    the new evidence (no error).
+
+    Args:
+        title: exact task title (open or completed).
+        evidence: Evidence package dict.
+
+    Returns:
+        The completed Task.
+
+    Raises:
+        ValueError: if no matching task is found or multiple match.
+    """
+    _validate_title(title)
+
+    lines = TASKS_PATH.read_text().splitlines()
+    matches: list[int] = []
+
+    for i, line in enumerate(lines):
+        # Match both open (- [ ]) and completed (- [x]) tasks
+        if not (line.startswith("- [ ] ") or line.startswith("- [x] ")):
+            continue
+        content = line[len("- [ ] "):] if line.startswith("- [ ] ") \
+            else line[len("- [x] "):]
+        task_title = content.split(" | ", 1)[0] if " | " in content else content
+        if task_title == title:
+            matches.append(i)
+
+    if not matches:
+        raise ValueError(f"Task not found: {title}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple tasks found with title: {title}")
+
+    idx = matches[0]
+    task = _parse_task_line(lines[idx], idx + 1)
+    # If already completed, _parse_task_line returns None; reconstruct from raw
+    if task is None:
+        content = lines[idx][len("- [x] "):]
+        task_title = content.split(" | ", 1)[0] if " | " in content else content
+        task = Task(title=task_title.strip())
+
+    # Serialize evidence into extra_metadata
+    ev = evidence or {}
+    task.extra_metadata = task.extra_metadata or []
+    # Remove any prior janus_evidence fields for idempotency
+    task.extra_metadata = [
+        m for m in task.extra_metadata if not m.startswith("janus_evidence_")
+    ]
+    if ev.get("task_id"):
+        task.extra_metadata.append(f"janus_evidence_task_id: {ev['task_id']}")
+    if ev.get("completed_at"):
+        task.extra_metadata.append(f"janus_evidence_completed_at: {ev['completed_at']}")
+    if ev.get("tests_passed") is not None:
+        task.extra_metadata.append(
+            f"janus_evidence_tests_passed: {ev['tests_passed']}"
+        )
+    if ev.get("pr_url"):
+        task.extra_metadata.append(f"janus_evidence_pr_url: {ev['pr_url']}")
+    if ev.get("changed_files"):
+        for f in ev["changed_files"]:
+            task.extra_metadata.append(f"janus_evidence_changed_file: {f}")
+
+    # Format as completed
+    line = f"- [x] {task.title}"
+    parts = []
+    if task.due_date is not None:
+        parts.append(f"due: {task.due_date.isoformat()}")
+    if task.priority != 1:
+        parts.append(f"priority: {task.priority}")
+    if task.state is not None:
+        parts.append(f"state: {task.state}")
+    if task.progress is not None:
+        parts.append(f"progress: {task.progress}")
+    if task.extra_metadata:
+        parts.extend(task.extra_metadata)
+    if parts:
+        line += " | " + " | ".join(parts)
+    lines[idx] = line
+
+    TASKS_PATH.write_text("\n".join(lines) + "\n")
+
+    emit(logger, "service.task.mutated",
+         trace_id=None, span_id="service",
+         operation="complete_janus_task", task_title=title,
+         previous_state="todo" if not lines[idx].startswith("- [x]") else "completed",
+         new_state="completed", new_progress=None,
+         message=f"Task '{title}' completed with Janus evidence")
+
+    return task
+
+
 def _validate_title(title: str) -> None:
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")

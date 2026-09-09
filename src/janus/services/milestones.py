@@ -8,9 +8,13 @@ Task-to-milestone membership is NOT stored on the milestone — it is
 derived dynamically (see services/next_action.py, ``derive_milestone_tasks``).
 """
 
+from janus._log import emit
 from janus.models.goal import Goal
 from janus.models.milestone import Milestone
 from janus.integrations.markdown_goals import load_goals, update_goal
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _milestone_dict_from_obj(ms: Milestone) -> dict:
@@ -186,3 +190,155 @@ def reopen_milestone(goal_title: str, milestone_title: str) -> Milestone:
     return update_milestone(
         goal_title, milestone_title, status="open"
     )
+
+
+def update_milestone_status(
+    title: str,
+    completed_task_id: str,
+    evidence: dict | None = None,
+) -> Milestone:
+    """Check milestone task completion threshold after a task completes.
+
+    Called by the Hermes-side execution-feedback sync listener when a
+    Kanban task that carries ``janus_domain: object: milestone``
+    linkage completes.
+
+    Uses ``derive_milestone_tasks`` to determine the milestone's task
+    set (dynamically derived from ``goal.related_tasks``).  If all tasks
+    in the milestone's set are now complete (i.e. the completed task
+    was the last open one), the milestone is marked `completed` and an
+    evidence entry is appended to ``goal.recent_activity``.
+
+    The ``title`` here is the milestone title.  The goal title is
+    resolved by searching all goals for a milestone with this title.
+
+    Args:
+        title: Milestone title (exact match within any goal).
+        completed_task_id: Kanban task ID that completed.
+        evidence: Evidence package dict.
+
+    Returns:
+        The (possibly updated) Milestone.
+
+    Raises:
+        ValueError: if the milestone is not found in any goal.
+    """
+    evidence = evidence or {}
+
+    # Find the goal that contains this milestone by title
+    goal = None
+    goal_title_found = None
+    ms_idx = None
+    for g in load_goals():
+        for i, m in enumerate(g.milestones):
+            if m.get("title") == title:
+                goal = g
+                goal_title_found = g.title
+                ms_idx = i
+                break
+        if goal is not None:
+            break
+
+    if goal is None:
+        raise ValueError(f"Milestone not found: {title!r}")
+
+    # Guard against None milestones (Goal.__post_init__ defaults to [])
+    if goal.milestones is None:
+        goal.milestones = []
+
+    # Check current milestone status — if already completed, no-op
+    ms_dict = goal.milestones[ms_idx]
+    if ms_idx is None or ms_dict is None:
+        raise ValueError(f"Milestone not found: {title!r}")
+    if ms_dict.get("status") == "completed":
+        # Already completed; just ensure evidence is recorded on goal
+        _append_milestone_evidence(goal, completed_task_id, evidence)
+        return _milestone_from_dict(ms_dict)
+
+    # Derive the milestone's task set and check if all are now complete
+    from janus.services.next_action import (
+        _milestone_objs,
+        derive_milestone_tasks,
+    )
+    from janus.integrations.markdown_tasks import load_tasks
+    from janus.services.tasks import TASKS_PATH as _tasks_path
+
+    milestone_objs = _milestone_objs(goal)
+    milestone = None
+    for m in milestone_objs:
+        if m.title == title:
+            milestone = m
+            break
+
+    if milestone is None:
+        # Fallback: milestone dict exists but Milestone object construction failed
+        return _milestone_from_dict(ms_dict)
+
+    # Open tasks from the task file (use service-layer path for monkeypatching)
+    open_tasks = load_tasks(_tasks_path)
+    open_task_titles = {t.title for t in open_tasks}
+
+    # The task just reported as completed should be treated as done for the
+    # milestone threshold check — it may not yet be reflected in tasks.md
+    # (complete_janus_task is a separate call the sync listener may or may
+    # not have made before this one).  Exclude it from the open set.
+    completed_task_title = evidence.get("summary")
+    if completed_task_title:
+        open_task_titles.discard(completed_task_title)
+
+    # Derive which tasks belong to this milestone (only open ones).
+    milestone_task_titles = derive_milestone_tasks(
+        milestone, milestone_objs, goal, open_task_titles
+    )
+
+    # Check: are all tasks belonging to this milestone now complete?
+    # ``derive_milestone_tasks`` returns only tasks still in the open set,
+    # so if it returns empty, every task for this milestone is done.
+    all_complete = len(milestone_task_titles) == 0
+
+    if all_complete:
+        ms_dict["status"] = "completed"
+        goal.milestones[ms_idx] = ms_dict
+        update_goal(goal)
+        _append_milestone_evidence(goal, completed_task_id, evidence)
+        emit(logger, "service.milestone.mutated",
+             trace_id=None, span_id="service",
+             operation="complete", milestone_title=title,
+             goal_title=goal_title_found,
+             message=f"Milestone '{title}' auto-completed (all tasks done)")
+    else:
+        # Milestone not yet complete; still record evidence for audit
+        _append_milestone_evidence(goal, completed_task_id, evidence)
+        emit(logger, "service.milestone.update",
+             trace_id=None, span_id="service",
+             operation="progress", milestone_title=title,
+             goal_title=goal_title_found,
+             message=f"Milestone '{title}' progress: task '{evidence.get('summary', completed_task_id)}' completed")
+
+    return _milestone_from_dict(ms_dict)
+
+
+def _append_milestone_evidence(goal: Goal, task_id: str, evidence: dict) -> None:
+    """Append an evidence entry to a goal's recent_activity from a milestone
+    completion sync.
+
+    Idempotent: replaces any existing entry with the same ``task_id``.
+    """
+    if goal.recent_activity is None:
+        goal.recent_activity = []
+
+    entry = {
+        "task_id": task_id,
+        "summary": evidence.get("summary", ""),
+        "completed_at": evidence.get("completed_at"),
+        "changed_files": evidence.get("changed_files", []) or [],
+        "tests_passed": evidence.get("tests_passed"),
+        "pr_url": evidence.get("pr_url"),
+    }
+
+    goal.recent_activity = [
+        e for e in goal.recent_activity
+        if e.get("task_id") != task_id
+    ]
+    goal.recent_activity.append(entry)
+    update_goal(goal)
