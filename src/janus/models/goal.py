@@ -43,6 +43,14 @@ class Goal:
     research_artifact_titles: list[str] | None = field(default_factory=list)
     inactivity_window_days: int | None = None  # per-goal override of system default (design §6.3)
 
+    # Execution-feedback activity log (design §4.5 / §7). Each entry is a
+    # plain dict so that it round-trips through markdown_goals without a
+    # dedicated model import cycle. The service layer constructs
+    # RecentActivityEntry objects when richer access is needed.
+    # List of dicts: {task_id, summary, completed_at, changed_files,
+    #                  tests_passed, pr_url}
+    recent_activity: list[dict] | None = None
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
@@ -57,6 +65,8 @@ class Goal:
         if self.research_artifact_titles is None:
             self.research_artifact_titles = []
         self.research_artifact_titles = self._dedup_related_tasks(self.research_artifact_titles)
+        if self.recent_activity is None:
+            self.recent_activity = []
         for t in self.research_artifact_titles:
             if not isinstance(t, str):
                 raise ValueError(

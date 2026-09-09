@@ -23,6 +23,7 @@ from janus.models.goal import Goal
 from janus.models.milestone import Milestone
 from janus.models.project import Project
 from janus.models.project_progress import ProjectProgress
+from janus.models.recent_activity import RecentActivityEntry
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.models.daily_briefing import DailyBriefing
 from janus.models.attention import AttentionItem
@@ -56,4 +57,5 @@ __all__ = [
     "MetricSnapshot",
     "InboxItem",
     "FollowUp",
+    "RecentActivityEntry",
 ]

@@ -159,6 +159,7 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         measurement_requirements=goal.measurement_requirements,
         research_artifact_titles=goal.research_artifact_titles,
         inactivity_window_days=goal.inactivity_window_days,
+        recent_activity=goal.recent_activity,
     )
 
     update_goal(goal)
@@ -198,6 +199,78 @@ def complete_goal(title: str) -> Goal:
     Raises ValueError if goal not found.
     """
     return update_goal_fields(title, status="completed")
+
+
+def update_goal_progress(
+    title: str,
+    completed_task_id: str,
+    completed_task_title: str,
+    evidence: dict | None = None,
+) -> Goal:
+    """Record completion evidence on a Goal and bump its progress.
+
+    Called by the Hermes-side execution-feedback sync listener when a
+    Kanban task that carries ``janus_domain: object: goal`` linkage
+    completes.
+
+    Appends an activity entry to ``goal.recent_activity`` and persists
+    the goal.  If the evidence package indicates the goal's metric
+    ``current_value`` should advance (via ``evidence.current_value``),
+    the metric is updated too.
+
+    This operation is idempotent: if an activity entry with the same
+    ``task_id`` already exists, it is replaced rather than duplicated.
+
+    Args:
+        title: Goal title (exact match).
+        completed_task_id: Kanban task ID that completed.
+        completed_task_title: Human-readable summary of the task.
+        evidence: Evidence package dict with keys ``task_id``,
+            ``summary``, ``completed_at``, ``changed_files``,
+            ``tests_passed``, ``pr_url``.  May also include
+            ``current_value`` to advance the goal's metric.
+
+    Returns:
+        The updated Goal.
+
+    Raises:
+        ValueError: if the goal is not found.
+    """
+    goal = get_goal(title)
+    if goal.recent_activity is None:
+        goal.recent_activity = []
+
+    # Build the activity entry from evidence
+    entry = {
+        "task_id": completed_task_id,
+        "summary": completed_task_title,
+        "completed_at": (evidence or {}).get("completed_at"),
+        "changed_files": (evidence or {}).get("changed_files", []) or [],
+        "tests_passed": (evidence or {}).get("tests_passed"),
+        "pr_url": (evidence or {}).get("pr_url"),
+    }
+
+    # Idempotency: replace existing entry for this task_id
+    goal.recent_activity = [
+        e for e in goal.recent_activity
+        if e.get("task_id") != completed_task_id
+    ]
+    goal.recent_activity.append(entry)
+
+    # Optionally advance the metric
+    current_val = (evidence or {}).get("current_value")
+    if current_val is not None and goal.metric_name is not None:
+        goal.current_value = float(current_val)
+
+    update_goal(goal)
+
+    emit(logger, "service.goal.mutated",
+         trace_id=None, span_id="service",
+         operation="update_goal_progress", goal_title=title,
+         task_id=completed_task_id,
+         message=f"Goal progress updated from task '{completed_task_title}'")
+
+    return goal
 
 
 def _validate_measurement_requirement(req: dict) -> None:
