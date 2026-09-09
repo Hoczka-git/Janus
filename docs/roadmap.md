@@ -102,8 +102,10 @@ existing design and planning artifacts in this repository.
   stalled-goal detection
 - [x] Extend execution planning with goal → milestone → project → task
   hierarchy and goal-aware task recommendations
-- [ ] Janus CLI's complete_task finds all matching [ ] lines and errors on >1 match.
-  Add safeguard, and return to user warning when trying to add duplicate entry to tasks 
+- [x] Janus CLI's complete_task finds all matching [ ] lines and errors on >1 match.
+  Add safeguard, and return to user warning when trying to add duplicate entry to tasks
+  (safeguard in place: complete_task refuses on duplicates with actionable CLI warning;
+  handle_task_add rejects duplicate open entries with clear message)
 - [ ] Implement a unified inbox and follow-up model for capturing and
   tracking actionable items that do not yet belong to an active task
 - [ ] Close the research → finding → decision → action loop by connecting
