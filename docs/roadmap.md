@@ -104,9 +104,9 @@ existing design and planning artifacts in this repository.
   hierarchy and goal-aware task recommendations
 - [x] Janus CLI's complete_task finds all matching [ ] lines and errors on >1 match.
   Add safeguard, and return to user warning when trying to add duplicate entry to tasks
-  (completed via PR #90 — service-layer duplicate guard + CLI-level warning in
-  `handle_task_complete`, with CLI tests in `tests/test_task_complete.py`)
-- [ ] Implement a unified inbox and follow-up model for capturing and
+  (safeguard in place: complete_task refuses on duplicates with actionable CLI warning;
+  handle_task_add rejects duplicate open entries with clear message)
+- [x] Implement a unified inbox and follow-up model for capturing and
   tracking actionable items that do not yet belong to an active task
 - [ ] Close the research → finding → decision → action loop by connecting
   research artifacts with decisions, goals, projects, and follow-up tasks
