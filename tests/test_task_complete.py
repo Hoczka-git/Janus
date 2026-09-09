@@ -139,3 +139,51 @@ class TestCompleteTaskCLIServiceIntegration:
         content = tasks_file.read_text()
         assert "- [x] Test task" in content
         assert "Completed task:" in capsys.readouterr().out
+
+
+class TestCompleteTaskCLIDuplicateSafeguard:
+    def test_complete_duplicate_match_warns_and_refuses(self, tmp_path, monkeypatch, capsys):
+        """CLI warns the user and exits 1 when multiple open tasks share a title.
+
+        The service-layer guard raises ValueError; the CLI must turn this into
+        an actionable 'Warning:' message on stderr and refuse to proceed.
+        """
+        tasks_file = _write_tasks_file(
+            tmp_path,
+            "- [ ] Duplicate task\n"
+            "- [ ] Duplicate task\n"
+        )
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
+
+        from janus.tasks_cli import handle_task_complete
+        with pytest.raises(SystemExit) as exc_info:
+            handle_task_complete(["Duplicate task"])
+
+        err = capsys.readouterr().err
+        out = capsys.readouterr().out
+        assert exc_info.value.code == 1
+        assert "Warning:" in err
+        assert "Multiple open tasks found with title: Duplicate task" in err
+        # Actionable guidance is included
+        assert "janus task list" in err
+        # No completion message on stdout
+        assert "Completed task:" not in out
+        # File is untouched — neither duplicate was completed
+        content = tasks_file.read_text()
+        assert content.count("- [ ] Duplicate task") == 2
+
+    def test_complete_no_match_cli_message(self, tmp_path, monkeypatch, capsys):
+        """CLI reports 'Error:' (not 'Warning:'), exit 1, file untouched."""
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Some task\n")
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
+
+        from janus.tasks_cli import handle_task_complete
+        with pytest.raises(SystemExit) as exc_info:
+            handle_task_complete(["Missing task"])
+
+        err = capsys.readouterr().err
+        assert exc_info.value.code == 1
+        assert "Error:" in err
+        assert "Task not found: Missing task" in err
+        # File untouched
+        assert tasks_file.read_text() == "- [ ] Some task\n"
