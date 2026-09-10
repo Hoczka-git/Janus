@@ -53,9 +53,13 @@ class EvidencePackage:
 # Frontmatter: opens with a line of ``-`` (3+ dashes), closes with a line of
 # ``-`` on its own.  Body content may follow the closing fence (the common case
 # for task bodies).  ``.*?` is lazy so the first closing fence wins; the fence
-# must sit on its own line (preceded by ``\n``) so we don't mismatch intra-body
+# must sit on its own line (preceded by a newline) so we don't mismatch intra-body
 # ``---`` separators.
-_FRONTMATTER_RE = re.compile(r"^-{3,}\s*\n(.*?)\n-{3,}\s*(?:\n|$)", re.DOTALL)
+#
+# The opening fence may follow leading metadata lines injected by the Kanban
+# layer (e.g. ``integration_required: false``), so it is matched either at the
+# start of the body or after a newline rather than being anchored to column 0.
+_FRONTMATTER_RE = re.compile(r"(?:^|\n)-{3,}\s*\n(.*?)\n-{3,}\s*(?:\n|$)", re.DOTALL)
 
 
 @dataclass
@@ -105,9 +109,10 @@ def parse_janus_domain_metadata(body: str | None) -> JanusDomainMetadata | None:
     if not body or not body.strip():
         return None
 
-    # Strip leading whitespace / blank lines before the opening ---
-    trimmed = body.lstrip()
-    match = _FRONTMATTER_RE.match(trimmed)
+    # Search for the frontmatter block anywhere in the body.  The Kanban layer
+    # may prepend audit metadata lines (e.g. ``integration_required: false``)
+    # before the ``---`` fence, so we use ``search`` rather than ``match``.
+    match = _FRONTMATTER_RE.search(body)
     if match is None:
         return None
 

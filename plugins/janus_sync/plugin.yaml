@@ -1,0 +1,17 @@
+name: janus_sync
+version: "1.0.0"
+description: >-
+  Execution-feedback sync listener for Janus. Hooks `kanban_task_completed` in
+  the worker process: when a completed Kanban task carries `janus_domain`
+  frontmatter linking it to a Janus domain object (goal, task, or milestone),
+  the listener parses the metadata, assembles an EvidencePackage from the
+  completion payload + worker run metadata + workspace git diff, and dispatches
+  to the Janus-side `execution_feedback.dispatch_completion()` service
+  functions — closing the Hermes → Janus execution-feedback loop.
+
+  Opt-in: enabled via `hermes plugins enable janus_sync` (or
+  `plugins.enabled` in config.yaml). Tasks without `janus_domain` frontmatter
+  are no-ops; the common completion path is untouched.
+author: NousResearch
+hooks:
+  - kanban_task_completed
