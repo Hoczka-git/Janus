@@ -12,8 +12,10 @@ Key subsystems:
 |--------------|------------------------|--------------------|----------------------------------------------------------|
 | Daily briefing | `janus today`       | —                  | Schedule + attention items + suggested focus           |
 | Tasks        | `janus task <subcommand>` | `data/tasks.md` | Open tasks, priorities, states, progress, due dates      |
-| Goals        | `janus goal <subcommand>` | `data/goals.md` | Long-term goals with metrics and related-task tracking   |
+| Goals        | `janus goal <subcommand>` | `data/goals.md` | Long-term goals with metrics, milestones, projects       |
 | Fitness      | `janus workout <subcommand>` | `data/workouts.md` | Strength and running workouts with analytics        |
+| Inbox        | `janus inbox <subcommand>` | `data/inbox.md` | Captured items triaged into tasks or follow-ups        |
+| Follow-ups   | `janus followup <subcommand>` | `data/followups.md` | Lightweight action items with scheduling          |
 | Weekly review | `janus weekly`      | —                  | Completed tasks, open tasks, and goal progress           |
 | Telegram     | `janus telegram` / `janus telegram-weekly` | — | Deliver the daily / weekly briefing to Telegram     |
 | Verification | `janus verify-contract <file>` | —          | Run an implementation contract verification pipeline     |
@@ -21,11 +23,13 @@ Key subsystems:
 ## Current capabilities
 
 - **Daily briefing** (`janus today`) — upcoming calendar events (Google Calendar, read-only scope), open tasks, active goals, deterministic attention ranking (top 3), and a single recommended suggested-focus item.
-- **Task management** (`janus task`) — list, add, complete, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
-- **Goal tracking** (`janus goal`) — goals with optional metrics (`--metric`, `--unit`, `--start`, `--current`, `--target`, `--direction`), deadlines, status (`active`/`completed`/`inactive`), and links to related tasks.
-- **Fitness tracking** (`janus workout`) — strength workouts (exercises, sets, weights, RPE) and running workouts (distance, duration, heart rate, elevation). Analytics: overall, running-specific, and per-exercise progression.
-- **Weekly review** (`janus weekly`) — completed tasks, open tasks, and goal progress with next-step suggestions.
+- **Task management** (`janus task`) — add, complete, list open tasks, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
+- **Goal tracking** (`janus goal`) — goals with optional metrics (`--metric`, `--unit`, `--start`, `--current`, `--target`, `--direction`), deadlines, status (`active`/`completed`/`inactive`), related tasks, milestones, and projects. Milestone and project hierarchies support status transitions (open, in_progress, active, blocked, completed, skipped) and task assignment.
+- **Next action derivation** (`janus goal next <title>`) — deterministically derive the next actionable step for a goal from its milestones, projects, and related tasks, with the rationale for the selection.
+- **Inbox triage** (`janus inbox`) — capture incoming items and triage them into tasks, follow-ups, or discarded items.
+- **Follow-ups** (`janus followup`) — lightweight action items with scheduling (due/scheduled dates), priority, and state. Can be converted to tasks.
 - **Goal health monitoring** (`janus goal health`) — assess the health state (`healthy`/`watch`/`stalled`/`completed`) of active goals from automated signals (deadline proximity, progress-slow, measurement-due, recent activity). Goals are ranked by severity.
+- **Fitness tracking** (`janus workout`) — strength workouts (exercises, sets, weights, RPE) and running workouts (distance, duration, heart rate, elevation). Analytics: overall, running-specific, and per-exercise progression.
 - **Telegram delivery** — push the daily briefing or weekly review to a Telegram chat via bot.
 - **Verification pipeline** (`janus verify-contract`) — validate an implementation contract (`contract.yaml`) against the repository: file creation/immutability checks, modified-file scope, untracked-file detection, AST-based required/forbidden symbol checks, and verification command execution.
 
@@ -112,6 +116,7 @@ Sends the daily briefing to the configured Telegram chat.
 ### Tasks
 
 ```bash
+janus task list
 janus task add "Prepare training plan" --priority 3
 janus task add "Book dentist appointment" --due 2026-08-30 --priority 2
 janus task complete "Prepare training plan"
@@ -162,6 +167,32 @@ Related tasks:
 - Prepare training plan
 ```
 
+### Goal milestones and projects
+
+Goals support a hierarchical Goal → Milestone → Project → Task decomposition:
+
+```bash
+janus goal milestone add "Run a marathon" "Base building" --deadline 2026-09-15
+janus goal milestone list "Run a marathon"
+janus goal milestone start "Run a marathon" "Base building"
+janus goal milestone complete "Run a marathon" "Base building"
+
+janus goal project add "Run a marathon" "Base building" "Weekly long runs" --deadline 2026-09-30
+janus goal project add "Run a marathon" "Base building" "Strength training" --add-related-task "Prepare training plan"
+janus goal project list "Run a marathon"
+janus goal project start "Run a marathon" "Base building" "Weekly long runs"
+```
+
+Milestones have statuses `open`, `in_progress`, `completed`, and `skipped`. Projects have statuses `open`, `active`, `blocked`, `completed`, and `skipped`. A task can belong to at most one project within a goal; tasks not assigned to a project are dynamically assigned to the earliest open milestone.
+
+### Next action
+
+```bash
+janus goal next "Run a marathon"
+```
+
+Prints the deterministically derived next actionable step for a goal, with the rationale for why it was selected from the goal's milestones, projects, and related tasks.
+
 ### Goal health
 
 ```bash
@@ -211,6 +242,30 @@ janus telegram-weekly
 
 Sends the weekly review to Telegram.
 
+### Inbox
+
+```bash
+janus inbox list
+janus inbox pending
+janus inbox triage ix-abc12345 --followup --note "Travel planning"
+janus inbox triage ix-abc12345 --discard --note "Not actionable"
+janus inbox triage ix-abc12345 --convert-to-task --title "New task title"
+```
+
+Captures incoming items and triages them. `list` shows all items optionally filtered by `--state` (`pending`, `discarded`, `converted`, `follow_up`). `pending` shows only untriaged items. `triage` moves an item into a follow-up, discards it, or converts it to a task.
+
+### Follow-ups
+
+```bash
+janus followup list
+janus followup add "Check Memmingen train times" --due 2026-09-18 --priority 2
+janus followup update fu-abc12345 --state scheduled --scheduled 2026-09-15
+janus followup complete fu-abc12345
+janus followup convert-to-task fu-abc12345 --title "Research Memmingen travel options"
+```
+
+Lightweight action items with states `pending`, `scheduled`, `in_progress`, `blocked`, `completed`, and `deferred`. Follow-ups can be converted to tasks via `convert-to-task`.
+
 ### Verification pipeline
 
 ```bash
@@ -223,13 +278,17 @@ Runs an implementation contract against the repository. See [`docs/verification.
 
 All structured personal data lives in `data/` as tracked markdown files:
 
-| File           | Contents                                           |
-|----------------|----------------------------------------------------|
-| `data/tasks.md`     | Open and completed tasks with metadata         |
-| `data/goals.md`     | Long-term goals with metrics and related tasks  |
-| `data/workouts.md`  | Strength and running workouts                  |
+| File | Contents |
+|------|----------|
+| `data/tasks.md` | Open and completed tasks with metadata |
+| `data/goals.md` | Long-term goals with metrics, milestones, projects, and related tasks |
+| `data/workouts.md` | Strength and running workouts |
+| `data/inbox.md` | Captured inbox items awaiting triage |
+| `data/followups.md` | Lightweight follow-up action items |
+| `data/metric_history.md` | Goal metric measurement log (comment-line format) |
+| `data/measurements.jsonl` | Structured measurement log (read by services) |
 
-These files are committed to git by default so task/goal/workout history is version-controlled.
+These files are gitignored by default (`data/*` in `.gitignore`) so task/goal/workout history is local-only; remove that entry from `.gitignore` if you want version-controlled history.
 
 ## Security
 
@@ -250,20 +309,27 @@ uv run pytest tests/ -v
 ```text
 src/janus/
 ├── __init__.py              # CLI entry point — dispatches commands
+├── _log.py                  # Telemetry event emission
+├── logging_config.py        # Logging setup
 ├── today.py                 # Daily briefing renderer
 ├── weekly.py                # Weekly review renderer
-├── telegram_weekly_cli.py
-├── tasks_cli.py             # janus task <add|complete|state|progress>
+├── tasks_cli.py             # janus task <add|complete|list|state|progress>
 ├── workout_cli.py           # janus workout <add|show|summary>
-├── goals_cli.py             # janus goal <list|show|add|update|complete|milestone|next|health>
+├── goals_cli.py             # janus goal <list|show|add|update|complete|milestone|project|next|health>
+├── inbox_cli.py             # janus inbox <list|pending|triage>
+├── followup_cli.py          # janus followup <list|add|show|update|complete|convert-to-task>
+├── telegram_weekly_cli.py   # Telegram weekly briefing delivery
+├── git_sync.py              # Git sync utilities for tracked data
 ├── verification.py          # Implementation contract verification pipeline
 ├── integrations/            # External integrations (Google Calendar, Telegram, markdown persistence)
 ├── models/                  # Domain models (Task, Goal, Workout, Event, AttentionItem, DailyBriefing,
-│                              GoalSignal, GoalHealthAssessment, MetricSnapshot, Source, Finding,
-│                              ResearchArtifact, TopicBlock, KnowledgeSummary, Milestone, Decision)
+│                             GoalSignal, GoalHealthAssessment, MetricSnapshot, Source, Finding,
+│                             ResearchArtifact, TopicBlock, KnowledgeSummary, Milestone, Project,
+│                             ProjectProgress, FollowUp, InboxItem, recent_activity)
 ├── services/                # Business logic (briefing, goals, tasks, workouts, weekly review,
-│                              knowledge pipeline — validation + summary generation)
-data/                        # Tracked markdown data files
+│                             inbox, followups, milestones, projects, next-action, goal health,
+│                             knowledge pipeline, measurement collection)
+data/                        # Tracked markdown/JSON data files (gitignored — local)
 config/                      # Per-user configuration (gitignored)
 docs/                        # Design docs, decisions, roadmap, verification pipeline
 scripts/                     # Utility scripts (e.g. CI validation)
