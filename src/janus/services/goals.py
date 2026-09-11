@@ -136,6 +136,14 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         elif key == "set_research_artifacts":
             goal.research_artifact_titles = list(value)
             changes["research_artifact_titles"] = list(value)
+        elif key == "add_decision_number":
+            if value not in goal.decision_numbers:
+                goal.decision_numbers.append(value)
+                changes.setdefault("decision_numbers", []).append(value)
+        elif key == "add_followup_id":
+            if value not in goal.followup_ids:
+                goal.followup_ids.append(value)
+                changes.setdefault("followup_ids", []).append(value)
         else:
             old_val = getattr(goal, key, None)
             setattr(goal, key, value)
@@ -158,6 +166,8 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         projects=goal.projects,
         measurement_requirements=goal.measurement_requirements,
         research_artifact_titles=goal.research_artifact_titles,
+        decision_numbers=goal.decision_numbers,
+        followup_ids=goal.followup_ids,
         inactivity_window_days=goal.inactivity_window_days,
         recent_activity=goal.recent_activity,
     )

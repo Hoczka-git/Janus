@@ -37,6 +37,10 @@ def link_artifact_to_goal(
     ``artifact`` is None, the artifact side is not updated (the caller
     is responsible for passing it in when they have an in-memory instance).
 
+    Also propagates the artifact's ``decision_numbers`` to the goal's
+    ``decision_numbers`` field (if not already present), so the goal
+    records which ADRs the linked artifact informed.
+
     No-op if the link already exists on both sides.
 
     Raises ValueError if the goal does not exist.
@@ -50,6 +54,14 @@ def link_artifact_to_goal(
              trace_id=None, span_id="link_artifact_to_goal",
              goal_title=goal_title, artifact_title=artifact_title,
              message=f"Linked artifact '{artifact_title}' to goal '{goal_title}'")
+
+    # Propagate artifact decision_numbers to the goal (design spec §8.2)
+    if artifact is not None:
+        for dn in artifact.decision_numbers:
+            if dn not in goal.decision_numbers:
+                goal.decision_numbers.append(dn)
+        if goal.decision_numbers:
+            update_goal(goal)
 
     # Update artifact side (in-memory, caller owns persistence)
     if artifact is not None:
