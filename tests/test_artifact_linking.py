@@ -104,6 +104,29 @@ class TestLinkArtifactToGoal:
         assert "Existing Artifact" in goal.research_artifact_titles  # type: ignore[operator]
         assert "New Artifact" in goal.research_artifact_titles  # type: ignore[operator]
 
+    def test_link_propagates_decision_numbers_to_goal(self, tmp_path, monkeypatch):
+        """Design spec §8.2: artifact decision_numbers propagate to goal."""
+        _seed_goals_file(tmp_path, monkeypatch,
+                         "# Goals\n\n## Goal: G\nStatus: active\n")
+        artifact = _artifact("A", decision_numbers=["005"])
+
+        link_artifact_to_goal("A", "G", artifact)
+
+        goal = _get_goal("G", tmp_path, monkeypatch)
+        assert "005" in goal.decision_numbers  # type: ignore[operator]
+
+    def test_link_does_not_duplicate_existing_decision_numbers(self, tmp_path, monkeypatch):
+        _seed_goals_file(tmp_path, monkeypatch,
+                         "# Goals\n\n## Goal: G\nStatus: active\n"
+                         "Decision numbers:\n- 005\n")
+        artifact = _artifact("A", decision_numbers=["005", "007"])
+
+        link_artifact_to_goal("A", "G", artifact)
+
+        goal = _get_goal("G", tmp_path, monkeypatch)
+        assert goal.decision_numbers.count("005") == 1  # type: ignore[operator]
+        assert "007" in goal.decision_numbers  # type: ignore[operator]
+
 
 # =============================================================================
 # unlink_artifact_from_goal

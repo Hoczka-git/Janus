@@ -1,10 +1,10 @@
 """Decision service — structured access to ADR markdown records.
 
 Canonical storage is markdown ADR files in docs/decisions/. This service
-reads those files into Decision objects for linking and querying. Only
-``update_decision_status`` writes back (status changes); full decision
-creation/edit via markdown is out of scope — the markdown files are
-hand-edited.
+reads those files into Decision objects for linking and querying, and
+provides write-back for status changes (``update_decision_status``),
+decision creation (``create_decision``), and bidirectional linking
+(``link_decision_to_goal``, ``link_finding_to_decision``).
 
 Follows the existing Janus dataclass/service pattern (goals.py,
 knowledge_pipeline.py).
@@ -142,6 +142,135 @@ def update_decision_status(adr_number: str, status: str) -> Decision:
     return decision
 
 
+def link_decision_to_goal(adr_number: str, goal_title: str) -> Decision:
+    """Add a bidirectional link: decision -> goal and goal -> decision.
+
+    Updates the Decision's ADR file (appends goal reference via wikilink)
+    and appends the ADR number to Goal.decision_numbers in goals.md.
+
+    No-op if the link already exists on both sides.
+    Raises ValueError if the decision or goal is not found.
+    """
+    decision = get_decision(adr_number)
+    adr_path = _find_adr_path(decision.adr_number)
+    if adr_path is None:
+        raise ValueError(f"ADR file not found for decision {adr_number!r}")
+
+    content = adr_path.read_text()
+
+    # Update decision side: add [[Goal: title]] wikilink if not present
+    goal_wikilink = f"[[Goal: {goal_title}]]"
+    if goal_wikilink not in content:
+        # Append to the Context section or at the end
+        content = content.rstrip() + f"\n\nSee {goal_wikilink} for the goal this decision addresses.\n"
+        adr_path.write_text(content)
+
+    # Update goal side: append adr_number to Goal.decision_numbers.
+    # update_goal_fields already persists the change (it calls update_goal),
+    # so there is no need to append again here.
+    from janus.services.goals import update_goal_fields
+    update_goal_fields(goal_title, add_decision_number=adr_number)
+
+    emit(logger, "service.decision.mutated",
+         trace_id=None, span_id="link_decision_to_goal",
+         adr_number=adr_number, goal_title=goal_title,
+         message=f"Linked decision {adr_number} to goal '{goal_title}'")
+    return decision
+
+
+def link_finding_to_decision(adr_number: str, artifact_title: str, finding_index: int) -> None:
+    """Link a research artifact's finding to a decision (bidirectional).
+
+    Delegates to the research_artifacts service for the artifact-side update
+    and updates the decision's ADR file with an 'Informed by' entry.
+
+    Idempotent: no-op if the link already exists.
+    """
+    decision = get_decision(adr_number)
+    adr_path = _find_adr_path(decision.adr_number)
+    if adr_path is None:
+        raise ValueError(f"ADR file not found for decision {adr_number!r}")
+
+    content = adr_path.read_text()
+
+    # Update decision side: add artifact title to Informed by section
+    if "## Informed by" not in content:
+        content += f"\n## Informed by\n\n- {artifact_title}\n"
+    elif f"- {artifact_title}" not in content.split("## Informed by", 1)[1]:
+        # Insert item into existing Informed by section (before next ## section)
+        marker = "## Informed by"
+        idx = content.index(marker)
+        rest = content[idx:]
+        # Find end of Informed by section: next "## " heading
+        next_section = re.search(r"\n##\s", rest[len(marker):])
+        if next_section:
+            insert_pos = idx + len(marker) + next_section.start()
+            content = content[:insert_pos] + f"\n- {artifact_title}\n" + content[insert_pos:]
+        else:
+            content = content.rstrip() + f"\n- {artifact_title}\n"
+    adr_path.write_text(content)
+
+    # Update artifact side via research_artifacts service
+    from janus.services.research_artifacts import link_finding_to_decision as _link_finding
+    _link_finding(artifact_title, finding_index, adr_number)
+
+    emit(logger, "service.decision.mutated",
+         trace_id=None, span_id="link_finding_to_decision",
+         adr_number=adr_number, artifact_title=artifact_title, finding_index=finding_index,
+         message=f"Linked finding {finding_index} of '{artifact_title}' to decision {adr_number}")
+
+
+def create_decision(decision: Decision) -> Path:
+    """Create a new ADR markdown file from a Decision object.
+
+    Generates a file at docs/decisions/<NNN>-<slug>.md with the standard
+    ADR sections (Status, Context, Decision, Consequences, Informed by).
+    The adr_number in the Decision object determines the filename prefix.
+
+    Raises ValueError if a file with the same number already exists.
+    Returns the path to the created file.
+    """
+    DECISIONS_DIR.mkdir(parents=True, exist_ok=True)
+    adr_path = _find_adr_path(decision.adr_number)
+    if adr_path is not None:
+        raise ValueError(f"ADR already exists for number {decision.adr_number!r}")
+
+    filename = f"{decision.adr_number.zfill(3)}-{_slugify(decision.title)}.md"
+    adr_path = DECISIONS_DIR / filename
+
+    lines = [f"# ADR-{decision.adr_number}: {decision.title}", "", "## Status", "", decision.status, "", "## Context", "", decision.context or "", "", "## Decision", "", decision.decision or "", "", "## Consequences", "", decision.consequences or "", ""]
+
+    if decision.finding_sources:
+        lines.append("## Informed by")
+        lines.append("")
+        for src in decision.finding_sources:
+            lines.append(f"- {src}")
+        lines.append("")
+
+    if decision.goal_titles:
+        for gt in decision.goal_titles:
+            lines.append(f"[[Goal: {gt}]]")
+        lines.append("")
+
+    adr_path.write_text("\n".join(lines))
+    decision.updated_at = datetime.now().astimezone()
+
+    emit(logger, "service.decision.created",
+         trace_id=None, span_id="create_decision",
+         adr_number=decision.adr_number, title=decision.title,
+         path=str(adr_path),
+         message=f"Created ADR {adr_path.name}")
+    return adr_path
+
+
+def _slugify(text: str) -> str:
+    """Convert text to a URL/filename-safe slug (lowercase, hyphen-separated)."""
+    slug = re.sub(r"[^\w\s-]", "", text.lower())
+    slug = re.sub(r"[\s_]+", "-", slug.strip())
+    slug = re.sub(r"-+", "-", slug)
+    return slug or "untitled"
+
+
 def _find_adr_path(adr_number: str) -> Path | None:
     """Find the ADR markdown file matching the given number."""
     if not DECISIONS_DIR.exists():
@@ -173,6 +302,7 @@ def _parse_adr(path: Path) -> Decision:
     consequences = _extract_section(content, "Consequences")
     goal_titles = _extract_goal_links(content)
     supersedes_adr = _extract_supersedes(content)
+    finding_sources = _extract_informed_by(content)
     created_at, updated_at = _extract_dates(content)
 
     return Decision(
@@ -183,6 +313,7 @@ def _parse_adr(path: Path) -> Decision:
         decision=decision_text,
         consequences=consequences,
         goal_titles=goal_titles,
+        finding_sources=finding_sources,
         supersedes_adr=supersedes_adr,
         created_at=created_at,
         updated_at=updated_at,
@@ -272,6 +403,32 @@ def _extract_goal_links(content: str) -> list[str]:
         if title and title not in goal_titles:
             goal_titles.append(title)
     return goal_titles
+
+
+def _extract_informed_by(content: str) -> list[str]:
+    """Extract research artifact titles referenced in the ADR's Informed by section.
+
+    Looks for a '## Informed by' section header, then collects list items
+    (lines starting with '- '). Each item is a research artifact title.
+    """
+    findings: list[str] = []
+    lines = content.splitlines()
+    in_section = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## ") and "informed by" in stripped.lower():
+            in_section = True
+            continue
+        if in_section:
+            # End of section: another ## heading (but not ## Informed by itself)
+            if stripped.startswith("## ") and "informed by" not in stripped.lower():
+                in_section = False
+                continue
+            if stripped.startswith("- "):
+                item = stripped[2:].strip()
+                if item and item not in findings:
+                    findings.append(item)
+    return findings
 
 
 def _extract_supersedes(content: str) -> str | None:

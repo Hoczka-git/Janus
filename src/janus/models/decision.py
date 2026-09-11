@@ -30,6 +30,7 @@ class Decision:
     decision: str = ""              # what was decided
     consequences: str = ""          # positive and negative consequences
     goal_titles: list[str] = field(default_factory=list)
+    finding_sources: list[str] = field(default_factory=list)  # research artifact titles that informed this decision
     supersedes_adr: str | None = None  # ADR number this decision supersedes
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -52,6 +53,15 @@ class Decision:
                 raise ValueError(
                     f"Decision.goal_titles must contain str instances, "
                     f"got {type(t).__name__}"
+                )
+        if self.finding_sources is None:
+            self.finding_sources = []
+        self.finding_sources = self._dedup(self.finding_sources)
+        for s in self.finding_sources:
+            if not isinstance(s, str):
+                raise ValueError(
+                    f"Decision.finding_sources must contain str instances, "
+                    f"got {type(s).__name__}"
                 )
 
     @staticmethod

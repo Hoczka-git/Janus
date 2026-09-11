@@ -152,7 +152,7 @@ def parse_janus_domain_metadata(body: str | None) -> JanusDomainMetadata | None:
     if not title or not isinstance(title, str):
         raise ValueError("janus_domain.title is required and must be a string")
 
-    known = {"goal", "task", "milestone", "project", "finding", "decision"}
+    known = {"goal", "task", "milestone", "project", "finding", "decision", "research"}
     if obj not in known:
         raise ValueError(
             f"Unknown janus_domain.object: {obj!r}. "
@@ -276,11 +276,19 @@ def dispatch_completion(
             evidence=evidence_dict,
         )
     else:
-        logger.warning(
-            "No Janus service function for domain object %r",
-            metadata.object,
-        )
-        results["skipped"] = metadata.object
+        from janus.services.research_artifacts import load_artifact
+        if metadata.object in ("research", "finding", "decision"):
+            try:
+                artifact = load_artifact(metadata.title)
+                results["research"] = {"loaded": artifact.title}
+            except ValueError:
+                results["skipped"] = metadata.object
+        else:
+            logger.warning(
+                "No Janus service function for domain object %r",
+                metadata.object,
+            )
+            results["skipped"] = metadata.object
 
     emit(logger, "service.execution_feedback.dispatched",
          trace_id=None, span_id="execution_feedback",
