@@ -1,7 +1,9 @@
 """Markdown task loader for Janus."""
 
+import hashlib
 import logging
 import re
+import threading
 from pathlib import Path
 from datetime import date
 
@@ -13,6 +15,32 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage for hash capture at load time.
+_load_context = threading.local()
+
+
+def get_load_hash(path: Path | None = None) -> str | None:
+    """Return the hash captured during the most recent load of *path*.
+
+    If *path* is None, returns the hash for whichever file was last loaded.
+    Returns None if no load has occurred or the path doesn't match.
+    """
+    last_path = getattr(_load_context, "last_loaded_path", None)
+    if path is not None and last_path is not None and Path(last_path) != path:
+        return None
+    return getattr(_load_context, "last_hash", None)
+
+
+def _capture_load_hash(path: Path) -> None:
+    """Capture the SHA-256 hash of *path* at load time for later conflict detection."""
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+        _load_context.last_hash = hashlib.sha256(content.encode()).hexdigest()
+        _load_context.last_loaded_path = path
+    else:
+        _load_context.last_hash = None
+        _load_context.last_loaded_path = None
 
 
 def load_tasks(
@@ -31,6 +59,7 @@ def load_tasks(
     tasks_path = path if path is not None else TASKS_PATH
     if not tasks_path.exists():
         raise FileNotFoundError(f"Task file not found: {tasks_path}")
+    _capture_load_hash(tasks_path)
 
     tasks: list[Task] = []
     lines_scanned = 0

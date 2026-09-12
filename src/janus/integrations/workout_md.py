@@ -11,6 +11,8 @@ from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from janus.integrations.data_protection import protected_write, compute_content_hash
+
 from janus.models.workout import (
     Exercise,
     RunningWorkout,
@@ -83,8 +85,17 @@ def _write_workouts(workouts: list[Workout]) -> None:
         lines.append("")
 
     path = _workouts_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    # Read current content for conflict detection
+    expected_hash = None
+    if path.exists():
+        expected_hash = compute_content_hash(path.read_text(encoding="utf-8"))
+    protected_write(
+        path,
+        content,
+        expected_hash=expected_hash,
+        written_by="workout_md._write_workouts",
+    )
 
 
 def _workout_to_markdown_lines(workout: Workout) -> list[str]:

@@ -155,7 +155,13 @@ def save_inbox_item(item: InboxItem) -> None:
 
 def update_inbox_item(item: InboxItem) -> None:
     """In-place rewrite of one inbox item by id."""
-    lines = INBOX_PATH.read_text().splitlines()
+    from janus.integrations.data_protection import (
+        protected_write,
+        compute_content_hash,
+    )
+
+    raw_content = INBOX_PATH.read_text()
+    lines = raw_content.splitlines()
     found = False
     new_lines: list[str] = []
     for line in lines:
@@ -168,4 +174,10 @@ def update_inbox_item(item: InboxItem) -> None:
     if not found:
         raise ValueError(f"Inbox item not found: {item.id}")
 
-    INBOX_PATH.write_text("\n".join(new_lines) + "\n")
+    content = "\n".join(new_lines) + "\n"
+    protected_write(
+        INBOX_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="markdown_inbox.update_inbox_item",
+    )

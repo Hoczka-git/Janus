@@ -14,6 +14,7 @@ from janus.integrations.markdown_tasks import (
     _parse_task_line,
     _format_task_line,
 )
+from janus.integrations.data_protection import protected_write, protected_append, compute_content_hash
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
@@ -48,7 +49,8 @@ def complete_task(title: str) -> Task:
     """
     _validate_title(title)
 
-    lines = TASKS_PATH.read_text().splitlines()
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
     matches: list[int] = []
 
     for i, line in enumerate(lines):
@@ -68,7 +70,13 @@ def complete_task(title: str) -> Task:
     line = lines[idx]
     lines[idx] = "- [x] " + line[len("- [ ] "):]
 
-    TASKS_PATH.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    protected_write(
+        TASKS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="services.tasks.complete_task",
+    )
 
     emit(logger, "service.task.mutated",
          trace_id=None, span_id="service",
@@ -107,7 +115,8 @@ def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
     """
     _validate_title(title)
 
-    lines = TASKS_PATH.read_text().splitlines()
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
     matches: list[int] = []
 
     for i, line in enumerate(lines):
@@ -171,7 +180,13 @@ def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
         line += " | " + " | ".join(parts)
     lines[idx] = line
 
-    TASKS_PATH.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    protected_write(
+        TASKS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="services.tasks.complete_janus_task",
+    )
 
     emit(logger, "service.task.mutated",
          trace_id=None, span_id="service",
@@ -241,7 +256,8 @@ def set_task_state(title: str, state: str) -> Task:
             f"Allowed values: {', '.join(sorted(ALLOWED_STATES))}"
         )
 
-    lines = TASKS_PATH.read_text().splitlines()
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
     matches: list[int] = []
 
     for i, line in enumerate(lines):
@@ -264,7 +280,13 @@ def set_task_state(title: str, state: str) -> Task:
 
     task.state = state
     lines[idx] = _format_task_line(task)
-    TASKS_PATH.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    protected_write(
+        TASKS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="services.tasks.set_task_state",
+    )
 
     emit(logger, "service.task.mutated",
          trace_id=None, span_id="service",
@@ -299,7 +321,8 @@ def set_task_progress(title: str, progress: int) -> Task:
             f"Progress must be an integer between 0 and 100, got {progress!r}"
         )
 
-    lines = TASKS_PATH.read_text().splitlines()
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
     matches: list[int] = []
 
     for i, line in enumerate(lines):
@@ -322,7 +345,13 @@ def set_task_progress(title: str, progress: int) -> Task:
 
     task.progress = progress
     lines[idx] = _format_task_line(task)
-    TASKS_PATH.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    protected_write(
+        TASKS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="services.tasks.set_task_progress",
+    )
 
     emit(logger, "service.task.mutated",
          trace_id=None, span_id="service",
@@ -335,8 +364,11 @@ def set_task_progress(title: str, progress: int) -> Task:
 
 def _append_task(task: Task) -> None:
     line = _format_task_line(task)
-    with TASKS_PATH.open("a") as f:
-        f.write(line + "\n")
+    protected_append(
+        TASKS_PATH,
+        line + "\n",
+        written_by="services.tasks._append_task",
+    )
 
 
 def _format_task_line(task: Task) -> str:

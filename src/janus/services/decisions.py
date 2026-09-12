@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from janus._log import emit
+from janus.integrations.data_protection import protected_write, compute_content_hash
 from janus.models.decision import Decision, VALID_DECISION_STATUSES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -128,7 +129,12 @@ def update_decision_status(adr_number: str, status: str) -> Decision:
 
     content = adr_path.read_text()
     updated = _replace_status_in_markdown(content, status)
-    adr_path.write_text(updated)
+    protected_write(
+        adr_path,
+        updated,
+        expected_hash=compute_content_hash(content),
+        written_by="services.decisions.update_decision_status",
+    )
 
     decision.status = status
     decision.updated_at = datetime.now().astimezone()
@@ -162,8 +168,13 @@ def link_decision_to_goal(adr_number: str, goal_title: str) -> Decision:
     goal_wikilink = f"[[Goal: {goal_title}]]"
     if goal_wikilink not in content:
         # Append to the Context section or at the end
-        content = content.rstrip() + f"\n\nSee {goal_wikilink} for the goal this decision addresses.\n"
-        adr_path.write_text(content)
+        new_content = content.rstrip() + f"\n\nSee {goal_wikilink} for the goal this decision addresses.\n"
+        protected_write(
+            adr_path,
+            new_content,
+            expected_hash=compute_content_hash(content),
+            written_by="services.decisions.link_decision_to_goal",
+        )
 
     # Update goal side: append adr_number to Goal.decision_numbers.
     # update_goal_fields already persists the change (it calls update_goal),
@@ -192,6 +203,7 @@ def link_finding_to_decision(adr_number: str, artifact_title: str, finding_index
         raise ValueError(f"ADR file not found for decision {adr_number!r}")
 
     content = adr_path.read_text()
+    content_before = content  # Save for conflict detection
 
     # Update decision side: add artifact title to Informed by section
     if "## Informed by" not in content:
@@ -208,7 +220,12 @@ def link_finding_to_decision(adr_number: str, artifact_title: str, finding_index
             content = content[:insert_pos] + f"\n- {artifact_title}\n" + content[insert_pos:]
         else:
             content = content.rstrip() + f"\n- {artifact_title}\n"
-    adr_path.write_text(content)
+    protected_write(
+        adr_path,
+        content,
+        expected_hash=compute_content_hash(content_before),
+        written_by="services.decisions.link_finding_to_decision",
+    )
 
     # Update artifact side via research_artifacts service
     from janus.services.research_artifacts import link_finding_to_decision as _link_finding
@@ -238,6 +255,7 @@ def create_decision(decision: Decision) -> Path:
     filename = f"{decision.adr_number.zfill(3)}-{_slugify(decision.title)}.md"
     adr_path = DECISIONS_DIR / filename
 
+    adr_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"# ADR-{decision.adr_number}: {decision.title}", "", "## Status", "", decision.status, "", "## Context", "", decision.context or "", "", "## Decision", "", decision.decision or "", "", "## Consequences", "", decision.consequences or "", ""]
 
     if decision.finding_sources:
@@ -252,7 +270,13 @@ def create_decision(decision: Decision) -> Path:
             lines.append(f"[[Goal: {gt}]]")
         lines.append("")
 
-    adr_path.write_text("\n".join(lines))
+    content = "\n".join(lines)
+    protected_write(
+        adr_path,
+        content,
+        expected_hash=None,  # new file
+        written_by="services.decisions.create_decision",
+    )
     decision.updated_at = datetime.now().astimezone()
 
     emit(logger, "service.decision.created",
