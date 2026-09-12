@@ -186,6 +186,12 @@ def _build_evidence(
     tests_passed = None
     pr_url = None
 
+    # The task body carries ``janus_domain`` frontmatter and — for
+    # ``object: research|finding|decision`` — the full markdown artifact or
+    # ADR that must be ingested into Janus storage (design spec §7.2/§7.3
+    # Option B).  Pass it through so ``dispatch_completion`` can ingest it.
+    body = task.body or ""
+
     # Try to enrich from the closing run's metadata.  If the run_id passed by
     # the hook doesn't resolve (e.g. a stale id in tests, or a task completed
     # without an explicit run), fall back to the task's current_run_id and
@@ -236,6 +242,7 @@ def _build_evidence(
         changed_files=changed_files,
         tests_passed=tests_passed,
         pr_url=pr_url,
+        body=body,
     )
 
 
@@ -331,7 +338,7 @@ def _dispatch_to_janus(metadata: Any, evidence: "EvidencePackage") -> dict:
     return {
         key: (
             v.to_dict() if hasattr(v, "to_dict")
-            else str(v)
+            else v
         )
         for key, v in results.items()
     }

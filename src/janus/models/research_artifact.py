@@ -43,6 +43,7 @@ class Finding:
     topic: str = ""
     confidence: str = "sredni"
     sources: list[Source] = field(default_factory=list)
+    decision_numbers: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.statement or not self.statement.strip():
@@ -61,6 +62,26 @@ class Finding:
                 raise ValueError(
                     f"Finding.sources must contain Source instances, got {type(src).__name__}"
                 )
+        if self.decision_numbers is None:
+            self.decision_numbers = []
+        self.decision_numbers = self._dedup(self.decision_numbers)
+        for n in self.decision_numbers:
+            if not isinstance(n, str):
+                raise ValueError(
+                    f"Finding.decision_numbers must contain str instances, "
+                    f"got {type(n).__name__}"
+                )
+
+    @staticmethod
+    def _dedup(items: list[str]) -> list[str]:
+        """Deduplicate preserving order."""
+        seen = set()
+        result = []
+        for t in items:
+            if t not in seen:
+                seen.add(t)
+                result.append(t)
+        return result
 
 
 @dataclass
@@ -77,6 +98,7 @@ class ResearchArtifact:
     version: int = 1
     target: str = ""
     linked_goal_titles: list[str] = field(default_factory=list)
+    decision_numbers: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
@@ -102,6 +124,15 @@ class ResearchArtifact:
                 raise ValueError(
                     f"ResearchArtifact.linked_goal_titles must contain str instances, "
                     f"got {type(t).__name__}"
+                )
+        if self.decision_numbers is None:
+            self.decision_numbers = []
+        self.decision_numbers = self._dedup(self.decision_numbers)
+        for n in self.decision_numbers:
+            if not isinstance(n, str):
+                raise ValueError(
+                    f"ResearchArtifact.decision_numbers must contain str instances, "
+                    f"got {type(n).__name__}"
                 )
 
     @staticmethod

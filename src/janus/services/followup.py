@@ -65,6 +65,18 @@ def add_followup(
          operation="add", followup_id=fu_id,
          message=f"Follow-up '{fu_id}' added")
 
+    # Bidirectional link: if linked to a goal, append fu.id to
+    # Goal.followup_ids.
+    if fu.linked_goal_title:
+        try:
+            from janus.services.goals import update_goal_fields
+            update_goal_fields(fu.linked_goal_title, add_followup_id=fu.id)
+        except ValueError as exc:
+            logger.warning(
+                "Follow-up %s references unknown goal %r: %s",
+                fu_id, fu.linked_goal_title, exc,
+            )
+
     return fu
 
 

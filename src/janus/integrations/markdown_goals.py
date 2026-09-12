@@ -94,6 +94,8 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "projects": [],
                     "measurement_requirements": [],
                     "research_artifact_titles": [],
+                    "decision_numbers": [],
+                    "followup_ids": [],
                     "inactivity_window_days": None,
                     "recent_activity": [],
                 }
@@ -300,7 +302,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         current_project["related_tasks"] = []
                         in_list_section = "project_related_tasks"
                     elif stripped.startswith("- ") and in_list_section == "project_related_tasks":
-                        item = stripped[2:].strip()
+                        item = _unquote(stripped[2:].strip())
                         if item:
                             current_project["related_tasks"].append(item)
                     # Unknown field in project — ignore
@@ -375,21 +377,31 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                             raise ValueError(
                                 f"Invalid InactivityWindowDays at line {line_num}: {raw}"
                             )
-                if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:"):
+                if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:") or stripped.startswith("Decision numbers:") or stripped.startswith("Follow-up IDs:"):
                     # Determine which list section we're entering
                     if stripped.startswith("Research artifacts:"):
                         current["research_artifact_titles"] = []
                         in_list_section = "research_artifacts"
+                    elif stripped.startswith("Decision numbers:"):
+                        current["decision_numbers"] = []
+                        in_list_section = "decision_numbers"
+                    elif stripped.startswith("Follow-up IDs:"):
+                        current["followup_ids"] = []
+                        in_list_section = "followup_ids"
                     else:
                         current["related_tasks"] = []
                         in_list_section = "related_tasks"
                 elif stripped.startswith("- ") and in_list_section is not None:
-                    item = stripped[2:].strip()
+                    item = _unquote(stripped[2:].strip())
                     if item:
                         if in_list_section == "related_tasks":
                             current["related_tasks"].append(item)
                         elif in_list_section == "research_artifacts":
                             current["research_artifact_titles"].append(item)
+                        elif in_list_section == "decision_numbers":
+                            current["decision_numbers"].append(item)
+                        elif in_list_section == "followup_ids":
+                            current["followup_ids"].append(item)
                 # else: unknown field — ignore
 
             else:
@@ -462,6 +474,14 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
     return goals
 
 
+def _unquote(val: str) -> str:
+    """Strip surrounding single or double quotes from a string value."""
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        return val[1:-1]
+    return val
+
+
 def _finalize_milestone(data: dict) -> dict:
     """Apply final normalization to a parsed milestone dict.
 
@@ -504,6 +524,8 @@ def _finalize_goal(data: dict) -> Goal:
         projects=data["projects"],
         measurement_requirements=data["measurement_requirements"],
         research_artifact_titles=data["research_artifact_titles"],
+        decision_numbers=data["decision_numbers"],
+        followup_ids=data["followup_ids"],
         inactivity_window_days=data["inactivity_window_days"],
         recent_activity=data["recent_activity"],
     )
@@ -546,6 +568,16 @@ def _format_goal_block(goal: Goal) -> list[str]:
         lines.append("Research artifacts:")
         for artifact in goal.research_artifact_titles:
             lines.append(f"- {artifact}")
+
+    if goal.decision_numbers:
+        lines.append("Decision numbers:")
+        for num in goal.decision_numbers:
+            lines.append(f"- {num}")
+
+    if goal.followup_ids:
+        lines.append("Follow-up IDs:")
+        for fid in goal.followup_ids:
+            lines.append(f"- {fid}")
 
     if goal.milestones:
         lines.append("## Milestones")

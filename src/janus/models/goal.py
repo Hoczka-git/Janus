@@ -41,6 +41,8 @@ class Goal:
     #    "interval_days": int}
     measurement_requirements: list[dict] | None = None
     research_artifact_titles: list[str] | None = field(default_factory=list)
+    decision_numbers: list[str] = field(default_factory=list)  # ADR numbers that shaped this goal
+    followup_ids: list[str] = field(default_factory=list)  # follow-up IDs linked to this goal
     inactivity_window_days: int | None = None  # per-goal override of system default (design §6.3)
 
     # Execution-feedback activity log (design §4.5 / §7). Each entry is a
@@ -67,6 +69,12 @@ class Goal:
         self.research_artifact_titles = self._dedup_related_tasks(self.research_artifact_titles)
         if self.recent_activity is None:
             self.recent_activity = []
+        if self.decision_numbers is None:
+            self.decision_numbers = []
+        self.decision_numbers = self._dedup_related_tasks(self.decision_numbers)
+        if self.followup_ids is None:
+            self.followup_ids = []
+        self.followup_ids = self._dedup_related_tasks(self.followup_ids)
         for t in self.research_artifact_titles:
             if not isinstance(t, str):
                 raise ValueError(

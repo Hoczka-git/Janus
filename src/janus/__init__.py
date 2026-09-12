@@ -24,6 +24,22 @@ from janus.followup_cli import (
     handle_followup_convert,
     print_followup_help,
 )
+from janus.research_cli import (
+    handle_research_add,
+    handle_research_show,
+    handle_research_list,
+    handle_research_link,
+    handle_research_promote_finding,
+    print_research_help,
+)
+from janus.decision_cli import (
+    handle_decision_list,
+    handle_decision_show,
+    handle_decision_propose,
+    handle_decision_link_finding,
+    handle_decision_link_goal,
+    print_decision_help,
+)
 from janus.goals_cli import (
     handle_goal_list,
     handle_goal_show,
@@ -184,6 +200,42 @@ def main() -> None:
             else:
                 print(f"Unknown followup subcommand: {sub}")
                 print("Usage: janus followup list|add|show|update|complete|convert-to-task ...")
+        elif command == "research":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_research_help()
+                return
+            sub = filtered[1]
+            if sub == "add":
+                handle_research_add(filtered[2:])
+            elif sub == "show":
+                handle_research_show(filtered[2:])
+            elif sub == "list":
+                handle_research_list(filtered[2:])
+            elif sub == "link":
+                handle_research_link(filtered[2:])
+            elif sub == "promote-finding":
+                handle_research_promote_finding(filtered[2:])
+            else:
+                print(f"Unknown research subcommand: {sub}")
+                print_research_help()
+        elif command == "decision":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_decision_help()
+                return
+            sub = filtered[1]
+            if sub == "propose":
+                handle_decision_propose(filtered[2:])
+            elif sub == "link-finding":
+                handle_decision_link_finding(filtered[2:])
+            elif sub == "link-goal":
+                handle_decision_link_goal(filtered[2:])
+            elif sub == "list":
+                handle_decision_list(filtered[2:])
+            elif sub == "show":
+                handle_decision_show(filtered[2:])
+            else:
+                print(f"Unknown decision subcommand: {sub}")
+                print_decision_help()
         else:
             print(f"Unknown command: {command}")
     except Exception as e:
