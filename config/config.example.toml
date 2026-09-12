@@ -10,3 +10,42 @@ name = "Personal"
 [telegram]
 bot_token = "YOUR_BOT_TOKEN"
 chat_id = "YOUR_CHAT_ID"
+
+# ── Activity data ingestion layer (ADR-005) ─────────────────────────────
+#
+# Controls normalization, deduplication, and atomic-write behavior for
+# model-driven (Hermes → Janus) data writes through
+# src/janus/services/activity_ingest.py.
+# All fields are optional — sensible defaults apply when absent.
+
+[data_ingestion]
+# Dedup policy: "reject" (default) refuses duplicates; "merge" keeps max
+# info; "replace" overwrites with the newer record.
+dedup_policy = "reject"
+# Dedup tolerance window in seconds. Records with a matching key and
+# timestamp within this window of an existing record are treated as
+# duplicates. 0 = exact match only.
+dedup_tolerance_seconds = 0
+# Write-attempt retry count for concurrent-write conflicts.
+write_retry_count = 3
+# Write-attempt retry backoff base (seconds).
+write_retry_backoff_base = 0.1
+
+[data_ingestion.normalization]
+# Canonical units per metric. Model-provided values are converted.
+# [data_ingestion.normalization.units."Body fat %"]
+# base_unit = "%"
+# [data_ingestion.normalization.units."Weight"]
+# base_unit = "kg"
+# [data_ingestion.normalization.units."Distance"]
+# base_unit = "km"
+
+[data_ingestion.files]
+# Maps ActivityType → data/ file path. Allows tests to redirect.
+#"task_completed" = "data/tasks.md"
+#"goal_progress"   = "data/goals.md"
+#"measurement"     = "data/measurements.jsonl"
+#"metric_history"  = "data/metric_history.md"
+#"workout_added"   = "data/workouts.md"
+#"followup_added"  = "data/followups.md"
+#"inbox_captured"  = "data/inbox.md"
