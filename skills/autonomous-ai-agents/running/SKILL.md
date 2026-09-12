@@ -46,7 +46,7 @@ This skill MUST use the shared **Activity Data Ingestion** skill for all
 persistence of activity data.
 
 Shared skill:
-`/home/dan11hermes/workspaces/janus/skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
+`skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
 
 All model-generated running activity data MUST follow:
 
