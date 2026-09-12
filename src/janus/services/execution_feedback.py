@@ -383,14 +383,83 @@ def _ingest_research(
         path = update_artifact(artifact, slug=slug)
 
     result = {
-        "object": "research",
+        "object": "research" if metadata.object != "finding" else "finding",
         "title": artifact.title,
         "slug": path.stem,
         "findings": len(artifact.findings),
         "path": str(path),
     }
-    if artifact.linked_goal_titles:
-        result["linked_goal_titles"] = artifact.linked_goal_titles
+
+    # Research-to-finding connection: run the knowledge pipeline to generate
+    # a KnowledgeSummary (validation + summary generation), link the artifact
+    # to its declared goals, and emit knowledge gaps as attention items.
+    # This closes the research → finding → attention portion of the loop.
+    from janus.services.knowledge_pipeline import (
+        validate_artifact,
+        generate_summary,
+        emit_knowledge_gaps_as_attention,
+    )
+    from janus.services.artifact_linking import link_artifact_to_goal
+
+    pipeline_result: dict = {"warnings": [], "attention_items": []}
+
+    try:
+        warnings = validate_artifact(artifact)
+        pipeline_result["warnings"] = [
+            {"category": w.category, "message": w.message,
+             "finding_index": w.finding_index}
+            for w in warnings
+        ]
+    except Exception as exc:
+        logger.warning(
+            "Pipeline validation failed for artifact '%s': %s",
+            artifact.title, exc,
+        )
+        pipeline_result["warnings_error"] = str(exc)
+
+    try:
+        summary = generate_summary(artifact)
+        pipeline_result["summary"] = {
+            "target": summary.target,
+            "source_count": summary.source_count,
+            "high_confidence_count": summary.high_confidence_count,
+            "low_confidence_count": summary.low_confidence_count,
+            "knowledge_gaps": list(summary.knowledge_gaps),
+            "entities": list(summary.entities),
+        }
+
+        # Link artifact to its declared goals (bidirectional).
+        if artifact.linked_goal_titles:
+            result["linked_goal_titles"] = artifact.linked_goal_titles
+            for goal_title in artifact.linked_goal_titles:
+                try:
+                    link_artifact_to_goal(artifact.title, goal_title, artifact)
+                except ValueError as exc:
+                    logger.warning(
+                        "Could not link artifact '%s' to goal '%s': %s",
+                        artifact.title, goal_title, exc,
+                    )
+                    pipeline_result.setdefault("link_errors", []).append({
+                        "goal_title": goal_title,
+                        "error": str(exc),
+                    })
+
+        # Emit knowledge gaps as attention items.
+        attention_items = emit_knowledge_gaps_as_attention(
+            summary,
+            goal_title=artifact.linked_goal_titles[0] if artifact.linked_goal_titles else None,
+        )
+        pipeline_result["attention_items"] = attention_items
+
+    except Exception as exc:
+        logger.warning(
+            "Knowledge pipeline failed for artifact '%s': %s",
+            artifact.title, exc,
+        )
+        pipeline_result["pipeline_error"] = str(exc)
+
+    if pipeline_result:
+        result["pipeline"] = pipeline_result
     return result
 
 
