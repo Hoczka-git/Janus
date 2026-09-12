@@ -772,3 +772,224 @@ class TestDispatchResearchDecision:
         results = dispatch_completion(md, ev1)
         assert results["decision"]["skipped_existing"] is True
         assert results["decision"]["adr_number"] == "099"
+
+
+# ── Research-to-finding connection: pipeline + goal linking + attention ─────────
+#
+# When a research/finding object is dispatched, _ingest_research runs the
+# knowledge pipeline (validate → summary → attention) and links the artifact
+# to its declared goals. These tests verify that connection is closed.
+
+_FINDING_WITH_GAP_BODY = """---
+title: "Pipeline Finding Artifact"
+artifact_type: report
+target: GLUE
+version: 1
+linked_goal_titles:
+  - "GLUE Research"
+---
+
+# Summary
+
+Pipeline research for GLUE.
+
+# Findings
+
+## Finding 1
+**Statement:** Market cap ~$1.88B (unverified estimate)
+**Topic:** valuation
+**Confidence:** niski
+**Decision numbers:** []
+
+### Sources
+- [url](http://example.com/valuation)
+  - title: Valuation Source
+  - type: web
+
+## Finding 2
+**Statement:** Roche partnership confirmed with $320M upfront
+**Topic:** partnerships
+**Confidence:** wyzszy
+**Decision numbers:** []
+
+### Sources
+- [url](http://example.com/partnership)
+  - title: Partnership Source
+  - type: web
+"""
+
+
+class TestResearchToFindingConnection:
+    """The research-to-finding connection: artifact ingestion triggers the
+    knowledge pipeline and links findings to goals + attention.
+    """
+
+    def _setup_research_and_goals(self, tmp_path, monkeypatch):
+        from janus.integrations import markdown_research
+        research_dir = tmp_path / "research"
+        monkeypatch.setattr(markdown_research, "RESEARCH_DIR", research_dir)
+        monkeypatch.setattr(
+            "janus.services.research_artifacts.RESEARCH_DIR", research_dir
+        )
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text(
+            "# Goals\n\n## Goal: GLUE Research\nStatus: active\n"
+            "Research artifacts:\n- Old Artifact\n"
+        )
+        monkeypatch.setattr(
+            "janus.integrations.markdown_goals.GOALS_PATH", goals_file
+        )
+        # Also patch the path imported in research_artifacts for RESEARCH_DIR
+        monkeypatch.setattr(
+            "janus.services.research_artifacts.RESEARCH_DIR", research_dir
+        )
+        return research_dir, goals_file
+
+    def test_ingestion_runs_knowledge_pipeline(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_pipe1", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_FINDING_WITH_GAP_BODY,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        res = results["research"]
+        assert "pipeline" in res
+        pipe = res["pipeline"]
+        assert "summary" in pipe
+        assert pipe["summary"]["target"] == "GLUE"
+        assert pipe["summary"]["low_confidence_count"] == 1
+        assert len(pipe["summary"]["knowledge_gaps"]) >= 1
+
+    def test_ingestion_emits_attention_items_for_gaps(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_pipe2", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_FINDING_WITH_GAP_BODY,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        pipe = results["research"]["pipeline"]
+        assert len(pipe["attention_items"]) >= 1
+        item = pipe["attention_items"][0]
+        assert item["category"] == "knowledge_gap"
+        assert item["score"] == 50
+        assert "GLUE Research" in item["title"]
+
+    def test_ingestion_links_artifact_to_goal(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_pipe3", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_FINDING_WITH_GAP_BODY,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        dispatch_completion(md, ev)
+        # Goal should now reference the new artifact
+        from janus.services.goals import get_goal
+        goal = get_goal("GLUE Research")
+        assert "Pipeline Finding Artifact" in goal.research_artifact_titles
+
+    def test_finding_object_runs_pipeline_same_as_research(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_pipe4", summary="Finding task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_FINDING_WITH_GAP_BODY,
+        )
+        md = JanusDomainMetadata(
+            object="finding", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        res = results["research"]
+        assert res["object"] == "finding"
+        assert "pipeline" in res
+        assert len(res["pipeline"]["attention_items"]) >= 1
+
+    def test_no_gaps_no_attention_items(self, tmp_path, monkeypatch):
+        """Artifact with all-high-confidence findings produces no attention items."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        body = _FINDING_WITH_GAP_BODY.replace(
+            "**Confidence:** niski",
+            "**Confidence:** wyzszy",
+        ).replace("Pipepline Finding Artifact", "Pipeline Finding Artifact")
+        ev = EvidencePackage(
+            task_id="t_pipe5", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=body,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        pipe = results["research"]["pipeline"]
+        assert pipe["attention_items"] == []
+
+    def test_no_goal_linking_when_no_goals_declared(self, tmp_path, monkeypatch):
+        """Artifact without linked_goal_titles still runs pipeline, no link errors."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        body = _FINDING_WITH_GAP_BODY.replace(
+            'linked_goal_titles:\n  - "GLUE Research"\n',
+            "",
+        )
+        ev = EvidencePackage(
+            task_id="t_pipe6", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=body,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        pipe = results["research"]["pipeline"]
+        assert "link_errors" not in pipe
+        assert "summary" in pipe
+
+    def test_missing_goal_does_not_break_ingestion(self, tmp_path, monkeypatch):
+        """If a linked goal doesn't exist, ingestion still succeeds with a link error."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_and_goals(tmp_path, monkeypatch)
+        body = _FINDING_WITH_GAP_BODY.replace(
+            '"GLUE Research"', '"Nonexistent Goal"',
+        )
+        ev = EvidencePackage(
+            task_id="t_pipe7", summary="Research task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=body,
+        )
+        md = JanusDomainMetadata(
+            object="research", title="Pipeline Finding Artifact"
+        )
+        results = dispatch_completion(md, ev)
+        pipe = results["research"]["pipeline"]
+        assert "link_errors" in pipe
+        assert len(pipe["link_errors"]) == 1
+        assert pipe["link_errors"][0]["goal_title"] == "Nonexistent Goal"
