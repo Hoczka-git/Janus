@@ -224,6 +224,19 @@ def _parse_decision_file(path: Path) -> Decision:
     finding_sources, goal_titles.
     """
     content = path.read_text()
+    return _parse_decision_content(content)
+
+
+def _parse_decision_content(content: str) -> Decision:
+    """Parse decision markdown text (YAML frontmatter + body) into a Decision.
+
+    Expects YAML frontmatter (delimited by ``---``) with keys:
+    adr_number, title, status, context, decision, consequences,
+    finding_sources, goal_titles.  Used by both ``_parse_decision_file``
+    (CLI file ingestion) and the Hermes→Janus sync listener
+    (``execution_feedback._ingest_decision``) where the body arrives as a
+    raw string rather than a file on disk.
+    """
     frontmatter, body = _split_frontmatter(content)
 
     adr_number = frontmatter.get("adr_number")

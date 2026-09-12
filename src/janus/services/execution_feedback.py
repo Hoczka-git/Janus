@@ -28,6 +28,11 @@ class EvidencePackage:
 
     Mirrors the dict shape described in design doc §4.5 and the
     ``evidence`` dict in §4.2.
+
+    The ``body`` field carries the full task body text. It is used when
+    ``janus_domain.object`` is ``research`` or ``decision`` — the body
+    contains the artifact or ADR markdown that must be ingested into
+    Janus storage (design spec §7.2 Option B / §7.3 Option B).
     """
     task_id: str
     summary: str
@@ -35,9 +40,14 @@ class EvidencePackage:
     changed_files: list[str] | None = field(default_factory=list)
     tests_passed: bool | None = None
     pr_url: str | None = None
+    body: str | None = None
 
     def to_dict(self) -> dict:
-        """Serialize to a plain dict for storage in ``Goal.recent_activity``."""
+        """Serialize to a plain dict for storage in ``Goal.recent_activity``.
+
+        Includes ``body`` so that the dispatch result recorded in the audit
+        comment reflects what was ingested (or skipped).
+        """
         return {
             "task_id": self.task_id,
             "summary": self.summary,
@@ -45,6 +55,7 @@ class EvidencePackage:
             "changed_files": self.changed_files or [],
             "tests_passed": self.tests_passed,
             "pr_url": self.pr_url,
+            "body": self.body,
         }
 
 
@@ -275,20 +286,29 @@ def dispatch_completion(
             completed_task_id=evidence.task_id,
             evidence=evidence_dict,
         )
-    else:
-        from janus.services.research_artifacts import load_artifact
-        if metadata.object in ("research", "finding", "decision"):
-            try:
-                artifact = load_artifact(metadata.title)
-                results["research"] = {"loaded": artifact.title}
-            except ValueError:
-                results["skipped"] = metadata.object
-        else:
-            logger.warning(
-                "No Janus service function for domain object %r",
-                metadata.object,
-            )
+    elif metadata.object in ("research", "finding", "decision"):
+        # Ingest the completed task body into Janus storage.
+        #
+        # For "research" and "finding" the body is a research artifact
+        # markdown file (frontmatter + sections). It is parsed and persisted
+        # via services.research_artifacts.
+        #
+        # For "decision" the body is an ADR markdown file
+        # (frontmatter with adr_number/title/status/etc.). It is parsed
+        # and persisted via services.decisions.
+        if not evidence.body:
             results["skipped"] = metadata.object
+            results["reason"] = "no body content to ingest"
+        elif metadata.object == "decision":
+            results["decision"] = _ingest_decision(metadata, evidence)
+        else:
+            results["research"] = _ingest_research(metadata, evidence)
+    else:
+        logger.warning(
+            "No Janus service function for domain object %r",
+            metadata.object,
+        )
+        results["skipped"] = metadata.object
 
     emit(logger, "service.execution_feedback.dispatched",
          trace_id=None, span_id="execution_feedback",
@@ -297,3 +317,138 @@ def dispatch_completion(
          message=f"Dispatched completion to Janus service for {metadata.object}")
 
     return results
+
+
+# ── Ingestion helpers ────────────────────────────────────────────────────────
+#
+# These bridge the Hermes → Janus write-back path (design spec §7.2 Option B /
+# §7.3 Option B).  When a Hermes Kanban task that carries
+# ``janus_domain: object: research|finding|decision`` completes, the task body
+# contains the full markdown artifact or ADR.  The sync listener passes that
+# body via ``EvidencePackage.body`` and ``dispatch_completion`` routes to the
+# appropriate helper, which parses and persists the content.
+
+
+def _ingest_research(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+) -> dict:
+    """Parse a research artifact markdown body and persist it via Janus.
+
+    The ``evidence.body`` is expected to contain a full research artifact
+    markdown file (frontmatter + sections) — the same format consumed by
+    ``janus research add``.  The ``janus_domain.title`` from frontmatter
+    is used as the link target if the artifact specifies one.
+
+    Returns a dict with the persisted artifact's slug/title, or ``"skipped"``
+    when the body cannot be parsed as a research artifact.
+    """
+    from janus.integrations.markdown_research import (
+        _parse_artifact_content,
+        _slugify,
+        _strip_janus_domain_frontmatter,
+    )
+    from janus.services.research_artifacts import (
+        create_artifact,
+        update_artifact,
+    )
+
+    if not evidence.body:
+        return {"skipped": metadata.object, "reason": "no body content to ingest"}
+
+    # Strip the leading janus_domain frontmatter block (if present) so the
+    # artifact's own frontmatter is the first --- block.
+    artifact_body = _strip_janus_domain_frontmatter(evidence.body)
+    if not artifact_body or not artifact_body.strip():
+        return {"skipped": metadata.object, "reason": "no artifact markdown body"}
+
+    try:
+        artifact = _parse_artifact_content(artifact_body)
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse research artifact from task %s: %s",
+            evidence.task_id, exc,
+        )
+        return {"skipped": metadata.object, "error": str(exc)}
+
+    try:
+        path = create_artifact(artifact)
+    except ValueError as exc:
+        # Artifact with this slug already exists — update it in place instead.
+        logger.info(
+            "Research artifact already exists, updating in place: %s",
+            exc,
+        )
+        slug = _slugify(artifact.title)
+        path = update_artifact(artifact, slug=slug)
+
+    result = {
+        "object": "research",
+        "title": artifact.title,
+        "slug": path.stem,
+        "findings": len(artifact.findings),
+        "path": str(path),
+    }
+    if artifact.linked_goal_titles:
+        result["linked_goal_titles"] = artifact.linked_goal_titles
+    return result
+
+
+def _ingest_decision(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+) -> dict:
+    """Parse an ADR markdown body and persist it via Janus.
+
+    The ``evidence.body`` is expected to contain a full ADR markdown file
+    with YAML frontmatter (``adr_number``, ``title``, ``status``, etc.)
+    — the same format consumed by ``janus decision propose``.  The
+    ``janus_domain.title`` from frontmatter is cross-checked against the
+    ADR's own ``title`` field; they should agree.
+
+    Returns a dict with the persisted ADR path, or ``"skipped"`` when the
+    body cannot be parsed as an ADR.
+    """
+    if not evidence.body:
+        return {"skipped": metadata.object, "reason": "no body content to ingest"}
+
+    from janus.decision_cli import _parse_decision_content
+    from janus.integrations.markdown_research import _strip_janus_domain_frontmatter
+
+    # Strip the leading janus_domain frontmatter block (if present) so the
+    # ADR's own frontmatter is the first --- block.
+    adr_body = _strip_janus_domain_frontmatter(evidence.body)
+    if not adr_body or not adr_body.strip():
+        return {"skipped": metadata.object, "reason": "no ADR markdown body"}
+
+    try:
+        decision = _parse_decision_content(adr_body)
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse decision from task %s: %s",
+            evidence.task_id, exc,
+        )
+        return {"skipped": metadata.object, "error": str(exc)}
+
+    from janus.services.decisions import create_decision
+    try:
+        path = create_decision(decision)
+    except ValueError as exc:
+        logger.warning("Decision already exists, skipping: %s", exc)
+        from janus.services.decisions import get_decision
+        existing = get_decision(decision.adr_number)
+        return {
+            "object": "decision",
+            "adr_number": existing.adr_number,
+            "title": existing.title,
+            "status": existing.status,
+            "skipped_existing": True,
+        }
+
+    return {
+        "object": "decision",
+        "adr_number": decision.adr_number,
+        "title": decision.title,
+        "status": decision.status,
+        "path": str(path),
+    }

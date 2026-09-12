@@ -27,6 +27,13 @@ RESEARCH_DIR = PROJECT_ROOT / "data" / "research"
 
 logger = logging.getLogger(__name__)
 
+# Frontmatter: opens with 3+ dashes on its own line, closes with 3+ dashes.
+# Matches either at start-of-body or after a newline (Kanban may prepend
+# metadata lines like ``integration_required: false`` before the fence).
+_FRONTMATTER_RE = re.compile(
+    r"(?:^|\n)-{3,}\s*\n(.*?)(\n-{3,}\s*(?:\n|$))", re.DOTALL
+)
+
 
 def load_artifact(slug: str) -> ResearchArtifact:
     """Load a single research artifact by its slug (filename stem without .md).
@@ -125,9 +132,14 @@ def _slugify(text: str) -> str:
     return slug or "untitled"
 
 
-def _parse_artifact(path: Path) -> ResearchArtifact:
-    """Parse a research artifact markdown file into a ResearchArtifact object."""
-    content = path.read_text()
+def _parse_artifact_content(content: str) -> ResearchArtifact:
+    """Parse research artifact markdown text into a ResearchArtifact object.
+
+    Accepts the full markdown content (frontmatter + body) and returns
+    the structured in-memory model.  Used by both ``_parse_artifact``
+    (for file loading) and the Hermes→Janus ingestion path where the
+    body arrives as a raw string rather than a file on disk.
+    """
     frontmatter, body = _split_frontmatter(content)
 
     title = frontmatter.get("title", "")
@@ -155,6 +167,12 @@ def _parse_artifact(path: Path) -> ResearchArtifact:
         linked_goal_titles=linked_goal_titles,
         decision_numbers=decision_numbers,
     )
+
+
+def _parse_artifact(path: Path) -> ResearchArtifact:
+    """Parse a research artifact markdown file into a ResearchArtifact object."""
+    content = path.read_text()
+    return _parse_artifact_content(content)
 
 
 def _serialize_artifact(artifact: ResearchArtifact) -> str:
@@ -242,6 +260,34 @@ def _split_frontmatter(content: str) -> tuple[dict, str]:
         idx += 1
     body = "\n".join(lines[idx + 1:]) if idx < len(lines) else ""
     return _parse_simple_yaml("\n".join(fm_lines)), body
+
+
+def _strip_janus_domain_frontmatter(body: str) -> str:
+    """Remove a leading ``janus_domain`` frontmatter block from *body*.
+
+    When a Hermes Kanban task completes, the task body may contain a
+    ``janus_domain`` frontmatter block (the Janus↔Hermes bridge), possibly
+    preceded by Kanban-injected metadata lines (e.g.
+    ``integration_required: false``), followed by the actual artifact or ADR
+    markdown.  This function strips that leading ``janus_domain`` block
+    (and any preceding metadata lines) so the remaining text can be parsed
+    by ``_parse_artifact_content`` or ``_parse_decision_content``, which
+    expect the *first* ``---``-delimited block to be their own frontmatter.
+
+    If the body does not contain a ``janus_domain`` block, it is returned
+    unchanged.
+    """
+    if not body or not body.strip():
+        return body or ""
+    # Use the project's frontmatter regex to find the first --- block.
+    match = _FRONTMATTER_RE.search(body)
+    if match is None:
+        return body
+    if "janus_domain" not in match.group(1):
+        # First frontmatter block is NOT a janus_domain block — leave as-is.
+        return body
+    # Return everything after the closing --- of the janus_domain block.
+    return body[match.end():]
 
 
 def _parse_simple_yaml(text: str) -> dict:
