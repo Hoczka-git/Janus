@@ -290,6 +290,22 @@ All structured personal data lives in `data/` as tracked markdown files:
 
 These files are gitignored by default (`data/*` in `.gitignore`) so task/goal/workout history is local-only; remove that entry from `.gitignore` if you want version-controlled history.
 
+### Model-driven writes (Hermes → Janus)
+
+The model (Hermes) never writes to `data/` files directly. All model-driven
+activity data flows through the **activity data ingestion layer** — a
+controlled write gateway that validates, normalizes, deduplicates, and
+atomically persists records as `ActivityRecord` values via
+`janus.services.activity_ingest.ingest_activities()`. Raw markdown is never
+emitted by the model; serialization is the gateway's responsibility. Manual
+full-file regeneration is gated and blocked above a change threshold
+(`src/janus/integrations/data_protection.py`).
+
+See [`docs/activity_data_guide.md`](docs/activity_data_guide.md) for the full
+usage guide — API surface, configuration, dedup/normalization policies, and
+troubleshooting. The design rationale lives in
+[ADR-005](docs/decisions/005-activity-data-ingestion-layer.md).
+
 ## Security
 
 - `credentials.json` — not committed (Google OAuth client secrets)
