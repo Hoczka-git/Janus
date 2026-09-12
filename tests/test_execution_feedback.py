@@ -558,10 +558,217 @@ class TestDispatchCompletion:
         from janus.services.execution_feedback import (
             dispatch_completion, EvidencePackage, JanusDomainMetadata
         )
-        md = JanusDomainMetadata(object="finding", title="X")
+        md = JanusDomainMetadata(object="widget", title="X")
         ev = EvidencePackage(
             task_id="t_1", summary="s",
             completed_at="2026-01-01T00:00:00Z",
         )
         results = dispatch_completion(md, ev)
         assert "skipped" in results
+
+
+# ── dispatch_completion: research/finding/decision ingestion ──────────────────
+#
+# When a Hermes Kanban task carrying ``janus_domain: object: research|finding|
+# decision`` completes with a body containing the full markdown artifact or ADR,
+# ``dispatch_completion`` parses and persists it into Janus storage.
+#
+# These tests monkeypatch the Janus markdown persistence paths (RESEARCH_DIR,
+# DECISIONS_DIR) to tmp_path so they are self-contained.
+
+_RESEARCH_ARTIFACT_BODY = """---
+title: "Test Research Artifact"
+artifact_type: report
+target: TEST
+version: 1
+linked_goal_titles:
+  - "Test goal"
+---
+
+# Summary
+
+A test research artifact for integration testing.
+
+# Findings
+
+## Finding 1
+
+**Statement:** Test finding statement
+**Topic:** test
+**Confidence:** sredni
+**Decision numbers:** []
+
+### Sources
+
+- [url](http://example.com)
+  - title: Example
+  - type: web
+"""
+
+_DECISION_BODY = """---
+adr_number: "099"
+title: "Test Decision"
+status: proposed
+context: "Test context"
+decision: "We decide to test."
+consequences: "Positive: tests pass."
+finding_sources:
+  - "Test Research Artifact"
+goal_titles:
+  - "Test goal"
+---
+"""
+
+
+class TestDispatchResearchDecision:
+    """dispatch_completion routes research/finding/decision objects to ingestion."""
+
+    def _setup_research_dir(self, tmp_path, monkeypatch):
+        from janus.integrations import markdown_research
+        research_dir = tmp_path / "research"
+        monkeypatch.setattr(markdown_research, "RESEARCH_DIR", research_dir)
+        monkeypatch.setattr(
+            "janus.services.research_artifacts.RESEARCH_DIR", research_dir
+        )
+
+    def _setup_decisions_dir(self, tmp_path, monkeypatch):
+        from janus.services import decisions
+        dec_dir = tmp_path / "decisions"
+        monkeypatch.setattr(decisions, "DECISIONS_DIR", dec_dir)
+
+    def test_dispatch_research_ingests_artifact(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_r1", summary="Research artifact task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_RESEARCH_ARTIFACT_BODY,
+        )
+        md = JanusDomainMetadata(object="research", title="Test Research Artifact")
+        results = dispatch_completion(md, ev)
+        assert "research" in results
+        assert results["research"]["title"] == "Test Research Artifact"
+        assert results["research"]["slug"] == "test-research-artifact"
+        assert results["research"]["findings"] == 1
+        assert "path" in results["research"]
+
+    def test_dispatch_finding_ingests_as_research(self, tmp_path, monkeypatch):
+        """object='finding' is dispatched to the research ingestion path."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_f1", summary="Finding task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_RESEARCH_ARTIFACT_BODY,
+        )
+        md = JanusDomainMetadata(object="finding", title="Test Research Artifact")
+        results = dispatch_completion(md, ev)
+        assert "research" in results
+        assert results["research"]["title"] == "Test Research Artifact"
+
+    def test_dispatch_decision_ingests_adr(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_decisions_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_d1", summary="Decision task",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_DECISION_BODY,
+        )
+        md = JanusDomainMetadata(object="decision", title="Test Decision")
+        results = dispatch_completion(md, ev)
+        assert "decision" in results
+        assert results["decision"]["adr_number"] == "099"
+        assert results["decision"]["title"] == "Test Decision"
+        assert "path" in results["decision"]
+
+    def test_dispatch_research_skipped_without_body(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_r2", summary="No body",
+            completed_at="2026-01-01T00:00:00Z",
+        )
+        md = JanusDomainMetadata(object="research", title="X")
+        results = dispatch_completion(md, ev)
+        assert results["skipped"] == "research"
+        assert results["reason"] == "no body content to ingest"
+
+    def test_dispatch_decision_skipped_without_body(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_decisions_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_d2", summary="No body",
+            completed_at="2026-01-01T00:00:00Z",
+        )
+        md = JanusDomainMetadata(object="decision", title="X")
+        results = dispatch_completion(md, ev)
+        assert results["skipped"] == "decision"
+
+    def test_dispatch_research_parse_error_skipped(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        ev = EvidencePackage(
+            task_id="t_r3", summary="Bad body",
+            completed_at="2026-01-01T00:00:00Z",
+            body="not valid markdown frontmatter",
+        )
+        md = JanusDomainMetadata(object="research", title="Bad")
+        results = dispatch_completion(md, ev)
+        assert "research" in results
+        assert results["research"]["skipped"] == "research"
+        assert "error" in results["research"]
+
+    def test_dispatch_research_updates_existing_artifact(self, tmp_path, monkeypatch):
+        """If the artifact slug already exists, it is updated in place."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        # First ingestion creates the artifact
+        ev1 = EvidencePackage(
+            task_id="t_r4a", summary="Create",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_RESEARCH_ARTIFACT_BODY,
+        )
+        md = JanusDomainMetadata(object="research", title="Test Research Artifact")
+        dispatch_completion(md, ev1)
+        # Second ingestion with same slug updates in place
+        ev2 = EvidencePackage(
+            task_id="t_r4b", summary="Update",
+            completed_at="2026-09-10T10:00:00Z",
+            body=_RESEARCH_ARTIFACT_BODY,
+        )
+        results = dispatch_completion(md, ev2)
+        assert "research" in results
+        assert results["research"]["title"] == "Test Research Artifact"
+
+    def test_dispatch_decision_skips_if_exists(self, tmp_path, monkeypatch):
+        """If the ADR number already exists, dispatch returns skipped_existing."""
+        from janus.services.execution_feedback import (
+            dispatch_completion, EvidencePackage, JanusDomainMetadata
+        )
+        self._setup_decisions_dir(tmp_path, monkeypatch)
+        # First ingestion creates the ADR
+        ev1 = EvidencePackage(
+            task_id="t_d3a", summary="Create ADR",
+            completed_at="2026-09-09T10:00:00Z",
+            body=_DECISION_BODY,
+        )
+        md = JanusDomainMetadata(object="decision", title="Test Decision")
+        dispatch_completion(md, ev1)
+        # Second ingestion with same ADR number should skip
+        results = dispatch_completion(md, ev1)
+        assert results["decision"]["skipped_existing"] is True
+        assert results["decision"]["adr_number"] == "099"

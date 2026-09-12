@@ -441,3 +441,161 @@ class TestReentrancyMarker:
             tid, board="default", run_id=1, summary="Goal work done"
         )
         assert result2["status"] == "already_synced"
+
+
+# ---------------------------------------------------------------------------
+# Research artifact & decision ingestion via the full plugin path
+# ---------------------------------------------------------------------------
+# These tests exercise the Hermes → Janus write-back flow end-to-end:
+# a completed Kanban task whose body carries ``janus_domain`` frontmatter
+# with ``object: research`` (or ``decision``) plus the full markdown artifact
+# body.  The plugin assembles an EvidencePackage (now including the body),
+# dispatch_completion routes it to _ingest_research / _ingest_decision,
+# and the artifact / ADR is persisted into Janus markdown storage.
+#
+# The janus_domain frontmatter lives in the task body alongside the artifact
+# markdown body — the parser uses ``_FRONTMATTER_RE.search`` so it finds the
+# first ``---``-delimited block (which is the janus_domain block at the top).
+
+_JANUS_DOMAIN_RESEARCH = """---
+janus_domain:
+  object: research
+  title: "GLUE Research Report"
+---
+---
+title: "GLUE Research Report"
+artifact_type: report
+target: GLUE
+version: 1
+---
+
+# Summary
+
+A research artifact about GLUE.
+
+# Findings
+
+## Finding 1
+
+**Statement:** GLUE market cap ~$1.88B
+**Topic:** valuation
+**Confidence:** wyzszy
+**Decision numbers:** []
+
+### Sources
+
+- [url](http://example.com/glue)
+  - title: GLUE data
+  - type: web
+"""
+
+_JANUS_DOMAIN_DECISION = """---
+janus_domain:
+  object: decision
+  title: "Accumulate GLUE shares"
+---
+---
+adr_number: "005"
+title: "Accumulate GLUE shares"
+status: accepted
+context: "GLUE has strong partnership validation."
+decision: "Accumulate GLUE shares up to 5% of portfolio."
+consequences: "Positive: partnership upside. Negative: high risk."
+finding_sources:
+  - "GLUE Research Report"
+goal_titles:
+  - "GLUE biotech research"
+---
+"""
+
+
+class TestResearchDecisionPluginSync:
+    """End-to-end: completed Kanban task → Janus artifact/ADR persistence."""
+
+    def _setup_research_dir(self, tmp_path, monkeypatch):
+        from janus.integrations import markdown_research
+        research_dir = tmp_path / "research"
+        monkeypatch.setattr(markdown_research, "RESEARCH_DIR", research_dir)
+        monkeypatch.setattr(
+            "janus.services.research_artifacts.RESEARCH_DIR", research_dir
+        )
+
+    def _setup_decisions_dir(self, tmp_path, monkeypatch):
+        from janus.services import decisions
+        dec_dir = tmp_path / "decisions"
+        monkeypatch.setattr(decisions, "DECISIONS_DIR", dec_dir)
+
+    def test_research_artifact_ingested_via_plugin(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        self._setup_research_dir(tmp_path, monkeypatch)
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\\n\\n## Goal: GLUE biotech research\\nStatus: active\\n",
+        )
+        tid = _create_task(
+            conn, title="Research GLUE",
+            body=_JANUS_DOMAIN_RESEARCH,
+        )
+        kb.complete_task(conn, tid, result="done", summary="Research done")
+
+        result = plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Research done"
+        )
+        assert result["status"] == "synced"
+        assert result["domain_object"] == "research"
+
+        # The artifact file should exist in Janus storage.
+        from janus.services.research_artifacts import load_artifact
+        artifact = load_artifact("glue-research-report")
+        assert artifact.title == "GLUE Research Report"
+        assert artifact.target == "GLUE"
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].statement == "GLUE market cap ~$1.88B"
+
+    def test_research_artifact_skipped_when_no_body(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        self._setup_research_dir(tmp_path, monkeypatch)
+        # Body has janus_domain but no artifact markdown after it
+        body = (
+            "---\n"
+            "janus_domain:\n"
+            "  object: research\n"
+            "  title: GLUE Research Report\n"
+            "---\n"
+        )
+        tid = _create_task(conn, title="Research", body=body)
+        kb.complete_task(conn, tid, result="done", summary="Done")
+        result = plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Done"
+        )
+        assert result["status"] == "synced"
+        assert result["dispatch"]["research"]["skipped"] == "research"
+
+    def test_decision_adr_ingested_via_plugin(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        self._setup_decisions_dir(tmp_path, monkeypatch)
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\\n\\n## Goal: GLUE biotech research\\nStatus: active\\n",
+        )
+        tid = _create_task(
+            conn, title="Record decision",
+            body=_JANUS_DOMAIN_DECISION,
+        )
+        kb.complete_task(conn, tid, result="done", summary="Decision recorded")
+
+        result = plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Decision recorded"
+        )
+        assert result["status"] == "synced"
+        assert result["domain_object"] == "decision"
+
+        # The ADR file should exist in Janus storage.
+        from janus.services.decisions import get_decision
+        decision = get_decision("005")
+        assert decision.title == "ADR-005: Accumulate GLUE shares"
+        assert decision.status == "accepted"
+        assert "GLUE Research Report" in decision.finding_sources
