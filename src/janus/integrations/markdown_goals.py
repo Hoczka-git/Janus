@@ -8,8 +8,10 @@ and 7 new optional fields (Metric, Unit, Start, Current, Target, Direction, Dead
 Unknown fields are ignored on parse and NOT preserved through update_goal rewrit
 Malformed numeric/date/direction values raise ValueError with line number.
 """
+import hashlib
 import json
 import logging
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -20,6 +22,33 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GOALS_PATH = PROJECT_ROOT / "data" / "goals.md"
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage for hash capture at load time.
+# The protection layer uses this to detect conflicts between load and write.
+_load_context = threading.local()
+
+
+def get_load_hash(path: Path | None = None) -> str | None:
+    """Return the hash captured during the most recent load of *path*.
+
+    If *path* is None, returns the hash for whichever file was last loaded.
+    Returns None if no load has occurred or the path doesn't match.
+    """
+    last_path = getattr(_load_context, "last_loaded_path", None)
+    if path is not None and last_path is not None and Path(last_path) != path:
+        return None
+    return getattr(_load_context, "last_hash", None)
+
+
+def _capture_load_hash(path: Path) -> None:
+    """Capture the SHA-256 hash of *path* at load time for later conflict detection."""
+    if path.exists():
+        from janus.integrations.data_protection import compute_hash
+        _load_context.last_hash = compute_hash(path)
+        _load_context.last_loaded_path = path
+    else:
+        _load_context.last_hash = None
+        _load_context.last_loaded_path = None
 
 
 def load_goals(trace_id: str | None = None) -> list[Goal]:
@@ -38,7 +67,9 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
              goals_loaded=0,
              validation_errors=0,
              message="Goals file not found")
+        _capture_load_hash(GOALS_PATH)
         return []
+    _capture_load_hash(GOALS_PATH)
     goals: list[Goal] = []
     current: dict | None = None
     in_milestones = False       # inside a goal's ## Milestones section
@@ -662,7 +693,8 @@ def update_goal(goal: Goal) -> None:
     if not GOALS_PATH.exists():
         raise ValueError(f"Goals file not found: {GOALS_PATH}")
 
-    all_lines = GOALS_PATH.read_text().splitlines()
+    raw_content = GOALS_PATH.read_text()
+    all_lines = raw_content.splitlines()
     new_block = _format_goal_block(goal)
     output: list[str] = []
     found = False
@@ -684,4 +716,15 @@ def update_goal(goal: Goal) -> None:
     if not found:
         raise ValueError(f"Goal not found: {goal.title}")
 
-    GOALS_PATH.write_text("\n".join(output) + "\n")
+    from janus.integrations.data_protection import (
+        protected_write,
+        compute_content_hash,
+    )
+
+    content = "\n".join(output) + "\n"
+    protected_write(
+        GOALS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="markdown_goals.update_goal",
+    )

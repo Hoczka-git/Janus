@@ -191,7 +191,13 @@ def save_followup(fu: FollowUp) -> None:
 
 def update_followup(fu: FollowUp) -> None:
     """In-place rewrite of one follow-up by id."""
-    lines = FOLLOWUPS_PATH.read_text().splitlines()
+    from janus.integrations.data_protection import (
+        protected_write,
+        compute_content_hash,
+    )
+
+    raw_content = FOLLOWUPS_PATH.read_text()
+    lines = raw_content.splitlines()
     found = False
     new_lines: list[str] = []
     for line in lines:
@@ -204,4 +210,10 @@ def update_followup(fu: FollowUp) -> None:
     if not found:
         raise ValueError(f"Follow-up not found: {fu.id}")
 
-    FOLLOWUPS_PATH.write_text("\n".join(new_lines) + "\n")
+    content = "\n".join(new_lines) + "\n"
+    protected_write(
+        FOLLOWUPS_PATH,
+        content,
+        expected_hash=compute_content_hash(raw_content),
+        written_by="markdown_followups.update_followup",
+    )
