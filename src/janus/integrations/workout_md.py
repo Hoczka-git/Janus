@@ -9,7 +9,7 @@ Pojedynczy plik, rewrite przy zapisie (jak markdown_tasks.py / markdown_goals.py
 from datetime import datetime
 from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from janus.models.workout import (
     Exercise,
