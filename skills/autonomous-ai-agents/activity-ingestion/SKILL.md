@@ -11,7 +11,7 @@ metadata:
     related_skills: [janus-task-add-nl]
 ---
 
-# Activity Data Ingestion Normalization
+# Activity Data Ingestion & Normalization
 
 Normalize and persist model-generated activity records into the Janus `data/`
 files through the single gateway defined in ADR-005: the `ActivityRecord` /
@@ -28,11 +28,6 @@ should be persisted to Janus `data/` — for example:
 - A measurement, follow-up, or inbox item was generated.
 - A batch of records arrives from a sync plugin or an E2E test harness.
 
-**When NOT to use:** when you are editing `data/` files inline for a
-human-driven, one-off change. In that case use the Janus CLI or edit the
-markdown directly — the ingestion layer is for *programmatic, normalized,
-de-duplicated* writes only.
-
 ## Responsibility Split
 
 - **Hermes (this skill):** produce correctly-typed `ActivityRecord` values,
@@ -43,6 +38,80 @@ de-duplicated* writes only.
   service/integration function, and write through `atomic_io` / `data_protection`.
 - **Never:** write to `data/` files directly. Never construct markdown for
   `data/` files by hand. Always go through `ActivityRecord` → `ingest_activities()`.
+
+## Ochrona `data/`
+
+Files under `data/` contain persistent user data and are the source of truth
+for Janus state.
+
+The model must never directly edit any file under `data/`.
+
+This includes:
+
+- rewriting an entire `data/` file,
+- generating a replacement version of a `data/` file,
+- applying inline edits to a `data/` file,
+- using generic file-write operations to modify a `data/` file,
+- using generic file-edit operations to modify a `data/` file.
+
+Model-driven modifications to `data/` must go through a dedicated and
+controlled Janus mutation path such as this skill, a dedicated Janus CLI
+command, or a Janus service/API explicitly designed for the operation.
+
+The fact that a file is Markdown does not make it safe for direct model editing.
+
+A human user may still explicitly edit files under `data/` directly.
+
+### Data preservation rules
+
+Existing data must be preserved unless the requested operation explicitly
+modifies or deletes it.
+
+In particular:
+
+> Missing data in a partial model output does not mean delete existing data.
+
+A partial representation of a dataset must never be treated as a complete
+replacement of that dataset.
+
+Normal operations such as adding a new activity must use the smallest possible
+mutation and must not regenerate the entire data file.
+
+Destructive operations such as deleting existing records or replacing an
+entire dataset must be explicitly represented as such and must not be inferred
+from a partial model output.
+
+### Generic write protection
+
+The runtime/tooling should prevent generic model file-write/edit operations
+from modifying files under `data/`.
+
+The protection must not rely only on the model following this skill's
+instructions.
+
+The intended boundary is:
+
+```text
+Model
+  ↓
+Skill / Janus CLI / Janus service
+  ↓
+Controlled mutation
+  ↓
+Validation / deduplication / integrity checks
+  ↓
+Persistence
+  ↓
+data/ 
+```
+and not
+```text
+Model
+  ↓
+Generic file edit
+  ↓
+data/
+```
 
 ## Import Path
 
