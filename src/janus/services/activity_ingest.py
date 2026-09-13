@@ -503,37 +503,71 @@ def _check_duplicate_inbox(key: str, ts: datetime, tolerance: int) -> bool:
 
 
 def _check_duplicate_workout(key: str, ts: datetime, tolerance: int) -> bool:
+    """Check whether a workout with *dedup_key* already exists in
+    ``data/workouts.md``.
+
+    The dedup key for ``WORKOUT_ADDED`` is either a bare ``workout_id`` or a
+    ``<date>::<type>`` string (see ``compute_dedup_key``).  Unlike the generic
+    ``_check_tolerance`` substring search — which cannot match workout keys
+    because the key is split across separate ``date =`` / ``workout_type =``
+    markdown fields — this helper parses the existing workout blocks via
+    ``load_workouts()`` and compares the actual structured fields.
+
+    With ``dedup_tolerance_seconds == 0`` an exact key match counts as a
+    duplicate.  When a tolerance window is configured, two workouts on the same
+    date/type count as duplicates only if their timestamps fall within the
+    tolerance.
+    """
+    from janus.integrations.workout_md import load_workouts
+
     path = DATA_DIR / "workouts.md"
     if not path.exists():
         return False
-    content = path.read_text(encoding="utf-8")
 
-    # Workout dedup key format: "<date>::<type>" or "<workout_id>"
-    # The file stores dates as ISO datetime (e.g. "2026-09-12T10:00:00+00:00")
-    # and workout_id as "id = w-xxxx".  We need to match the date prefix.
+    try:
+        workouts = load_workouts()
+    except Exception:
+        # If we can't parse the existing file, fall back to the conservative
+        # generic substring check (better to miss a dup than to crash).
+        return _check_tolerance(path, key, ts, tolerance)
+
     if "::" in key:
-        date_part, workout_type = key.split("::", 1)
-        # Check if any line in the file has a date starting with date_part
-        # and the workout_type matches
-        if date_part and workout_type:
-            for line in content.splitlines():
-                if line.startswith("date = ") and date_part in line:
-                    # Verify the workout type matches
-                    # We need to find the surrounding Workout block
-                    # Simple approach: check if workout_type appears nearby
-                    if workout_type in content:
-                        return True
-        elif date_part:
-            # Only date part, no type
-            for line in content.splitlines():
-                if line.startswith("date = ") and date_part in line:
+        # <date>::<type> form — match by workout date (prefix) + type.
+        date_str, _, wtype_str = key.partition("::")
+        for w in workouts:
+            if w.workout_type.value != wtype_str:
+                continue
+            try:
+                stored_date = w.date.date().isoformat()
+            except Exception:
+                continue
+            if stored_date == date_str:
+                if _within_tolerance(w.date, ts, tolerance):
                     return True
-    else:
-        # workout_id key — direct substring match
-        if key in content:
-            return True
+        return False
 
-    return _check_tolerance(path, key, ts, tolerance)
+    # Bare workout_id — match by id.
+    for w in workouts:
+        if w.id == key:
+            if _within_tolerance(w.date, ts, tolerance):
+                return True
+    return False
+
+
+def _within_tolerance(existing: datetime, candidate: datetime,
+                      tolerance_seconds: int) -> bool:
+    """Return True if *candidate* is within *tolerance_seconds* of *existing*.
+
+    When tolerance is 0, only an exact match counts (any existing record with
+    the same key is a duplicate regardless of timestamp).
+    """
+    if tolerance_seconds <= 0:
+        return True
+    try:
+        delta = abs((candidate - existing).total_seconds())
+    except TypeError:
+        return True
+    return delta <= tolerance_seconds
 
 
 def _check_duplicate_measurement(key: str, ts: datetime, tolerance: int) -> bool:

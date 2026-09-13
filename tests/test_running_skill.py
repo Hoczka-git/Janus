@@ -58,6 +58,9 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(ai, "DATA_DIR", data_dir)
     monkeypatch.setattr(ai, "PROJECT_ROOT", tmp_path)
 
+    import janus.integrations.workout_md as workout_md
+    monkeypatch.setattr(workout_md, "PROJECT_ROOT", tmp_path)
+
     import janus.services.tasks as tasks_mod
     import janus.integrations.markdown_goals as goals_md
     import janus.integrations.metric_history as mh
