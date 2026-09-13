@@ -6,7 +6,7 @@ Format: nagłówek + sekcje "## Workout:" z polami klucz=wartość.
 Pojedynczy plik, rewrite przy zapisie (jak markdown_tasks.py / markdown_goals.py).
 """
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -140,10 +140,25 @@ def _finalize_workout(data: dict[str, Any]) -> Workout:
 
 
 def find_workouts_by_date_range(
-    start: datetime | None = None,
-    end: datetime | None = None,
+    start: datetime | date | None = None,
+    end: datetime | date | None = None,
 ) -> list[Workout]:
-    """Return workouts with date in [start, end] (inclusive on both sides)."""
+    """Return workouts with date in [start, end] (inclusive on both sides).
+
+    Both ``date`` and ``datetime`` inputs are accepted.  A plain ``date`` is
+    converted to ``datetime`` at midnight UTC for ``start`` and at
+    23:59:59.999999 UTC for ``end``.  A ``datetime`` is used as-is, but
+    ``end`` is always expanded to the end of its day so that passing
+    ``datetime(2026, 9, 3)`` (midnight) includes all of Sep 3.
+    """
+    # Convert date → datetime for consistent comparison
+    if isinstance(start, date) and not isinstance(start, datetime):
+        start = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
+    if isinstance(end, date) and not isinstance(end, datetime):
+        end = datetime(
+            end.year, end.month, end.day, 23, 59, 59, 999999, tzinfo=timezone.utc
+        )
+
     workouts = load_workouts()
     # Sort by date, then by id for deterministic order when dates match
     sorted_ws = sorted(workouts, key=lambda w: (w.date, w.id))
@@ -151,7 +166,9 @@ def find_workouts_by_date_range(
     for w in sorted_ws:
         if start is not None and w.date < start:
             continue
-        if end is not None and w.date > end.replace(hour=23, minute=59, second=59, microsecond=999999):
+        if end is not None and w.date > end.replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        ):
             continue
         result.append(w)
     return result

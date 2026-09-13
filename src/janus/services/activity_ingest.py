@@ -352,6 +352,12 @@ def _normalize_record(record: ActivityRecord, cfg: IngestConfig) -> ActivityReco
     if record.captured_text is not None:
         record.captured_text = _normalize_text(record.captured_text)
 
+    # Normalize free-text evidence fields
+    if record.evidence:
+        for key in ("notes", "source", "context", "note"):
+            if key in record.evidence and isinstance(record.evidence[key], str):
+                record.evidence[key] = _normalize_text(record.evidence[key])
+
     record.value = _normalize_unit(record.value, record.unit, record.metric, cfg)
     record.current_value = _normalize_unit(
         record.current_value, record.unit, record.metric_name, cfg
