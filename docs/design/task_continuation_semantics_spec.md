@@ -810,9 +810,9 @@ This specification draws on the following artifacts for context:
 | File | Role |
 |------|------|
 | `reports/task_continuation_design_t_e75fa9e8.md` (in t_e75fa9e8 workspace) | Parent design document — source of the design decisions formalized here |
-| `design/connection_model_and_loop_workflow.md` | Adjacent design covering research→goal→action loop; provides context for how continuation fits into the broader loop |
-| `docs/research_knowledge_pipeline_specification.md` | Defines the artifact model and `status: finalized` convention that the continuation contract checks |
-| `integration_contract_final_design.md` | Companion contract governing PR+CI gating on completion; shows the pattern for how a contract frontmatter is structured and consumed |
+| `docs/design/connection_model_and_loop_workflow.md` | Adjacent design covering research→goal→action loop; provides context for how continuation fits into the broader loop |
+| `docs/specs/research_knowledge_pipeline_specification.md` | Defines the artifact model and `status: finalized` convention that the continuation contract checks |
+| `docs/specs/integration_contract.md` | Companion contract governing PR+CI gating on completion; shows the pattern for how a contract frontmatter is structured and consumed |
 
 ---
 

@@ -22,7 +22,7 @@ Status definitions:
 # Next
 
 - [ ] Implement the structured observability log schema and instrumentation
-  described in OBSERVABILITY_PLAN.md
+  described in docs/design/observability_plan.md
 
 ## [done] Configure roadmap-driven replenishment for Janus
 

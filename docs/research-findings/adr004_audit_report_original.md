@@ -207,7 +207,7 @@ The current model is **reactive**: the agent performs integration and the gate v
 | Verification gate | `hermes_cli/kanban_db.py:5639` (`_enforce_janus_verification_gate`) |
 | Completion function | `hermes_cli/kanban_db.py:5954` (`complete_task`) |
 | Remote PR/CI check | `hermes_cli/web_git.py:645` (`review_integration_state`) |
-| Integration design doc | `integration_contract_final_design.md` |
+|| Integration design doc | `docs/specs/integration_contract.md` |
 | Research: git worktree/branch sync | `docs/research/git_worktree_branch_sync_findings.md` |
 | Research: PR automation gap analysis | `docs/research/pr_automation_gap_analysis.md` |
 | Research: merge/rebase/automerge findings | `docs/research/merge_rebase_automerge_findings.md` |

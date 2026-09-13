@@ -415,7 +415,7 @@ All ingest operations emit structured events via `janus._log.emit` under the
 - `service.activity_ingest.dedup_replace` — duplicate replaced (policy=replace)
 
 These feed the observability pipeline documented in
-`docs/observability_log_schema_spec.md`.
+`docs/design/observability_log_schema_spec.md`.
 
 ## Verification Checklist
 

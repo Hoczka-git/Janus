@@ -116,7 +116,7 @@ Error handling pattern:
 Two prior research artifacts exist in the repo root:
 
 1. **`research_observability_logging.md`** (214 lines) — Research report from t_8da8ead6 (file later removed as redundant). Covers: pipeline map, no-logging finding, recommended insertion points (5 priority tiers), library choice (stdlib `logging`), conventions.
-2. **`OBSERVABILITY_PLAN.md`** (515 lines) — Detailed instrumentation plan from t_abd4c594. Covers: 12 event types with exact schemas, field propagation strategy (`briefing_id`), per-file instrumentation map, implementation order, verification steps.
+2. **`docs/design/observability_plan.md`** (515 lines) — Detailed instrumentation plan from t_abd4c594. Covers: 12 event types with exact schemas, field propagation strategy (`briefing_id`), per-file instrumentation map, implementation order, verification steps.
 
 These documents are comprehensive and this report aligns with them — see §4 for the recommended integration approach.
 
@@ -165,7 +165,7 @@ These documents are comprehensive and this report aligns with them — see §4 f
 
 ### 3.6 Propagation Strategy
 
-The recommended approach (from `OBSERVABILITY_PLAN.md`) is explicit `briefing_id` passing:
+The recommended approach (from `docs/design/observability_plan.md`) is explicit `briefing_id` passing:
 
 ```
 main()                          ← briefing_id = uuid.uuid4().hex
@@ -304,7 +304,7 @@ Tests use `unittest.mock.patch` extensively to mock data sources — this patter
 1. **Briefings are CLI-triggered only** — no automation exists. The pipeline is synchronous and single-shot: load → score → format → deliver.
 2. **Zero logging infrastructure** — the codebase uses `print()` exclusively. Error handling is `ValueError` + stderr + `sys.exit(1)`.
 3. **Natural attachment points are well-defined** — the service/integration split creates clear boundaries where logs can be inserted without crossing concerns.
-4. **Two prior research documents exist** (`research_observability_logging.md` [removed as redundant], `OBSERVABILITY_PLAN.md`) and provide detailed schemas — this report confirms and synthesizes their findings.
+4. **Two prior research documents exist** (`research_observability_logging.md` [removed as redundant], `docs/design/observability_plan.md`) and provide detailed schemas — this report confirms and synthesizes their findings.
 5. **Python stdlib `logging` is the right fit** — no new dependencies, minimal footprint, future-proof for when automation is added.
 6. **Workouts exist but are not wired into briefing pipelines** — instrumentation is contingent on future integration.
 7. **Test infrastructure is compatible** — mocking patterns already in place will not conflict with logging; `briefing_id` defaults to `None` preserve backward compatibility.
@@ -313,7 +313,7 @@ Tests use `unittest.mock.patch` extensively to mock data sources — this patter
 
 ## 8. Recommended Next Steps
 
-1. **Review & approve** this findings document + the existing `OBSERVABILITY_PLAN.md`
+1. **Review & approve** this findings document + the existing `docs/design/observability_plan.md`
 2. **Create implementation task** for `src/janus/logging_config.py` (the `setup_logging()` entry point)
 3. **Create implementation task** for P1 instrumentation (`main()`, `_build_today_briefing()`, `create_weekly_review()`)
 4. **Create implementation task** for P2–P5 instrumentation (sources, engine, delivery, services)

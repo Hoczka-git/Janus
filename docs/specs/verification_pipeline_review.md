@@ -2,7 +2,7 @@
 
 **Reviewer:** Adversarial architecture reviewer (automated analysis)
 **Date:** 2026-08-30
-**Subject:** `docs/verification_pipeline_design.md` (1,616 lines, 84,616 bytes)
+**Subject:** `docs/specs/verification_pipeline_design.md` (1,616 lines, 84,616 bytes)
 **Status of reviewed document:** Design proposal, NOT implemented, NOT committed (?? in git)
 
 ---
@@ -403,7 +403,7 @@ As a final check, this review verified the following claims made BY the document
 | "≥10 mechanical verification checks" | Section 3 has 31 rows, 23+ unique non-overlapping checks | ✅ Satisfied (but the document's own summary conflates with "8 functions") |
 | "Builds on existing Hermes infrastructure" | References verification_evidence.py, verify/runner.py, verify/recipes.py, verification_stop.py, verify.py CLI — all confirmed to exist | ✅ Accurate |
 | "No production code changes" | Document is a .md file, not code | ✅ Accurate |
-| "Not committed" | `git status` shows `?? docs/verification_pipeline_design.md` | ✅ Accurate |
+| "Not committed" | `git status` shows `?? docs/specs/verification_pipeline_design.md` | ✅ Accurate |
 
 ---
 

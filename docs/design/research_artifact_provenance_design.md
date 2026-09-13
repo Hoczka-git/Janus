@@ -339,4 +339,4 @@ The current scope is artifact-centric. A separate `Researcher` or `Entity` model
 - `src/janus/integrations/markdown_tasks.py` — markdown loader pattern
 - `src/janus/integrations/markdown_goals.py` — markdown serialization pattern
 - `docs/decisions/002-obsidian-knowledge-layer.md` — ADR-002 alignment
-- `docs/research_knowledge_capture_findings.md` — parent task findings
+- `docs/research-findings/research_knowledge_capture_findings.md` — parent task findings

@@ -10,7 +10,7 @@ the task becomes eligible for the next non-terminal milestone that
 contains it.
 
 When a Goal has Projects (see design spec:
-docs/goal_milestone_project_task_hierarchy.md), the engine traverses
+docs/design/goal_milestone_project_task_hierarchy.md), the engine traverses
 the full hierarchy:
 
     Goal -> Current Milestone -> Current Project -> Open Task
@@ -18,7 +18,7 @@ the full hierarchy:
 Project assignment always overrides dynamic milestone derivation (I6).
 Goals without Projects retain the legacy R1-R5 behavior unchanged.
 
-See DESIGN_EXECUTION_PLANNING.md for the full rule table.
+See docs/design/execution_planning.md for the full rule table.
 """
 
 from dataclasses import dataclass

@@ -11,7 +11,7 @@
 
 Define a single, concrete structured log schema for Janus. Every log line produced by the system — whether from CLI dispatch, briefing pipeline, service mutations, or integration calls — conforms to this schema. The schema is a contract: parsers, dashboards, and future automation all depend on it being stable.
 
-This spec supersedes the prior scoped designs (`docs/research/briefing_observability_schema.md`, `docs/observability_log_schema_spec.md`) by generalizing them into a **cross-cutting schema** usable by any module, not just the briefing pipeline.
+This spec supersedes the prior scoped designs (`docs/research/briefing_observability_schema.md`, `docs/design/observability_log_schema_spec.md`) by generalizing them into a **cross-cutting schema** usable by any module, not just the briefing pipeline.
 
 ---
 
@@ -392,7 +392,7 @@ The schema version is not embedded in every log line. Instead:
 This spec generalizes and supersedes:
 
 - `docs/research/briefing_observability_schema.md` (t_8088c47d) — scoped to the briefing pipeline only; this spec extends the schema to all modules.
-- `docs/observability_log_schema_spec.md` — integration spec with pseudocode; this doc is the schema contract that the integration spec implements against.
+- `docs/design/observability_log_schema_spec.md` — integration spec with pseudocode; this doc is the schema contract that the integration spec implements against.
 - `docs/research/logging_observability_survey_findings_2026-09-02.md` — survey findings; referenced as background, not normative.
 
 The implementation target remains **stdlib `logging` with a custom JSON formatter** and **explicit `trace_id`/`span_id` propagation** via optional keyword arguments, as recommended by the research.

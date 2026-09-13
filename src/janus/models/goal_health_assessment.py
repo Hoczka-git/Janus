@@ -8,7 +8,7 @@ Health state is a derived attribute: it is computed from current signals
 and is NOT persisted (design §13.1).
 
 This implements the assessment data model defined in
-``docs/goal_health_progress_signals_stalled_detection_spec.md`` §5.4.
+``docs/design/goal_health_progress_signals_stalled_detection_spec.md`` §5.4.
 """
 
 from dataclasses import dataclass, field

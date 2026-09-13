@@ -6,7 +6,7 @@ measurement, or an inactivity indicator. Signals are the inputs that feed
 health-state resolution (see ``models/goal_health_assessment.py``).
 
 This implements the signal data model defined in
-``docs/goal_health_progress_signals_stalled_detection_spec.md`` §5.2.
+``docs/design/goal_health_progress_signals_stalled_detection_spec.md`` §5.2.
 """
 
 from dataclasses import dataclass

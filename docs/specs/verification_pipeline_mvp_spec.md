@@ -2,7 +2,7 @@
 
 **Status:** Design consolidation (implementation blueprint, NOT implemented)
 **Date:** 2026-08-30
-**Source:** docs/verification_pipeline_design.md + docs/verification_pipeline_review.md
+**Source:** docs/specs/verification_pipeline_design.md + docs/specs/verification_pipeline_review.md
 **Scope:** Milestone 1 — Minimum Viable Verification (MVV)
 **Hard constraints:** ≤500 lines, no production code changes, no implementation, no commits, no multi-agent, no assumed agent spawning
 

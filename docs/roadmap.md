@@ -93,11 +93,11 @@ The following items represent planned implementation work derived from
 existing design and planning artifacts in this repository.
 
 - [x] Implement the execution planning extension described in
-  [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
+  [`docs/design/execution_planning.md`](../docs/design/execution_planning.md)
 - [x] Implement the structured observability log schema and instrumentation
-  described in [`OBSERVABILITY_PLAN.md`](../OBSERVABILITY_PLAN.md)
+  described in [`docs/design/observability_plan.md`](../docs/design/observability_plan.md)
 - [x] Verify roadmap-driven task replenishment end-to-end (triage targeting,
-  idempotency, audit trail) — see `docs/replenishment_sources.md`
+  idempotency, audit trail) — see `docs/guides/replenishment_sources.md`
 - [x] Extend goal management with goal health, progress signals, and
   stalled-goal detection
 - [x] Extend execution planning with goal → milestone → project → task

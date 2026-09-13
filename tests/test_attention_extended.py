@@ -1,6 +1,6 @@
 """Tests for extended stall detection signals in the attention engine.
 
-Tests the multi-signal stall assessment (§5.2 of DESIGN_EXECUTION_PLANNING.md)
+Tests the multi-signal stall assessment (§5.2 of docs/design/execution_planning.md)
 and goal attention item construction.
 """
 

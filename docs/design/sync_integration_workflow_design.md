@@ -188,7 +188,7 @@ target branch commit the branch was synced to. This becomes part of the evidence
 
 **When:** After the Pre-Completion Gate passes. Integration is performed by a dedicated
 integration step/agent (not the implementor) to ensure the implementor is not the sole arbiter
-of "is this done" — see `docs/verification_pipeline_design.md:486` principle: "Implementor ≠
+of "is this done" — see `docs/specs/verification_pipeline_design.md:486` principle: "Implementor ≠
 Sole Arbiter."
 
 **Steps (in order):**
@@ -400,7 +400,7 @@ When all gates pass, the following artifacts constitute proof of successful comp
 5. Full test output (or summary + report path).
 
 These are attached to the `kanban_complete` call as `artifacts` and `metadata`,
-per the structured handoff pattern in `docs/verification_pipeline_design.md:514`.
+per the structured handoff pattern in `docs/specs/verification_pipeline_design.md:514`.
 
 ---
 

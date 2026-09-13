@@ -5,7 +5,7 @@ The file is a human-readable, append-only log of metric values recorded for
 goals over time. It is consumed by the goal-health service to compute progress
 trends, inactivity, and measurement-due signals.
 
-Design reference: docs/goal_health_progress_signals_stalled_detection_spec.md §7.
+Design reference: docs/design/goal_health_progress_signals_stalled_detection_spec.md §7.
 """
 
 import logging

@@ -309,7 +309,7 @@ Checks:
 
 This design consolidates and supersedes:
 - `research_observability_logging.md` (t_8da8ead6) — research report, 214 lines, 5 priority tiers (file later removed as redundant).
-- `OBSERVABILITY_PLAN.md` (t_abd4c594) — detailed instrumentation plan, 515 lines, 12 event types with exact schemas and file locations.
+- `docs/design/observability_plan.md` (t_abd4c594) — detailed instrumentation plan, 515 lines, 12 event types with exact schemas and file locations.
 - `docs/research/briefing_observability_findings.md` (t_cafbe5f0) — findings report, 325 lines, confirms the above.
 
 This doc is the canonical schema reference going forward — the prior artifacts are implementation-ready but scattered; this is the single source of truth for the schema contract.

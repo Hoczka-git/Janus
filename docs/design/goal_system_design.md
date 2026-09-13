@@ -1,8 +1,8 @@
 # Goal System — Architecture Design
 
 > **Status:** Discovery review complete. Not implemented. Not committed.
-> **Source:** Based on `docs/goal_system_discovery.md` (brief) and full repository archaeology.
-> **Companion file for implementation:** This document + `docs/goal_system_discovery.md`.
+> **Source:** Based on `docs/specs/goal_system_discovery.md` (brief) and full repository archaeology.
+> **Companion file for implementation:** This document + `docs/specs/goal_system_discovery.md`.
 
 ---
 
