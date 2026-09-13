@@ -415,7 +415,7 @@ or `read_modify_write_with_retry` (`src/janus/integrations/atomic_io.py:158`):
 ### Regeneration gate
 
 `workout_md._write_workouts` is in the `allowed_regenerators` set
-(`data_protection.py:131`), so the full-file rewrite path (used by the CLI
+(`data_protection.py:132`), so the full-file rewrite path (used by the CLI
 `save_workout` → `_write_workouts` → `all_workouts` round-trip) is permitted
 to replace the entire file when it exceeds the 50% change threshold.
 **Model-driven code does not go through this path** — it appends.
@@ -469,6 +469,10 @@ All ingestion emits structured events via `janus._log.emit`:
 
 ### CLI integration
 
+The main Janus CLI (`src/janus/cli.py`) must dispatch `workout` subcommands
+to `workout_cli.handle_workout_add` / `handle_workout_show` /
+`handle_workout_summary`. (This is an existing pattern, not a new
+integration — see `src/janus/workout_cli.py:113`.)
 The main Janus CLI (`src/janus/__init__.py`) must dispatch `workout` subcommands
 to `workout_cli.handle_workout_add` / `handle_workout_show` /
 `handle_workout_summary`. (This is an existing pattern, not a new
@@ -478,6 +482,7 @@ integration — see `src/janus/__init__.py:115`.)
 
 ## Dedup Key Rules (for WORKOUT_ADDED)
 
+From ADR-005 §3 and `compute_dedup_key()` in `activity_ingest.py:169`:
 From ADR-005 §3 and `compute_dedup_key()` in `activity_ingest.py:146`:
 
 | Condition | Dedup key |
