@@ -274,7 +274,7 @@ for r in results:
 | Workout date | `evidence["date"]` or `date` | top-level / evidence | **Critical for dedup** — ISO date string `YYYY-MM-DD`. |
 | Workout ID | `workout_id` | top-level | If absent, gateway generates `w-<8-hex>` via `_gen_uuid("w")` (`activity_ingest.py:186`). Model should provide explicit IDs for same-day multi-session logging. |
 
-### 2.5 Gateway dispatch — `_dispatch_workout()` (activity_ingest.py:877)
+### 2.5 Gateway dispatch — `_dispatch_workout()` (activity_ingest.py:938)
 
 The model never calls persistence directly. The gateway's
 `_dispatch_workout()` handles strength records as follows:
@@ -603,7 +603,7 @@ skill, so the strength skill does not reimplement them:
 | **Normalization** — `_normalize_record()`: timestamps → UTC, free-text stripping, unit conversion (lb→kg, mi→km) for `MEASUREMENT`/`GOAL_UPDATED` (`activity_ingest.py`) |
 | **Deduplication** — `compute_dedup_key()` + configurable policy (`reject`/`merge`/`replace`) + tolerance window (`activity_ingest.py:169`) |
 | **Idempotency** — same dedup key = single persisted record under `reject` policy |
-| **Controlled persistence** — `_dispatch_workout()` → `_workout_to_markdown_lines()` → `read_modify_write_with_retry()` → `atomic_write()` (`activity_ingest.py:877`) |
+| **Controlled persistence** — `_dispatch_workout()` → `_workout_to_markdown_lines()` → `read_modify_write_with_retry()` → `atomic_write()` (`activity_ingest.py:938`) |
 | **Protection of existing data** — `atomic_io` (write-to-temp + `os.replace`), `data_protection` (`.bak` backups, regeneration gate, conflict detection) |
 
 ### 5.4 Prohibition — restated as a hard contract
