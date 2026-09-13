@@ -499,25 +499,38 @@ def _ingest_decision(
         )
         return {"skipped": metadata.object, "error": str(exc)}
 
-    from janus.services.decisions import create_decision
+    from janus.services.decisions import create_decision, link_decision_to_goal
     try:
         path = create_decision(decision)
     except ValueError as exc:
         logger.warning("Decision already exists, skipping: %s", exc)
         from janus.services.decisions import get_decision
         existing = get_decision(decision.adr_number)
-        return {
-            "object": "decision",
-            "adr_number": existing.adr_number,
-            "title": existing.title,
-            "status": existing.status,
-            "skipped_existing": True,
-        }
+        decision = existing
+        path = None
 
-    return {
+    # Decision → action connection: link decision to its goals and propagate
+    # to action pipeline (design §4.2 / Stage 3-4 loop connection).
+    action_result: dict = {}
+    for goal_title in decision.goal_titles:
+        try:
+            link_decision_to_goal(decision.adr_number, goal_title)
+            action_result.setdefault("linked_goals", []).append(goal_title)
+        except Exception as exc:
+            action_result.setdefault("link_errors", []).append({
+                "goal_title": goal_title, "error": str(exc),
+            })
+
+    result: dict = {
         "object": "decision",
         "adr_number": decision.adr_number,
         "title": decision.title,
         "status": decision.status,
-        "path": str(path),
     }
+    if path is not None:
+        result["path"] = str(path)
+    else:
+        result["skipped_existing"] = True
+    if action_result:
+        result["action_connection"] = action_result
+    return result

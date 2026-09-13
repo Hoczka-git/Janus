@@ -2,14 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [ "master", "main", "wt/*" ]
+    branches: ["master", "main", "wt/*"]
   pull_request:
-    branches: [ "master", "main" ]
+    branches: ["master", "main"]
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@v4
 
