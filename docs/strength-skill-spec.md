@@ -15,11 +15,15 @@ activity-ingestion `skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
 
 ## 1. Dependency: Activity Ingestion
 
-This skill MUST use the shared Activity Data Ingestion skill for ALL
-persistence of activity data.
+This skill MUST use the shared **Activity Data Ingestion** skill for ALL
+persistence of activity data. This dependency is non-optional — every
+model-driven write must route through it.
+
+Shared skill (absolute path):
+`/home/dan11hermes/workspaces/janus/skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
 
 ```text
-Strength Skill (this skill)
+Domain Skill (this skill)
   → ActivityRecord(WORKOUT_ADDED, ...)
   → Activity Ingestion: ingest_activities()
   → Janus service / gateway
@@ -28,10 +32,20 @@ Strength Skill (this skill)
 
 The skill MUST NOT:
 
-- directly modify files under `data/`,
-- generate or rewrite `data/workouts.md`,
-- implement its own persistence or deduplication logic,
-- bypass `ActivityRecord` / `ingest_activities()`.
+- **Directly modify files under `data/`.** Never call `Path.write_text()`,
+  `open(..., "w")`, or any I/O targeting `data/workouts.md` (or any other
+  `data/` file) from model-driven code.
+- **Generate or rewrite `data/workouts.md`.** The model emits structured
+  `ActivityRecord` values; the gateway owns serialization via the existing
+  `_workout_to_markdown_lines()`. The model never hand-writes `## Workout:`
+  blocks or any markdown into `data/`.
+- **Implement its own persistence or deduplication logic.** No custom
+  `save_workouts()` or dedup logic in the strength skill. Use the gateway's
+  `_dispatch_workout()` / `read_modify_write_with_retry()`.
+- **Bypass `ActivityRecord` / `ingest_activities()`.** Never call
+  `workout_md.save_workout()` from model-driven code. The CLI path
+  (`handle_workout_add`) is the exception — it is a human-operated path that
+  calls `save_workout()` directly.
 
 Use the Activity Ingestion skill for:
 
@@ -255,6 +269,22 @@ The gateway's `_dispatch_workout()` (in `activity_ingest.py:877`):
    `read_modify_write_with_retry()` (atomic, with retry-on-concurrency).
 5. Emits `service.activity_ingest.record_accepted` event.
 
+### What the model emits vs. what it never touches
+
+| | What the model emits | What the model NEVER touches |
+|---|---|---|
+| **Type** | `ActivityRecord(type=WORKOUT_ADDED, ...)` dataclass instances | `data/workouts.md` file path, file handle, or file content |
+| **Structure** | `evidence["exercises"]` as a list of dicts, `evidence["notes"]` as a string, `workout_type="strength"`, `date` / `evidence["date"]` as ISO string, optional `workout_id` | The `## Workout:` markdown block format, the `# Fitness Workouts` header, the `---` separator |
+| **Persistence call** | `ingest_activities(records)` — the single gateway entry point | `workout_md.save_workout()`, `workout_md._write_workouts()`, `atomic_io.atomic_write()`, or any direct file I/O to `data/` |
+| **Dedup** | A `workout_id` or a date + `workout_type` so `compute_dedup_key()` can form a key | Dedup policy selection, tolerance windows, duplicate detection logic |
+| **Normalization** | ISO 8601 timestamps (UTC), `weight_kg` in kg, RPE in 1–10 range, `notes` as free text | Unit conversion rules, text sanitization, timestamp timezone conversion |
+| **Response** | Receives `list[IngestResult]` with `accepted`, `wrote`, `action`, `error` | The internal dispatch table, the `read_modify_write_with_retry` implementation, the `.bak` backup mechanism |
+
+The model hands structured `ActivityRecord` objects to the Activity Ingestion
+skill and receives `IngestResult` objects back. It never touches `data/`
+files, never serializes markdown, and never invokes persistence or dedup
+primitives directly.
+
 ### 3.3 Data entry surface — field table
 
 | Field | ActivityRecord field | Notes |
@@ -326,6 +356,16 @@ Rules that apply to strength workout records:
 ### 5.1 Exercise summary — `compute_exercise_summary(workouts, exercise_name)`
 
 Located in `src/janus/services/workout_analytics.py:161-234`.
+
+**Analysis read path:** Analysis functions are **read-only** pure functions.
+They receive already-loaded `list[Workout]` objects (loaded from
+`data/workouts.md` via `load_workouts()` in `workout_md.py`). Analysis does
+NOT write back to `data/` — it does NOT call `ingest_activities()` or any
+persistence path. The data is read from `data/workouts.md` through the Janus
+service/gateway layer (`workout_md.load_workouts()`), analyzed in memory, and
+results are surfaced only to the caller (CLI output, model context). No
+analysis function modifies `data/` files.
+
 Pure function; no side effects; input is `list[Workout]` (already
 loaded from `data/workouts.md`).
 
@@ -413,8 +453,10 @@ the existing CLI already handles `--exercise` for strength workouts.
 skills/autonomous-ai-agents/strength/SKILL.md
 ```
 
-The directory `skills/autonomous-ai-agents/strength/` does NOT currently
-exist. It must be created with `SKILL.md` inside.
+The directory `skills/autonomous-ai-agents/strength/` **already exists** (created
+in commit `022b61e` — "docs: strength training skill SKILL.md"). It contains
+`SKILL.md`. This document (`docs/strength-skill-spec.md`) is the detailed
+blueprint that the SKILL.md mirrors and is derived from.
 
 ### 6.2 Existing implementation surface (no new files required)
 
@@ -433,12 +475,38 @@ exist. It must be created with `SKILL.md` inside.
 ### 6.3 Reference specs
 
 | File | Purpose |
-|------|---------|
-| `docs/strength-skill-spec.md` | This specification |
-| `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005: the ingestion gateway design |
-| `docs/activity_data_guide.md` | Operational guide for the ingestion layer |
-| `findings/skill_patterns_research.md` | Research findings on Janus domain/skill patterns |
-| `docs/goal_milestone_project_task_hierarchy.md:1563` | Aspirational cross-domain workout → goal progress aggregation |
+||------|---------|
+|| `docs/strength-skill-spec.md` | This specification |
+|| `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005: the ingestion gateway design |
+|| `docs/activity_data_guide.md` | Operational guide for the ingestion layer |
+|| `findings/skills_layout_and_activity_ingestion.md` | Inspection findings: skills layout + Activity Ingestion interface contract |
+|| `docs/goal_milestone_project_task_hierarchy.md:1563` | Aspirational cross-domain workout → goal progress aggregation |
+
+### Parent skill (mandatory dependency)
+
+```
+/home/dan11hermes/workspaces/janus/skills/autonomous-ai-agents/activity-ingestion/SKILL.md
+```
+
+The Activity Ingestion skill is the single controlled-write gateway for all
+model-driven persistence. It provides:
+
+- **Validation** — `_validate_record` enforces `ActivityType`-specific field
+  requirements; domain model `__post_init__` validators enforce type/range
+  constraints.
+- **Normalization** — timestamps → UTC, free text stripped of control chars,
+  units converted via `[data_ingestion.normalization.units.<metric>]`.
+- **Deduplication** — `compute_dedup_key()` + configurable `dedup_policy`
+  (`reject` / `merge` / `replace`) + `dedup_tolerance_seconds` window.
+- **Idempotency** — safe to re-ingest; duplicates are detected and handled
+  per policy.
+- **Controlled persistence** — all writes through
+  `atomic_io.read_modify_write` / `read_modify_write_with_retry`
+  (`write-to-temp + os.replace`, retry with backoff, `.bak` backup).
+- **Protection of existing data** — the `data_protection` regeneration gate
+  (`allowed_regenerators`, `regeneration_threshold`), concurrent-write
+  detection via `_FileSnapshot` (mtime + size + inode), and atomic
+  `os.replace` ensure no torn writes or data loss.
 
 ---
 
