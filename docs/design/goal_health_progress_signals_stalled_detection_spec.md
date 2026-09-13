@@ -16,7 +16,7 @@ This spec defines the extension of Janus's goal management with three interconne
 3. **Stalled-goal detection** — the logic, thresholds, timing, and notification/flagging behavior for detecting goals that are not making meaningful progress.
 
 **Out of scope for this spec:**
-- Milestone CRUD (already designed in `DESIGN_EXECUTION_PLANNING.md`).
+- Milestone CRUD (already designed in `docs/design/execution_planning.md`).
 - Measurement collection mechanism (already designed — see goal-driven measurement collection tasks).
 - Execution planning / next-action sequencing (separately specified).
 - Research → finding → decision → action loop closure (separately specified).
@@ -647,8 +647,8 @@ The severity order (§4.2) is a design constant, not configurable. If users need
 
 ## 15. Relationship to Other Design Documents
 
-- **`DESIGN_EXECUTION_PLANNING.md`** — milestone model, next-action derivation, task-to-milestone membership. This spec builds on the milestone model and signal infrastructure introduced there.
-- **`OBSERVABILITY_PLAN.md`** — structured log schema. The attention engine log event extension in §12.7 follows the existing schema pattern.
+- **`docs/design/execution_planning.md`** — milestone model, next-action derivation, task-to-milestone membership. This spec builds on the milestone model and signal infrastructure introduced there.
+- **`docs/design/observability_plan.md`** — structured log schema. The attention engine log event extension in §12.7 follows the existing schema pattern.
 - **Goal-driven measurement collection design** — `measurement_requirements` field on Goal and collection scheduling. This spec consumes `measurement_requirements` for the `measurement_due` signal.
 - **`docs/research/goal_milestone_research_findings.md`** — original research on the goal/milestone system. This spec addresses the gaps identified there (binary stall, no health model, no progress history).
 

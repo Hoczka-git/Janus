@@ -200,7 +200,7 @@ janus goal health                  # list all active goals, ranked by severity
 janus goal health "Lose 5 kg"      # full health assessment for a single goal
 ```
 
-Health states: `healthy` (on track), `watch` (at risk), `stalled` (not making meaningful progress), `completed`. Health is derived from automated signals such as deadline proximity, slow progress, overdue measurements, and recent activity. See [`docs/goal_health_progress_signals_stalled_detection_spec.md`](docs/goal_health_progress_signals_stalled_detection_spec.md) for the full design.
+Health states: `healthy` (on track), `watch` (at risk), `stalled` (not making meaningful progress), `completed`. Health is derived from automated signals such as deadline proximity, slow progress, overdue measurements, and recent activity. See [`docs/design/goal_health_progress_signals_stalled_detection_spec.md`](docs/design/goal_health_progress_signals_stalled_detection_spec.md) for the full design.
 
 ### Workouts
 
@@ -301,7 +301,7 @@ emitted by the model; serialization is the gateway's responsibility. Manual
 full-file regeneration is gated and blocked above a change threshold
 (`src/janus/integrations/data_protection.py`).
 
-See [`docs/activity_data_guide.md`](docs/activity_data_guide.md) for the full
+See [`docs/guides/activity_data_guide.md`](docs/guides/activity_data_guide.md) for the full
 usage guide — API surface, configuration, dedup/normalization policies, and
 troubleshooting. The design rationale lives in
 [ADR-005](docs/decisions/005-activity-data-ingestion-layer.md).

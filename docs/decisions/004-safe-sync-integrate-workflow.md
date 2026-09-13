@@ -172,7 +172,7 @@ Task branches integrate directly into the target.
 - t_bc8fcd6b — Verification step (child)
 - t_36b3d88f — Integration step (child)
 - `merge-reconciler` skill: `skills/autonomous-ai-agents/merge-reconciler/SKILL.md`
-- `docs/verification_pipeline_design.md` — multi-stage verification pipeline (Stages 0–6)
+- `docs/specs/verification_pipeline_design.md` — multi-stage verification pipeline (Stages 0–6)
 - `src/janus/verification.py` — Janus contract verification (9 check types)
 - `agent/verify/runner.py` — Hermes recipe-based verification runner
 - `docs/verification.md` — Repository verification contract (`uv run pytest tests/`)

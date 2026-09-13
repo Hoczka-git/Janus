@@ -2,7 +2,7 @@
 
 **Task:** t_4b368d4d
 **Status:** Draft for review — v2
-**Base state:** DESIGN_EXECUTION_PLANNING.md + ADR-003 fully implemented and tested (1210 tests pass)
+**Base state:** docs/design/execution_planning.md + ADR-003 fully implemented and tested (1210 tests pass)
 **This is a design document only — no implementation changes.**
 
 ---

@@ -3,7 +3,7 @@
 **Date:** 2026-09-01
 **Status:** Design document (no implementation)
 **Scope:** Pipeline that consumes `ResearchArtifact` objects and produces curated Obsidian knowledge notes.
-**Parent design:** `docs/research_artifact_provenance_design.md` (Source, Finding, ResearchArtifact dataclasses)
+**Parent design:** `docs/design/research_artifact_provenance_design.md` (Source, Finding, ResearchArtifact dataclasses)
 
 ---
 
@@ -608,8 +608,8 @@ Each phase is independently testable. Phase 1-2 are pure domain logic (no I/O). 
 
 ## 13. Files Referenced
 
-- `docs/research_artifact_provenance_design.md` — parent design (Source, Finding, ResearchArtifact)
-- `docs/research_knowledge_capture_findings.md` — survey of existing capabilities
+- `docs/design/research_artifact_provenance_design.md` — parent design (Source, Finding, ResearchArtifact)
+- `docs/research-findings/research_knowledge_capture_findings.md` — survey of existing capabilities
 - `docs/decisions/002-obsidian-knowledge-layer.md` — ADR-002 alignment
 - `docs/vision.md` — system vision (knowledge as a core capability)
 - `companies/GLUE/reports/2026-08-31.md` — example research report

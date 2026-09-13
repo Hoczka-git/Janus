@@ -6,7 +6,7 @@ that compute a goal's health state (``healthy`` | ``watch`` | ``stalled`` |
 engine) and progress/measurement/inactivity signals (emitted here).
 
 This implements the signal emission and aggregation logic described in
-``docs/goal_health_progress_signals_stalled_detection_spec.md`` §5 and §4.
+``docs/design/goal_health_progress_signals_stalled_detection_spec.md`` §5 and §4.
 
 Signal emission points (design §5.3):
 - ``progress_slow`` — emitted here when metric history shows slow progress.

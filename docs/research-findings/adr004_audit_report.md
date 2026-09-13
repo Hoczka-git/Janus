@@ -85,7 +85,7 @@ The actual completion path is `src/janus/services/tasks.py:42–79` — a plain 
 - **Options**:
   - (a) Implement `src/janus/integration.py` with an active integration agent step, wired so a dedicated agent/step performs integration (not the implementor).
   - (b) Update ADR-004 to reflect the current passive-gate model and document the trade-off explicitly (what P4 guarantees are lost).
-- **Note**: The design doc `docs/sync_integration_workflow_design.md` (5.3 KB, end-to-end P1–P5 spec with ff/merge-fallback/gate reason codes) is already written and aligns with ADR-004. An integration module building on that design + `git_sync.py` primitives is the most direct path.
+- **Note**: The design doc `docs/design/sync_integration_workflow_design.md` (5.3 KB, end-to-end P1–P5 spec with ff/merge-fallback/gate reason codes) is already written and aligns with ADR-004. An integration module building on that design + `git_sync.py` primitives is the most direct path.
 
 ### P5 — Evidence artifacts + structured completion metadata
 - **What's missing**: `pre_completion_report.json` and `integration_report.json` generation; structured metadata (SHA, branch, strategy, test results) on `complete_task()`.

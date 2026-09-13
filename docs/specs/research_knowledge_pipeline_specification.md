@@ -3,9 +3,9 @@
 **Date:** 2026-09-01
 **Status:** Final consolidated specification (no implementation)
 **Sources:**
-- Survey: `docs/research_knowledge_capture_findings.md` (existing capabilities)
-- Design 1: `docs/research_artifact_provenance_design.md` (artifact model + provenance)
-- Design 2: `docs/knowledge_summary_obsidian_pipeline_design.md` (summary + promotion pipeline)
+- Survey: `docs/research-findings/research_knowledge_capture_findings.md` (existing capabilities)
+- Design 1: `docs/design/research_artifact_provenance_design.md` (artifact model + provenance)
+- Design 2: `docs/guides/knowledge_summary_obsidian_pipeline_design.md` (summary + promotion pipeline)
 
 ---
 
@@ -293,9 +293,9 @@ These three steps form a self-contained, fully testable foundation. After Phase 
 
 ## 10. Files Referenced
 
-- `docs/research_knowledge_capture_findings.md` — survey of existing capabilities
-- `docs/research_artifact_provenance_design.md` — artifact + provenance design
-- `docs/knowledge_summary_obsidian_pipeline_design.md` — summary + promotion design
+- `docs/research-findings/research_knowledge_capture_findings.md` — survey of existing capabilities
+- `docs/design/research_artifact_provenance_design.md` — artifact + provenance design
+- `docs/guides/knowledge_summary_obsidian_pipeline_design.md` — summary + promotion design
 - `docs/decisions/001-hermes-janus-system-model.md` — ADR-001
 - `docs/decisions/002-obsidian-knowledge-layer.md` — ADR-002
 - `docs/vision.md`, `docs/roadmap.md`, `docs/principles.md`

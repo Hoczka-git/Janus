@@ -179,7 +179,7 @@ The Janus verification pipeline (`janus verify-contract`) is a standalone CLI to
 ### 7.5 No Structured Completion Handoff
 Agent completion claims are prose in a chat message. There is no structured attachment of what was verified (which tests passed, which files were created, which commands were run). The human must independently re-derive what was supposed to be done.
 
-**Source**: `docs/verification_pipeline_design.md:88-93` (Section 1.3 "What's Missing")
+**Source**: `docs/specs/verification_pipeline_design.md:88-93` (Section 1.3 "What's Missing")
 
 ### 7.6 No Sync Between Worktree Branches
 Once a worktree branch is created, there is no mechanism to sync it with the target branch (rebase, merge from main). If the target branch advances while a task is in progress, the worktree branch diverges without warning.
@@ -202,7 +202,7 @@ Once a worktree branch is created, there is no mechanism to sync it with the tar
 | `.github/workflows/ci.yml` | CI: pytest on push/PR |
 | `docs/decisions/001-hermes-janus-system-model.md` | ADR: two-layer architecture |
 | `docs/decisions/003-canonical-review-topology.md` | ADR: Model A review lane |
-| `docs/verification_pipeline_design.md` | Design proposal: multi-stage verification pipeline |
+| `docs/specs/verification_pipeline_design.md` | Design proposal: multi-stage verification pipeline |
 
 ---
 
