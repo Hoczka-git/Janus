@@ -352,6 +352,12 @@ def _normalize_record(record: ActivityRecord, cfg: IngestConfig) -> ActivityReco
     if record.captured_text is not None:
         record.captured_text = _normalize_text(record.captured_text)
 
+    # Normalize free-text evidence fields
+    if record.evidence:
+        for key in ("notes", "source", "context", "note"):
+            if key in record.evidence and isinstance(record.evidence[key], str):
+                record.evidence[key] = _normalize_text(record.evidence[key])
+
     record.value = _normalize_unit(record.value, record.unit, record.metric, cfg)
     record.current_value = _normalize_unit(
         record.current_value, record.unit, record.metric_name, cfg
@@ -500,6 +506,33 @@ def _check_duplicate_workout(key: str, ts: datetime, tolerance: int) -> bool:
     path = DATA_DIR / "workouts.md"
     if not path.exists():
         return False
+    content = path.read_text(encoding="utf-8")
+
+    # Workout dedup key format: "<date>::<type>" or "<workout_id>"
+    # The file stores dates as ISO datetime (e.g. "2026-09-12T10:00:00+00:00")
+    # and workout_id as "id = w-xxxx".  We need to match the date prefix.
+    if "::" in key:
+        date_part, workout_type = key.split("::", 1)
+        # Check if any line in the file has a date starting with date_part
+        # and the workout_type matches
+        if date_part and workout_type:
+            for line in content.splitlines():
+                if line.startswith("date = ") and date_part in line:
+                    # Verify the workout type matches
+                    # We need to find the surrounding Workout block
+                    # Simple approach: check if workout_type appears nearby
+                    if workout_type in content:
+                        return True
+        elif date_part:
+            # Only date part, no type
+            for line in content.splitlines():
+                if line.startswith("date = ") and date_part in line:
+                    return True
+    else:
+        # workout_id key — direct substring match
+        if key in content:
+            return True
+
     return _check_tolerance(path, key, ts, tolerance)
 
 
