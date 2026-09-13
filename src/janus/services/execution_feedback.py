@@ -529,6 +529,8 @@ def _ingest_decision(
     }
     if path is not None:
         result["path"] = str(path)
+    else:
+        result["skipped_existing"] = True
     if action_result:
         result["action_connection"] = action_result
     return result
