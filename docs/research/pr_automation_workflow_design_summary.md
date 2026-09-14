@@ -1,6 +1,6 @@
 # Summary: PR Automation Workflow Design
 
-**Source:** `docs/research/pr_automation_workflow_design.md` (commit `a6987ec`, on branch `wt/t_2fbd2e6e`)
+**Source:** `docs/design/pr_automation_workflow_design.md` (commit `a6987ec`, on branch `wt/t_2fbd2e6e`)
 **Task:** t_c0e3a822
 
 ---

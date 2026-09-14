@@ -1,7 +1,7 @@
 """Repository synchronization primitive for task branches.
 
 Implements Phase 1 (Pre-Implementation Sync) of the safe sync-and-integrate
-workflow (see docs/sync_integration_workflow_design.md, §4.1).
+workflow (see docs/design/sync_integration_workflow_design.md, §4.1).
 
 Brings a task branch up to date against the current target branch before
 implementation begins, using rebase (not merge) to keep history linear and
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 
-# ── Reason codes (mirror docs/sync_integration_workflow_design.md §5.1) ──────
+# ── Reason codes (mirror docs/design/sync_integration_workflow_design.md §5.1) ──────
 
 # Target branch not found on the remote or locally.
 TARGET_BRANCH_MISSING = "target_branch_missing"
@@ -123,7 +123,7 @@ def _git_conflict_ok(cwd: str, args: list[str]) -> tuple[int, str, str]:
 def detect_target_branch(cwd: str) -> Optional[str]:
     """Resolve the repository's target (trunk) branch name.
 
-    Resolution order per docs/sync_integration_workflow_design.md §3:
+    Resolution order per docs/design/sync_integration_workflow_design.md §3:
       1. ``origin/HEAD`` (symbolic ref to remote default)
       2. local ``main``
       3. local ``master``
@@ -288,7 +288,7 @@ def sync_branch(
     Returns:
         A :class:`SyncResult` with the outcome.
 
-    Failure modes (per docs/sync_integration_workflow_design.md §5.1):
+    Failure modes (per docs/design/sync_integration_workflow_design.md §5.1):
         * ``TARGET_BRANCH_MISSING`` — the target branch could not be found.
         * ``SYNC_CONFLICT`` — the rebase produced conflicts.
         * ``SYNC_PUSH_FAILED`` — the force-push was rejected.

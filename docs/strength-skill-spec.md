@@ -436,9 +436,9 @@ exist. It must be created with `SKILL.md` inside.
 |------|---------|
 | `docs/strength-skill-spec.md` | This specification |
 | `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005: the ingestion gateway design |
-| `docs/activity_data_guide.md` | Operational guide for the ingestion layer |
+| `docs/guides/activity_data_guide.md` | Operational guide for the ingestion layer |
 | `findings/skill_patterns_research.md` | Research findings on Janus domain/skill patterns |
-| `docs/goal_milestone_project_task_hierarchy.md:1563` | Aspirational cross-domain workout → goal progress aggregation |
+| `docs/design/goal_milestone_project_task_hierarchy.md:1563` | Aspirational cross-domain workout → goal progress aggregation |
 
 ---
 
@@ -564,7 +564,7 @@ All ingestion emits structured events via `janus._log.emit` under the
 
 1. **No cross-domain goal aggregation.** The strength skill does not
    update `data/goals.md` when a workout is added. This is tracked as
-   aspirational in `docs/goal_milestone_project_task_hierarchy.md:1563`.
+   aspirational in `docs/design/goal_milestone_project_task_hierarchy.md:1563`.
 2. **No wearable sync.** Strava / Garmin / FIT / GPX import is a
    separate integration that must produce `ActivityRecord` values.
 3. **No real-time telemetry.** The skill deals with summary workout

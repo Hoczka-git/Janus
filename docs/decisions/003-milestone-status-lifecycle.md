@@ -326,7 +326,7 @@ Machine-readable output such as JSON can be added as a future CLI extension if r
 
 # References
 
-* `DESIGN_EXECUTION_PLANNING.md` — Goal Execution Planning design specification.
+* `docs/design/execution_planning.md` — Goal Execution Planning design specification.
 * `docs/goal_milestone_research_findings.md` — research into the existing Goal/Milestone/Task model.
 * `docs/decisions/001-hermes-janus-system-model.md` — Hermes/Janus layer separation.
 * Dynamic milestone task derivation implementation and tests.

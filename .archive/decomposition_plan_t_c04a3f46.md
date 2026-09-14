@@ -225,7 +225,7 @@ All children have `parents=[t_c04a3f46]`. Sequencing within each chain:
 **Change:**
 ```markdown
 - [x] Implement the execution planning extension described in
-  [`DESIGN_EXECUTION_PLANNING.md`](../DESIGN_EXECUTION_PLANNING.md)
+  [`DESIGN_EXECUTION_PLANNING.md`](../docs/design/execution_planning.md)
 ```
 
 **Acceptance:** Roadmap reflects actual implementation status.

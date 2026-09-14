@@ -301,7 +301,7 @@ This mirrors the existing `check_files_immutable` pattern (see
   `service.activity_ingest.write_failed`). This follows the existing
   `service.task.mutated` / `service.goal.mutated` convention and
   feeds the observability pipeline documented in
-  `docs/observability_log_schema_spec.md`.
+  `docs/design/observability_log_schema_spec.md`.
 
 ### 8. Configurations (stickiness / dedup policies / limits)
 
@@ -442,7 +442,7 @@ pattern (`janus_sync` imports `janus.services.goals.update_goal_progress`).
   model writes go through Janus service functions, never direct file I/O)
 - ADR-004 — Safe Sync-and-Integrate Workflow (atomic-write principle;
   `write-to-temp + rename` pattern)
-- `docs/observability_log_schema_spec.md` — structured event envelope
+- `docs/design/observability_log_schema_spec.md` — structured event envelope
   (`emit()` conventions)
 - `src/janus/_log.py` — `emit()` helper used by all service functions
 - `src/janus/services/execution_feedback.py` — existing dispatch entry point
