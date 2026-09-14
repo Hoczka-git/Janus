@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from janus._log import emit
+from janus.models.research_artifact import ResearchArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -458,9 +459,61 @@ def _ingest_research(
         )
         pipeline_result["pipeline_error"] = str(exc)
 
+    # Finding-to-decision connection: link each finding that declares
+    # decision_numbers to those ADRs via link_finding_to_decision.
+    # This closes the finding → decision portion of the verification loop.
+    # Artifact-level decision_numbers apply to all findings without their
+    # own decision_numbers; per-finding decision_numbers take precedence.
+    decision_connection: dict = {"linked_decisions": [], "link_errors": []}
+    _link_findings_to_decisions(artifact, decision_connection)
+    if decision_connection["linked_decisions"] or decision_connection["link_errors"]:
+        result["decision_connection"] = decision_connection
+
     if pipeline_result:
         result["pipeline"] = pipeline_result
     return result
+
+
+def _link_findings_to_decisions(artifact: ResearchArtifact, connection: dict) -> None:
+    """Link each finding's declared decision_numbers to their ADRs.
+
+    For each finding, iterates over its ``decision_numbers`` (falling back
+    to the artifact-level ``decision_numbers`` when the finding has none)
+    and calls ``services.decisions.link_finding_to_decision``.
+
+    Updates *connection* in-place with ``linked_decisions`` (list of ADR
+    numbers successfully linked) and ``link_errors`` (list of dicts with
+    ``adr_number``, ``finding_index``, and ``error``).
+    """
+    from janus.services.decisions import link_finding_to_decision
+
+    # Collect all decision numbers from both artifact-level and per-finding.
+    artifact_decision_numbers: list[str] = (
+        getattr(artifact, "decision_numbers", []) or []
+    )
+    for finding_index, finding in enumerate(getattr(artifact, "findings", [])):
+        # Per-finding decision_numbers take precedence; fall back to artifact-level.
+        decision_numbers = (
+            finding.decision_numbers
+            if finding.decision_numbers
+            else artifact_decision_numbers
+        )
+        for adr_number in decision_numbers:
+            if adr_number in connection["linked_decisions"]:
+                continue  # already linked, avoid duplicate calls
+            try:
+                link_finding_to_decision(adr_number, artifact.title, finding_index)
+                connection["linked_decisions"].append(adr_number)
+            except Exception as exc:
+                logger.warning(
+                    "Could not link finding %d of artifact '%s' to decision %s: %s",
+                    finding_index, artifact.title, adr_number, exc,
+                )
+                connection["link_errors"].append({
+                    "adr_number": adr_number,
+                    "finding_index": finding_index,
+                    "error": str(exc),
+                })
 
 
 def _ingest_decision(
