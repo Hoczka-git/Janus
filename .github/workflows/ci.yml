@@ -28,3 +28,4 @@ jobs:
 
       - name: Verify repository — run test suite
         run: uv run pytest tests/ -v
+# CI trigger
