@@ -87,12 +87,6 @@ def format_weekly_message(review: "WeeklyReview") -> str:
 
 
 def send_weekly(review: "WeeklyReview", trace_id: str | None = None) -> None:
-    """Load config, format weekly review, and send to Telegram.
-
-    Args:
-        review: The WeeklyReview to send.
-        trace_id: Trace identifier propagated for observability events.
-    """
     bot_token, chat_id = _load_telegram_config()
     text = format_weekly_message(review)
 
@@ -111,45 +105,68 @@ def send_weekly(review: "WeeklyReview", trace_id: str | None = None) -> None:
     api_response_ms = None
     start = time.monotonic()
 
-    try:
-        with urllib.request.urlopen(req) as response:
-            api_response_ms = (time.monotonic() - start) * 1000
-            body = json.loads(response.read())
-            if not body.get("ok"):
-                api_status = "error"
-                api_error = body.get("description", "unknown")
-                raise RuntimeError(
-                    f"Telegram API error: {api_error}"
-                )
-    except urllib.error.HTTPError as e:
-        api_response_ms = (time.monotonic() - start) * 1000
-        api_status = "error"
+    max_retries = 3
+    backoff = 1.0
+    last_exception = None
+    for attempt in range(max_retries):
         try:
-            err_body = json.loads(e.read())
-            api_error = err_body.get("description", str(e))
-        except Exception:
-            api_error = str(e)
-        raise
-    except Exception:
-        api_response_ms = (time.monotonic() - start) * 1000
-        api_status = "exception"
-        api_error = "Request failed before completing"
-        raise
-    finally:
-        emit(logger, "integration.telegram.response",
-             trace_id=trace_id, span_id="send",
-             correlation_id=trace_id,
-             channel="telegram",
-             delivery_type="weekly",
-             chat_id=chat_id[-4:] if chat_id else chat_id,
-             message_chars=len(text),
-             message_lines=len(text.split("\n")),
-             api_response_ms=api_response_ms,
-             api_status=api_status,
-             api_error=api_error,
-             duration_ms=api_response_ms,
-             level=logging.WARNING if api_status != "ok" else logging.INFO,
-             message=f"Telegram delivery {'failed' if api_status != 'ok' else 'succeeded'} for weekly review")
+            with urllib.request.urlopen(req) as response:
+                api_response_ms = (time.monotonic() - start) * 1000
+                body = json.loads(response.read())
+                if not body.get("ok"):
+                    api_status = "error"
+                    api_error = body.get("description", "unknown")
+                    raise RuntimeError(
+                        f"Telegram API error: {api_error}"
+                    )
+        except urllib.error.HTTPError as e:
+            api_response_ms = (time.monotonic() - start) * 1000
+            api_status = "error"
+            try:
+                err_body = json.loads(e.read())
+                api_error = err_body.get("description", str(e))
+            except Exception:
+                api_error = str(e)
+            last_exception = e
+            if attempt < max_retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+        except Exception as e:
+            api_response_ms = (time.monotonic() - start) * 1000
+            api_status = "exception"
+            api_error = "Request failed before completing"
+            last_exception = e
+            if attempt < max_retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+        else:
+            # Success — break out of retry loop
+            break
+        finally:
+            # Only emit on final attempt (or after break) to avoid duplicate logs per retry
+            pass
+    else:
+        # Loop exhausted without success
+        pass
+
+    emit(logger, "integration.telegram.response",
+         trace_id=trace_id, span_id="send",
+         correlation_id=trace_id,
+         channel="telegram",
+         delivery_type="weekly",
+         chat_id=chat_id[-4:] if chat_id else chat_id,
+         message_chars=len(text),
+         message_lines=len(text.split("\n")),
+         api_response_ms=api_response_ms,
+         api_status=api_status,
+         api_error=api_error,
+         duration_ms=api_response_ms if api_response_ms is not None else (time.monotonic() - start) * 1000,
+         level=logging.WARNING if api_status != "ok" else logging.INFO,
+         message=f"Telegram delivery {'failed' if api_status != 'ok' else 'succeeded'} for weekly review")
 
 
 class _MockResponse:
