@@ -33,36 +33,6 @@ ALLOWED_OPTIONAL = {"trace_id", "span_id", "correlation_id", "duration_ms", "err
 ALLOWED_TOP_LEVEL = REQUIRED_TOP_LEVEL | ALLOWED_OPTIONAL
 ALLOWED_LEVELS = {"debug", "info", "warning", "error", "critical"}
 
-
-# ── Fixtures ────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def captor():
-    """Attach a stream handler to the ``janus`` logger, capturing formatted lines.
-
-    Returns a list of raw formatted log strings (one per emitted record).
-    """
-    records: list[str] = []
-
-    class _ListHandler(logging.Handler):
-        def emit(self, record):
-            records.append(self.format(record))
-
-    handler = _ListHandler()
-    handler.setFormatter(_StructuredFormatter())
-
-    root = logging.getLogger("janus")
-    root.setLevel(logging.INFO)
-    saved_handlers = list(root.handlers)
-    root.handlers = [handler]
-    root.propagate = False
-    try:
-        yield records
-    finally:
-        root.handlers = saved_handlers
-        root.propagate = False
-
-
 # ── Schema-structure unit tests ──────────────────────────────────────────────
 
 class TestCanonicalEnvelope:

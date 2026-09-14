@@ -70,6 +70,8 @@ def format_weekly_message(review: "WeeklyReview") -> str:
             if gr.suggested_next_step:
                 lines.append("Suggested next step:")
                 lines.append(f"• {gr.suggested_next_step}")
+            if gr.health_state:
+                lines.append(f"Health: {gr.health_state}")
             if gr.all_related_tasks_completed:
                 lines.append("✓ All currently linked tasks completed")
             if gr.missing_related_tasks:
@@ -86,8 +88,30 @@ def format_weekly_message(review: "WeeklyReview") -> str:
     return "\n".join(lines)
 
 
+_MAX_RETRIES = 3
+_BASE_BACKOFF_SECONDS = 1
+
+
+def _attempt_send(req: urllib.request.Request) -> None:
+    """Perform a single send attempt; raise on any failure.
+
+    Raises ``RuntimeError`` for Telegram API-level errors (ok: false),
+    re-raises ``urllib.error.HTTPError`` for HTTP transport errors, and
+    re-raises ``urllib.error.URLError`` for transient network-level errors.
+    """
+    with urllib.request.urlopen(req) as response:
+        body = json.loads(response.read())
+        if not body.get("ok"):
+            error_desc = body.get("description", "unknown")
+            raise RuntimeError(f"Telegram API error: {error_desc}")
+
+
 def send_weekly(review: "WeeklyReview", trace_id: str | None = None) -> None:
     """Load config, format weekly review, and send to Telegram.
+
+    Retries transient network failures (``URLError``) with exponential
+    backoff.  Telegram API errors (``ok: false``) and HTTP errors are
+    treated as non-retryable hard failures.
 
     Args:
         review: The WeeklyReview to send.
@@ -111,30 +135,53 @@ def send_weekly(review: "WeeklyReview", trace_id: str | None = None) -> None:
     api_response_ms = None
     start = time.monotonic()
 
+    attempt = 0
     try:
-        with urllib.request.urlopen(req) as response:
-            api_response_ms = (time.monotonic() - start) * 1000
-            body = json.loads(response.read())
-            if not body.get("ok"):
+        while True:
+            attempt += 1
+            try:
+                _attempt_send(req)
+                api_response_ms = (time.monotonic() - start) * 1000
+                break
+            except urllib.error.HTTPError as e:
+                api_response_ms = (time.monotonic() - start) * 1000
                 api_status = "error"
-                api_error = body.get("description", "unknown")
-                raise RuntimeError(
-                    f"Telegram API error: {api_error}"
-                )
-    except urllib.error.HTTPError as e:
-        api_response_ms = (time.monotonic() - start) * 1000
-        api_status = "error"
-        try:
-            err_body = json.loads(e.read())
-            api_error = err_body.get("description", str(e))
-        except Exception:
-            api_error = str(e)
-        raise
-    except Exception:
-        api_response_ms = (time.monotonic() - start) * 1000
-        api_status = "exception"
-        api_error = "Request failed before completing"
-        raise
+                try:
+                    err_body = json.loads(e.read())
+                    api_error = err_body.get("description", str(e))
+                except Exception:
+                    api_error = str(e)
+                raise
+            except urllib.error.URLError as e:
+                api_response_ms = (time.monotonic() - start) * 1000
+                api_error = str(e.reason)
+                if attempt <= _MAX_RETRIES:
+                    backoff = _BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                    emit(logger, "integration.telegram.retry",
+                         trace_id=trace_id, span_id="send",
+                         correlation_id=trace_id,
+                         channel="telegram",
+                         delivery_type="weekly",
+                         attempt=attempt,
+                         max_retries=_MAX_RETRIES,
+                         backoff_seconds=backoff,
+                         api_error=api_error,
+                         level=logging.WARNING,
+                         message=f"Transient Telegram error, retrying in {backoff}s (attempt {attempt}/{_MAX_RETRIES})")
+                    time.sleep(backoff)
+                    continue
+                api_status = "exception"
+                raise
+            except RuntimeError:
+                api_response_ms = (time.monotonic() - start) * 1000
+                api_status = "error"
+                api_error = "Telegram API rejected the request"
+                raise
+            except Exception:
+                api_response_ms = (time.monotonic() - start) * 1000
+                api_status = "exception"
+                api_error = "Request failed before completing"
+                raise
     finally:
         emit(logger, "integration.telegram.response",
              trace_id=trace_id, span_id="send",
