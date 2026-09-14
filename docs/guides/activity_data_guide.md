@@ -39,7 +39,7 @@ for:
    keeping a `.bak` snapshot before overwriting.
 5. **Notification** — emits structured events on the
    `service.activity_ingest.*` namespace (see
-   [docs/../design/observability_log_schema_spec.md](../design/observability_log_schema_spec.md)).
+  [`docs/design/observability_log_schema_spec.md`](../design/observability_log_schema_spec.md)).
 
 ### What it covers
 

@@ -352,6 +352,12 @@ def _normalize_record(record: ActivityRecord, cfg: IngestConfig) -> ActivityReco
     if record.captured_text is not None:
         record.captured_text = _normalize_text(record.captured_text)
 
+    # Normalize free-text evidence fields
+    if record.evidence:
+        for key in ("notes", "source", "context", "note"):
+            if key in record.evidence and isinstance(record.evidence[key], str):
+                record.evidence[key] = _normalize_text(record.evidence[key])
+
     record.value = _normalize_unit(record.value, record.unit, record.metric, cfg)
     record.current_value = _normalize_unit(
         record.current_value, record.unit, record.metric_name, cfg
@@ -497,10 +503,71 @@ def _check_duplicate_inbox(key: str, ts: datetime, tolerance: int) -> bool:
 
 
 def _check_duplicate_workout(key: str, ts: datetime, tolerance: int) -> bool:
+    """Check whether a workout with *dedup_key* already exists in
+    ``data/workouts.md``.
+
+    The dedup key for ``WORKOUT_ADDED`` is either a bare ``workout_id`` or a
+    ``<date>::<type>`` string (see ``compute_dedup_key``).  Unlike the generic
+    ``_check_tolerance`` substring search — which cannot match workout keys
+    because the key is split across separate ``date =`` / ``workout_type =``
+    markdown fields — this helper parses the existing workout blocks via
+    ``load_workouts()`` and compares the actual structured fields.
+
+    With ``dedup_tolerance_seconds == 0`` an exact key match counts as a
+    duplicate.  When a tolerance window is configured, two workouts on the same
+    date/type count as duplicates only if their timestamps fall within the
+    tolerance.
+    """
+    from janus.integrations.workout_md import load_workouts
+
     path = DATA_DIR / "workouts.md"
     if not path.exists():
         return False
-    return _check_tolerance(path, key, ts, tolerance)
+
+    try:
+        workouts = load_workouts()
+    except Exception:
+        # If we can't parse the existing file, fall back to the conservative
+        # generic substring check (better to miss a dup than to crash).
+        return _check_tolerance(path, key, ts, tolerance)
+
+    if "::" in key:
+        # <date>::<type> form — match by workout date (prefix) + type.
+        date_str, _, wtype_str = key.partition("::")
+        for w in workouts:
+            if w.workout_type.value != wtype_str:
+                continue
+            try:
+                stored_date = w.date.date().isoformat()
+            except Exception:
+                continue
+            if stored_date == date_str:
+                if _within_tolerance(w.date, ts, tolerance):
+                    return True
+        return False
+
+    # Bare workout_id — match by id.
+    for w in workouts:
+        if w.id == key:
+            if _within_tolerance(w.date, ts, tolerance):
+                return True
+    return False
+
+
+def _within_tolerance(existing: datetime, candidate: datetime,
+                      tolerance_seconds: int) -> bool:
+    """Return True if *candidate* is within *tolerance_seconds* of *existing*.
+
+    When tolerance is 0, only an exact match counts (any existing record with
+    the same key is a duplicate regardless of timestamp).
+    """
+    if tolerance_seconds <= 0:
+        return True
+    try:
+        delta = abs((candidate - existing).total_seconds())
+    except TypeError:
+        return True
+    return delta <= tolerance_seconds
 
 
 def _check_duplicate_measurement(key: str, ts: datetime, tolerance: int) -> bool:

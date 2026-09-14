@@ -6,7 +6,7 @@ Format: nagłówek + sekcje "## Workout:" z polami klucz=wartość.
 Pojedynczy plik, rewrite przy zapisie (jak markdown_tasks.py / markdown_goals.py).
 """
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -45,6 +45,7 @@ def load_workouts() -> list[Workout]:
 
     workouts: list[Workout] = []
     current: dict[str, Any] | None = None
+    seen_ids: set[str] = set()
 
     with path.open() as f:
         for line in f:
@@ -52,7 +53,7 @@ def load_workouts() -> list[Workout]:
 
             if stripped.startswith("## Workout:"):
                 if current is not None:
-                    workouts.append(_finalize_workout(current))
+                    workouts.append(_finalize_workout(current, seen_ids))
                 current = {"raw": stripped[len("## Workout:"):].strip()}
             elif current is not None:
                 if "=" in stripped and not stripped.startswith("#"):
@@ -60,7 +61,7 @@ def load_workouts() -> list[Workout]:
                     current[key.strip()] = value.strip()
 
         if current is not None:
-            workouts.append(_finalize_workout(current))
+            workouts.append(_finalize_workout(current, seen_ids))
 
     return workouts
 
@@ -125,11 +126,26 @@ def _workout_to_markdown_lines(workout: Workout) -> list[str]:
     return lines
 
 
-def _finalize_workout(data: dict[str, Any]) -> Workout:
+def _finalize_workout(data: dict[str, Any], seen_ids: set[str] | None = None) -> Workout:
+    """Finalize a parsed workout dict, validating required fields and
+    workout_id uniqueness.
+
+    When *seen_ids* is provided, the workout's ``id`` is checked against the
+    set and added to it; a duplicate raises ``ValueError`` so that corrupt
+    duplicate records in ``data/workouts.md`` are rejected rather than
+    silently returned twice by :func:`load_workouts`.
+    """
     required = ("id", "date", "workout_type")
     for key in required:
         if key not in data:
             raise ValueError(f"Workout missing required field '{key}'")
+    if seen_ids is not None:
+        wid = data["id"]
+        if wid in seen_ids:
+            raise ValueError(
+                f"Duplicate workout_id '{wid}' — already seen during load"
+            )
+        seen_ids.add(wid)
     # exercises is stored as a JSON string in the markdown file
     if "exercises" in data and isinstance(data["exercises"], str):
         try:
@@ -140,10 +156,25 @@ def _finalize_workout(data: dict[str, Any]) -> Workout:
 
 
 def find_workouts_by_date_range(
-    start: datetime | None = None,
-    end: datetime | None = None,
+    start: datetime | date | None = None,
+    end: datetime | date | None = None,
 ) -> list[Workout]:
-    """Return workouts with date in [start, end] (inclusive on both sides)."""
+    """Return workouts with date in [start, end] (inclusive on both sides).
+
+    Both ``date`` and ``datetime`` inputs are accepted.  A plain ``date`` is
+    converted to ``datetime`` at midnight UTC for ``start`` and at
+    23:59:59.999999 UTC for ``end``.  A ``datetime`` is used as-is, but
+    ``end`` is always expanded to the end of its day so that passing
+    ``datetime(2026, 9, 3)`` (midnight) includes all of Sep 3.
+    """
+    # Convert date → datetime for consistent comparison
+    if isinstance(start, date) and not isinstance(start, datetime):
+        start = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
+    if isinstance(end, date) and not isinstance(end, datetime):
+        end = datetime(
+            end.year, end.month, end.day, 23, 59, 59, 999999, tzinfo=timezone.utc
+        )
+
     workouts = load_workouts()
     # Sort by date, then by id for deterministic order when dates match
     sorted_ws = sorted(workouts, key=lambda w: (w.date, w.id))
@@ -151,7 +182,9 @@ def find_workouts_by_date_range(
     for w in sorted_ws:
         if start is not None and w.date < start:
             continue
-        if end is not None and w.date > end.replace(hour=23, minute=59, second=59, microsecond=999999):
+        if end is not None and w.date > end.replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        ):
             continue
         result.append(w)
     return result

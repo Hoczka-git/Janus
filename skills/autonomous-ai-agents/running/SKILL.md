@@ -46,7 +46,7 @@ This skill MUST use the shared **Activity Data Ingestion** skill for all
 persistence of activity data.
 
 Shared skill:
-`/home/dan11hermes/workspaces/janus/skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
+`skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
 
 All model-generated running activity data MUST follow:
 
@@ -473,12 +473,17 @@ The main Janus CLI (`src/janus/cli.py`) must dispatch `workout` subcommands
 to `workout_cli.handle_workout_add` / `handle_workout_show` /
 `handle_workout_summary`. (This is an existing pattern, not a new
 integration — see `src/janus/workout_cli.py:113`.)
+The main Janus CLI (`src/janus/__init__.py`) must dispatch `workout` subcommands
+to `workout_cli.handle_workout_add` / `handle_workout_show` /
+`handle_workout_summary`. (This is an existing pattern, not a new
+integration — see `src/janus/__init__.py:115`.)
 
 ---
 
 ## Dedup Key Rules (for WORKOUT_ADDED)
 
 From ADR-005 §3 and `compute_dedup_key()` in `activity_ingest.py:169`:
+From ADR-005 §3 and `compute_dedup_key()` in `activity_ingest.py:146`:
 
 | Condition | Dedup key |
 |-----------|-----------|
