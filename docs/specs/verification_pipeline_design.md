@@ -1561,8 +1561,8 @@ The following files were inspected to ground this design in the actual Hermes ar
 | `workspaces/janus/tests/test_goals_cli.py` | CLI tests — 28 tests |
 | `workspaces/janus/tests/test_goals_service.py` | Service tests — 37 tests (newly written) |
 | `workspaces/janus/tests/test_weekly_review.py` | Weekly review tests — updated |
-| workspaces/janus/docs/specs/goal_system_implementation_plan.md | Frozen implementation contract — 948 lines |
-| workspaces/janus/docs/design/goal_system_design.md | Approved architecture — 1,222 lines |
+|| `docs/specs/goal_system_implementation_plan.md` | Frozen implementation contract — 948 lines ||
+|| `docs/design/goal_system_design.md` | Approved architecture — 1,222 lines ||
 
 ### Total Files Inspected: 24
 
