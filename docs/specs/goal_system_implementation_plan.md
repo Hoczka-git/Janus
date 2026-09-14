@@ -1,7 +1,7 @@
 # Goal System — Implementation Plan (Revised)
 
 > **Status:** Implementation-ready. Not implemented yet. Not committed.
-> **Source:** `docs/goal_system_design.md` (approved architecture) + implementation corrections applied.
+> **Source:** `docs/design/goal_system_design.md` (approved architecture) + implementation corrections applied.
 > **Primary implementation contract:** This document.
 
 ---
@@ -937,7 +937,7 @@ Co-Authored-By: Hermes Agent <hermestool@nousresearch.com>
 
 Before claiming the goal is done:
 
-1. **Read `docs/goal_system_design.md`** — confirms source of truth (already read, content current)
+1. **Read `docs/design/goal_system_design.md`** — confirms source of truth (already read, content current)
 2. **Read all relevant existing files** — confirms no unseen contradictions (done: goal.py, markdown_goals.py, weekly_review.py, weekly.py, __init__.py, goals_cli.py)
 3. **Verify repository state** — `git status --short` shows only `data/tasks.md` as pre-existing modification (not in scope), no unintended changes
 4. **No material contradictions found** — the implementation plan aligns with the design document and existing codebase

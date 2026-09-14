@@ -6,7 +6,7 @@ a point in time. Snapshots form an append-only history
 inactivity detection, and measurement-due detection.
 
 This implements the snapshot data model defined in
-``docs/goal_health_progress_signals_stalled_detection_spec.md`` §11.2.
+``docs/design/goal_health_progress_signals_stalled_detection_spec.md`` §11.2.
 """
 
 from dataclasses import dataclass

@@ -1560,8 +1560,8 @@ The following files were inspected to ground this design in the actual Hermes ar
 | `workspaces/janus/tests/test_goals_cli.py` | CLI tests — 28 tests |
 | `workspaces/janus/tests/test_goals_service.py` | Service tests — 37 tests (newly written) |
 | `workspaces/janus/tests/test_weekly_review.py` | Weekly review tests — updated |
-| `workspaces/janus/docs/goal_system_implementation_plan.md` | Frozen implementation contract — 948 lines |
-| `workspaces/janus/docs/goal_system_design.md` | Approved architecture — 1,222 lines |
+| `workspaces/janus/docs/specs/goal_system_implementation_plan.md` | Frozen implementation contract — 948 lines |
+| `workspaces/janus/docs/design/goal_system_design.md` | Approved architecture — 1,222 lines |
 
 ### Total Files Inspected: 24
 
@@ -1587,7 +1587,7 @@ the frozen implementation contract had actually been implemented.
 - `goals_cli.py` — partial skeleton
 
 **How it was caught:** A human reviewer re-read the frozen implementation contract
-(`docs/goal_system_implementation_plan.md`) and systematically checked each item against
+(`docs/specs/goal_system_implementation_plan.md`) and systematically checked each item against
 the actual filesystem and codebase. This is exactly the process that the verification pipeline
 is designed to automate and structure.
 

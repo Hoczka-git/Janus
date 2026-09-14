@@ -3,7 +3,7 @@
 **Status:** Workflow documentation (describes the implemented Phase 3 deterministic checks and the adversarial end-to-end validation process)
 **Date:** 2026-09-01
 **Author:** Hermes Agent (implementer)
-**Sources:** `docs/verification_pipeline_design.md`, `docs/verification_pipeline_mvp_spec.md`, `docs/verification_pipeline_review.md`
+**Sources:** `docs/specs/verification_pipeline_design.md`, `docs/specs/verification_pipeline_mvp_spec.md`, `docs/specs/verification_pipeline_review.md`
 
 ---
 
@@ -282,7 +282,7 @@ All Phase 3 Git operations use HEAD-based comparison (inherited from Phase 2.1 f
 - `summary` — human-readable one-line summary
 - `failures` — list of failed items (only present if FAIL)
 
-Reference: `docs/verification_pipeline_mvp_spec.md` §4.3
+Reference: `docs/specs/verification_pipeline_mvp_spec.md` §4.3
 
 ### 6.2 Per-Check Results (`CheckResult`)
 

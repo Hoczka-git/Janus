@@ -973,7 +973,7 @@ Each milestone should include:
 The architecture discovery should produce a document:
 
 ```text
-docs/goal_system_design.md
+docs/design/goal_system_design.md
 ```
 
 The document should contain the following sections.

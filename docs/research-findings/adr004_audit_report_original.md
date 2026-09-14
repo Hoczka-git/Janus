@@ -207,7 +207,7 @@ The current model is **reactive**: the agent performs integration and the gate v
 | Verification gate | `hermes_cli/kanban_db.py:5639` (`_enforce_janus_verification_gate`) |
 | Completion function | `hermes_cli/kanban_db.py:5954` (`complete_task`) |
 | Remote PR/CI check | `hermes_cli/web_git.py:645` (`review_integration_state`) |
-| Integration design doc | `integration_contract_final_design.md` |
+| Integration design doc | `docs/specs/integration_contract.md` |
 | Research: git worktree/branch sync | `docs/research/git_worktree_branch_sync_findings.md` |
 | Research: PR automation gap analysis | `docs/research/pr_automation_gap_analysis.md` |
 | Research: merge/rebase/automerge findings | `docs/research/merge_rebase_automerge_findings.md` |
@@ -220,7 +220,7 @@ The current model is **reactive**: the agent performs integration and the gate v
 
 2. **Contract coverage:** The Janus verification gate is opt-in via `janus_contract:` frontmatter. The percentage of tasks that declare a contract is unknown. If low, Phase 3 gate coverage is effectively zero for most tasks.
 
-3. **Integration agent design:** ADR-004 defers the identity of the integration agent to implementation task t_36b3d88f. No such agent/profile exists. The `docs/research/pr_automation_gap_analysis.md` and `docs/research/pr_automation_workflow_design.md` explore long-running vs. cron-polled models but neither is implemented.
+3. **Integration agent design:** ADR-004 defers the identity of the integration agent to implementation task t_36b3d88f. No such agent/profile exists. The `docs/research/pr_automation_gap_analysis.md` and `docs/design/pr_automation_workflow_design.md` explore long-running vs. cron-polled models but neither is implemented.
 
 4. **Current state of Phase 3 contract verification:** The 9 check types in `verification.py` are comprehensive for contract-based verification. The question is whether they are sufficient to replace the deterministic gate described in ADR-004 Phase 3. They are not — the deterministic gate checks working tree state directly, while the contract verifier checks declared expectations.
 
