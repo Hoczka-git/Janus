@@ -125,21 +125,28 @@ def _run_sync(
         # Build the evidence package from the completion payload + run metadata.
         evidence = _build_evidence(task, run_id, summary, conn, kb)
 
-        # Dispatch to the Janus service function (idempotent).
-        dispatch_result = _dispatch_to_janus(metadata, evidence)
+        # Dispatch to the Janus service function (idempotent) and capture the
+        # resulting state changes for back-propagation through the channel.
+        propagation = _dispatch_to_janus(metadata, evidence)
 
         # Record an audit comment on the completed task.
-        _try_add_audit_comment(conn, kb, task_id, metadata, dispatch_result)
+        _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
 
         # Stamp the sync-complete marker so re-fires are no-ops.
         kb.mark_janus_sync_completed(conn, task_id)
 
+        # ``dispatch`` preserves the raw service dispatch results (backward-
+        # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
+        # top-level ``state_changes`` surfaces what Janus actually mutated —
+        # the propagated state updates echoing back through the channel.
         return {
             "status": "synced",
             "task_id": task_id,
             "domain_object": metadata.object,
             "domain_title": metadata.title,
-            "dispatch": dispatch_result,
+            "dispatch": propagation.get("dispatch", {}),
+            "state_changes": propagation.get("state_changes", []),
+            "synced_at": propagation.get("synced_at"),
         }
     finally:
         conn.close()
@@ -325,12 +332,10 @@ def _run_git(cwd: Path, args: list[str]) -> str:
 
 
 def _dispatch_to_janus(metadata: Any, evidence: "EvidencePackage") -> dict:
-    """Call the Janus-side ``dispatch_completion`` router.
+    """Call the Janus-side execution-feedback dispatch + state propagation.
 
     ``metadata`` is a ``JanusDomainMetadata`` (has ``.object`` / ``.title``);
-    ``evidence`` is an ``EvidencePackage`` dataclass.  ``dispatch_completion``
-    serializes the evidence to a dict before passing it to the service
-    functions.
+    ``evidence`` is an ``EvidencePackage`` dataclass.
 
     The handoff + result is routed through the
     :func:`send_execution_result` / :func:`receive_execution_result`
@@ -339,20 +344,28 @@ def _dispatch_to_janus(metadata: Any, evidence: "EvidencePackage") -> dict:
     is exercised end-to-end.  ``receive_execution_result`` deserializes
     the message back into ``JanusDomainMetadata`` and ``EvidencePackage``
     and dispatches to the Janus service functions.
+
+    The resulting Janus state changes are then captured via
+    :func:`propagate_state_updates` — which dispatches the attached
+    evidence and returns a structured, serializable record of what changed
+    (goal recent_activity, task evidence, milestone completion, research
+    ingestion, ADR persistence, etc.) — so they can be recorded in the
+    audit comment and back-propagated through the Janus↔Hermes channel.
     """
     from janus.services.execution_feedback import (
-        send_execution_result,
-        receive_execution_result,
+        propagate_state_updates,
     )
-    message = send_execution_result(metadata, evidence)
-    results = receive_execution_result(message)
-    # Normalise to a plain dict of stringified values for the audit comment.
+    # propagate_state_updates round-trips through send/receive_execution_result
+    # (exercising the wire protocol) and dispatches the attached evidence to
+    # the Janus service functions, then captures the resulting state changes.
+    payload = propagate_state_updates(metadata, evidence)
+    # The payload is already plain JSON-serializable (dicts / strs); normalize
+    # any object values with to_dict() for the audit comment as a safety net.
     return {
         key: (
-            v.to_dict() if hasattr(v, "to_dict")
-            else v
+            v.to_dict() if hasattr(v, "to_dict") else v
         )
-        for key, v in results.items()
+        for key, v in payload.items()
     }
 
 
@@ -364,14 +377,28 @@ _AUDIT_COMMENT_AUTHOR = "janus_sync"
 
 def _try_add_audit_comment(conn, kb, task_id: str, metadata: Any,
                            dispatch_result: dict) -> None:
-    """Record a structured audit comment on the completed task."""
+    """Record a structured audit comment on the completed task.
+
+    The comment surfaces the Janus-side state changes that resulted from
+    the sync (propagated back through the Janus↔Hermes channel) so the
+    audit trail records *what changed*, not just the raw service return
+    values.  ``dispatch_result`` is the structured payload produced by
+    :func:`propagate_state_updates` and carries ``state_changes`` and
+    ``synced_at``.
+    """
     try:
         obj = getattr(metadata, "object", None)
         title = getattr(metadata, "title", None)
-        summary = (
-            f"Janus sync completed for {obj}={title!r}: "
-            f"{dispatch_result}"
+        state_changes = dispatch_result.get("state_changes", [])
+        synced_at = dispatch_result.get("synced_at")
+        change_summary = (
+            "; ".join(state_changes) if state_changes else "(no domain state changes)"
         )
+        summary = (
+            f"Janus sync completed for {obj}={title!r}: {change_summary}"
+        )
+        if synced_at:
+            summary += f" [synced_at={synced_at}]"
         kb.add_comment(conn, task_id, _AUDIT_COMMENT_AUTHOR, summary)
     except Exception as exc:  # noqa: BLE001
         logger.debug("janus_sync: add_comment failed: %s", exc)

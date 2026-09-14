@@ -1261,3 +1261,163 @@ class TestSendReceiveProtocol:
         tasks_file = tmp_path / "tasks.md"
         tasks_file.write_text(content)
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
+
+
+# ---------------------------------------------------------------------------
+# attach_evidence & propagate_state_updates
+#
+# attach_evidence bundles JanusDomainMetadata + EvidencePackage into an
+# ExecutionResultMessage (the object form, evidence attached).  propagate_state_updates
+# dispatches the attached evidence and returns a structured, serializable record
+# of the resulting Janus state changes for back-propagation through the channel.
+# ---------------------------------------------------------------------------
+class TestAttachEvidence:
+    """attach_evidence returns an ExecutionResultMessage with evidence attached."""
+
+    def test_returns_execution_result_message(self):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, attach_evidence,
+        )
+        md = JanusDomainMetadata(object="goal", title="Test goal")
+        ev = EvidencePackage(task_id="t_1", summary="Done", completed_at="2026-09-09")
+        msg = attach_evidence(md, ev)
+        assert msg.metadata == md
+        assert msg.evidence == ev
+
+    def test_attached_evidence_round_trips_through_serialization(self):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, attach_evidence,
+        )
+        md = JanusDomainMetadata(object="task", title="T", changed_files=["a.py"])
+        ev = EvidencePackage(
+            task_id="t_1", summary="Done", completed_at="2026-09-09",
+            changed_files=["a.py"], tests_passed=True, body="---\n...",
+        )
+        msg = attach_evidence(md, ev)
+        restored = type(msg).from_dict(msg.to_dict())
+        assert restored.metadata == md
+        assert restored.evidence == ev
+
+
+class TestPropagateStateUpdates:
+    """propagate_state_updates dispatches evidence and returns a structured
+    state-change payload for back-propagation through the Janus↔Hermes channel."""
+
+    def _setup_goals(self, tmp_path, monkeypatch, content="# Goals\n"):
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text(content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+
+    def _setup_tasks(self, tmp_path, monkeypatch, content="- [ ] Placeholder\n"):
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(content)
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
+
+    def _setup_research_dir(self, tmp_path, monkeypatch):
+        from janus.integrations import markdown_research
+        research_dir = tmp_path / "research"
+        monkeypatch.setattr(markdown_research, "RESEARCH_DIR", research_dir)
+        monkeypatch.setattr("janus.services.research_artifacts.RESEARCH_DIR", research_dir)
+
+    # ── Goal ──
+    def test_propagates_goal_state_with_state_changes(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, propagate_state_updates,
+        )
+        self._setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: My goal\nStatus: active\n",
+        )
+        md = JanusDomainMetadata(object="goal", title="My goal")
+        ev = EvidencePackage(
+            task_id="t_abc", summary="Implement X", completed_at="2026-09-09",
+            tests_passed=True, pr_url="https://example.com/pr/1",
+        )
+        payload = propagate_state_updates(md, ev)
+        assert payload["task_id"] == "t_abc"
+        assert payload["domain_object"] == "goal"
+        assert payload["domain_title"] == "My goal"
+        assert "dispatch" in payload
+        assert "goal" in payload["dispatch"]
+        assert "state_changes" in payload
+        assert any("recent_activity" in c for c in payload["state_changes"])
+        assert any("my goal" in c.lower() for c in payload["state_changes"])
+        assert "synced_at" in payload
+
+    # ── Task ──
+    def test_propagates_task_completion(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, propagate_state_updates,
+        )
+        self._setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature X\n")
+        md = JanusDomainMetadata(object="task", title="Build feature X")
+        ev = EvidencePackage(
+            task_id="t_1", summary="Done", completed_at="2026-09-09",
+            tests_passed=True, pr_url="https://example.com/pr/1",
+        )
+        payload = propagate_state_updates(md, ev)
+        assert payload["domain_object"] == "task"
+        assert "task" in payload["dispatch"]
+        assert any("completed" in c for c in payload["state_changes"])
+
+    # ── Research ──
+    def test_propagates_research_ingestion(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, propagate_state_updates,
+        )
+        self._setup_research_dir(tmp_path, monkeypatch)
+        self._setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Pipeline Finding Artifact\nStatus: active\n",
+        )
+        body = (
+            "---\ntitle: \"Pipeline Finding Artifact\"\nartifact_type: report\n"
+            "target: GLUE\nversion: 1\n---\n\n"
+            "# Summary\nPipeline research.\n\n# Findings\n\n## Finding 1\n"
+            "**Statement:** Market cap ~$1.88B\n**Topic:** valuation\n"
+            "**Confidence:** wyzszy\n**Decision numbers:** []\n\n### Sources\n"
+            "- [url](http://example.com)\n  - title: Ex\n  - type: web\n"
+        )
+        md = JanusDomainMetadata(object="research", title="Pipeline Finding Artifact")
+        ev = EvidencePackage(
+            task_id="t_r1", summary="Research", completed_at="2026-09-09",
+            body=body,
+        )
+        payload = propagate_state_updates(md, ev)
+        assert payload["domain_object"] == "research"
+        assert "research" in payload["dispatch"]
+        assert payload["dispatch"]["research"]["title"] == "Pipeline Finding Artifact"
+        # state_changes should mention ingestion
+        assert any("ingested" in c.lower() or "artifact" in c.lower()
+                   for c in payload["state_changes"])
+
+    # ── Unknown object ──
+    def test_propagates_skipped_object(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, propagate_state_updates,
+        )
+        md = JanusDomainMetadata(object="widget", title="X")
+        ev = EvidencePackage(task_id="t_1", summary="s", completed_at="2026-01-01")
+        payload = propagate_state_updates(md, ev)
+        assert payload["domain_object"] == "widget"
+        assert payload["dispatch"].get("skipped") == "widget"
+        assert payload["state_changes"] == []
+
+    # ── JSON-serializable ──
+    def test_payload_is_json_serializable(self, tmp_path, monkeypatch):
+        import json
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata, propagate_state_updates,
+        )
+        self._setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: My goal\nStatus: active\n",
+        )
+        md = JanusDomainMetadata(object="goal", title="My goal")
+        ev = EvidencePackage(
+            task_id="t_1", summary="Done", completed_at="2026-09-09",
+            tests_passed=True, pr_url="https://example.com/pr/1",
+        )
+        payload = propagate_state_updates(md, ev)
+        # Must round-trip through JSON (the back-channel is JSON-serializable).
+        json.dumps(payload)

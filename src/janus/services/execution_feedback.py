@@ -10,10 +10,13 @@ Directionality: Hermes → Janus.  Janus does not call Hermes.
 """
 from __future__ import annotations
 
+import dataclasses
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from janus._log import emit
 from janus.models.research_artifact import ResearchArtifact
@@ -251,6 +254,191 @@ def receive_execution_result(message: str) -> dict:
     """
     msg = ExecutionResultMessage.from_json(message)
     return dispatch_completion(msg.metadata, msg.evidence)
+
+
+def attach_evidence(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+) -> ExecutionResultMessage:
+    """Attach an evidence package to an execution result.
+
+    This is the Janus-side entry point for *attaching evidence to an
+    execution result*.  It bundles the Janus domain linkage
+    (:class:`JanusDomainMetadata`) together with the execution evidence
+    (:class:`EvidencePackage`) into a self-contained, serializable
+    :class:`ExecutionResultMessage` — the canonical unit of the
+    Hermes → Janus write-back path.
+
+    The Hermes-side sync listener (:mod:`plugins.janus_sync`) performs the
+    equivalent assembly via :func:`send_execution_result` (which serializes
+    to a JSON string).  :func:`attach_evidence` returns the *object* form
+    so that Janus-side callers (tests, the dispatch path itself, or
+    future Janus-initiated feedback) can inspect and round-trip the
+    attached evidence before dispatching it through
+    :func:`propagate_state_updates`.
+
+    Args:
+        metadata: The Janus domain linkage (object, title, evidence fields
+            parsed from ``janus_domain`` frontmatter).
+        evidence: The execution evidence (task_id, summary, changed_files,
+            tests_passed, pr_url, and — for research/decision objects —
+            the ``body`` carrying the artifact/ADR markdown).
+
+    Returns:
+        An :class:`ExecutionResultMessage` with the evidence attached.
+    """
+    return ExecutionResultMessage(metadata=metadata, evidence=evidence)
+
+
+def propagate_state_updates(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+) -> dict:
+    """Dispatch attached evidence and capture the resulting state changes.
+
+    This is the Janus-side *propagation* step: after evidence has been
+    attached to an execution result (``janus_domain`` linkage + evidence
+    package), this function routes the attached evidence through the
+    Janus service functions (goal progress, task completion, milestone
+    status, research/decision ingestion) via :func:`dispatch_completion`
+    and returns a structured, serializable record of the **state changes**
+    that resulted — ready for back-propagation through the Janus↔Hermes
+    channel (the audit comment recorded on the completed Kanban task and
+    the ``janus_sync_completed_at`` re-entrancy marker).
+
+    The returned dict has the shape::
+
+        {
+            "task_id": <evidence.task_id>,
+            "domain_object": <metadata.object>,
+            "domain_title": <metadata.title>,
+            "dispatch": <dispatch result dict>,
+            "state_changes": [<short descriptors of what Janus mutated>],
+            "synced_at": <iso8601 utc>,
+        }
+
+    ``state_changes`` enumerates the concrete Janus domain effects so that
+    the Hermes-side listener can record a meaningful audit trail of what
+    the completed task actually changed in Janus state, rather than only
+    echoing the raw service return values.
+
+    Args:
+        metadata: The Janus domain linkage metadata.
+        evidence: The execution evidence package (already attached).
+
+    Returns:
+        A structured state-update payload (plain dict, JSON-serializable).
+    """
+    # Round-trip through the send/receive protocol so that the same wire
+    # format exercised by the Hermes listener is used end-to-end, and the
+    # deserialized metadata/evidence are exactly what Janus services see.
+    message = send_execution_result(metadata, evidence)
+    dispatch_result = receive_execution_result(message)
+    # Normalize the raw dispatch result to JSON-serializable plain types so the
+    # back-channel payload survives JSON encoding in the audit comment.
+    dispatch_result = _normalize_to_jsonable(dispatch_result)
+    state_changes = _describe_state_changes(metadata, evidence, dispatch_result)
+    payload = {
+        "task_id": evidence.task_id,
+        "domain_object": metadata.object,
+        "domain_title": metadata.title,
+        "dispatch": dispatch_result,
+        "state_changes": state_changes,
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    emit(logger, "service.execution_feedback.propagated",
+         trace_id=None, span_id="execution_feedback",
+         domain_object=metadata.object, domain_title=metadata.title,
+         task_id=evidence.task_id,
+         state_changes=state_changes,
+         message=f"State updates propagated for {metadata.object}={metadata.title!r}")
+    return payload
+
+
+def _describe_state_changes(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+    dispatch_result: dict,
+) -> list[str]:
+    """Build a human-readable list of Janus domain effects from a dispatch.
+
+    Derived purely from the dispatch result dict (no extra I/O) so this is
+    cheap and safe to call inside the fail-safe listener.  Each descriptor
+    is a short string suitable for an audit comment / back-channel note.
+    """
+    obj = metadata.object
+    changes: list[str] = []
+    result = dispatch_result or {}
+    if obj == "goal":
+        if "goal" in result:
+            changes.append(f"appended recent_activity entry to goal {metadata.title!r}")
+        if evidence.pr_url:
+            changes.append(f"linked evidence PR {evidence.pr_url} to goal {metadata.title!r}")
+    elif obj == "task":
+        if "task" in result:
+            changes.append(f"marked Janus task {metadata.title!r} completed with evidence")
+    elif obj == "milestone":
+        ms_info = result.get("milestone", {})
+        if "task" in result:
+            changes.append(f"recorded evidence on goal for milestone {metadata.title!r}")
+        if isinstance(ms_info, dict) and ms_info.get("status") == "completed":
+            changes.append(f"milestone {metadata.title!r} auto-completed")
+    elif obj in ("research", "finding"):
+        res = result.get("research", {})
+        if isinstance(res, dict) and "skipped" not in res and "error" not in res:
+            changes.append(
+                f"ingested research artifact {res.get('title', metadata.title)!r} "
+                f"({res.get('findings', 0)} findings)"
+            )
+            if res.get("linked_goal_titles"):
+                changes.append(f"linked artifact to goals: {res['linked_goal_titles']}")
+            if res.get("pipeline", {}).get("attention_items"):
+                n = len(res["pipeline"]["attention_items"])
+                changes.append(f"emitted {n} knowledge-gap attention items")
+    elif obj == "decision":
+        dec = result.get("decision", {})
+        if isinstance(dec, dict) and "skipped" not in dec and "error" not in dec:
+            changes.append(f"persisted ADR-{dec.get('adr_number', '?')}: {dec.get('title', metadata.title)!r}")
+            if dec.get("action_connection", {}).get("linked_goals"):
+                changes.append(
+                    f"linked decision to goals: {dec['action_connection']['linked_goals']}"
+                )
+    return changes
+
+
+def _normalize_to_jsonable(value: Any) -> Any:
+    """Recursively convert a dispatch result into plain JSON-serializable types.
+
+    Janus service functions may return rich domain objects (e.g. ``Goal``)
+    alongside dict results, which are not JSON-serializable.  The back-channel
+    payload recorded in the audit comment must round-trip through JSON, so we
+    normalize recursively: ``to_dict()`` is used when available, dataclasses
+    are expanded, and anything else that still refuses to serialize falls back
+    to its ``repr()``.
+    """
+    # Plain JSON-native types.
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    # Objects that know how to serialize themselves.
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+    # Dict-like containers.
+    if isinstance(value, dict):
+        return {str(k): _normalize_to_jsonable(v) for k, v in value.items()}
+    # Sequences (lists/tuples/sets) — but not str/bytes.
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_normalize_to_jsonable(v) for v in value]
+    # Dataclass fall-back.
+    if dataclasses.is_dataclass(value):
+        return _normalize_to_jsonable(dataclasses.asdict(value))
+    # Anything else: prefer repr to a hard failure so the audit trail always
+    # survives serialization.
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return repr(value)
 
 
 def parse_janus_domain_metadata(body: str | None) -> JanusDomainMetadata | None:
