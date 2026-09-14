@@ -335,7 +335,9 @@ def _dispatch_to_janus(metadata: Any, evidence: "EvidencePackage") -> dict:
     """Call the Janus-side execution-feedback dispatch + state propagation.
 
     ``metadata`` is a ``JanusDomainMetadata`` (has ``.object`` / ``.title``);
-    ``evidence`` is an ``EvidencePackage`` dataclass.
+    ``evidence`` is an ``EvidencePackage`` dataclass.  ``dispatch_completion``
+    serializes the evidence to a dict before passing it to the service
+    functions.
 
     The handoff + result is routed through the
     :func:`send_execution_result` / :func:`receive_execution_result`
