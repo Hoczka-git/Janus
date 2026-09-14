@@ -496,39 +496,71 @@ End-to-end loop closure is verified by `tests/test_e2e_loop_flow.py` (4 integrat
 ```text
 ResearchArtifact
   ├── linked_goal_titles ──→ Goal.research_artifact_titles  (artifact_linking)
+  │                                │
+  │                                └── Goal.related_tasks ──→ Janus Task   (tasks.md)
+  │                                    Goal.milestones ──→ Milestone      (markdown_goals)
+  │                                        └── Project.related_tasks ──→ Janus Task
+  │                                    Goal.decision_numbers ──→ ADR files (docs/decisions/)
+  │                                    Goal.followup_ids ──→ FollowUp.id (followups.md)
+  │                                    Goal.recent_activity ──→ EvidencePackage
   ├── decision_numbers ──→ Goal.decision_numbers             (propagated by link_artifact_to_goal)
-  └── findings[i].decision_numbers ─→ ADR "Informed by"     (link_finding_to_decision)
+  └── findings[i].decision_numbers ─→ ADR "Informed by"       (decisions.link_finding_to_decision)
 
-Goal
-  ├── research_artifact_titles ──→ ResearchArtifact          (get_artifacts_for_goal)
-  ├── decision_numbers ──→ ADR files in docs/decisions/      (get_decision)
-  ├── followup_ids ──→ FollowUp.id                          (Goal ↔ FollowUp)
-  ├── recent_activity ──→ EvidencePackage (Hermes task completion evidence)
-  └── related_tasks ──→ Janus Task (via tasks.md)
+Goal (execution domain, persisted in data/goals.md)
+  ├── research_artifact_titles ──→ ResearchArtifact           (artifact_linking.get_artifacts_for_goal)
+  ├── decision_numbers ──→ ADR files in docs/decisions/       (decisions.get_decision, link_decision_to_goal)
+  ├── related_tasks ──→ Janus Task (via data/tasks.md)
+  ├── milestones ──→ Milestone (order, deadline, status)       (services/milestones.py)
+  │     └── (tasks derived dynamically per ADR-003, not stored on milestone)
+  ├── projects ──→ Project (milestone_title, related_tasks)   (services/projects.py)
+  │     (I6: project assignment overrides dynamic milestone derivation)
+  ├── followup_ids ──→ FollowUp.id                            (Goal ↔ FollowUp)
+  └── recent_activity ──→ EvidencePackage (Hermes task completion evidence)
 
 Decision (ADR in docs/decisions/)
-  ├── goal_titles ──→ Goal.title                            (link_decision_to_goal, wikilink [[Goal: ...]])
-  ├── finding_sources ──→ ResearchArtifact.title            (Informed by section)
+  ├── goal_titles ──→ Goal.title                              (link_decision_to_goal, wikilink [[Goal: ...]])
+  ├── finding_sources ──→ ResearchArtifact.title              (Informed by section)
   └── status lifecycle: proposed → accepted → deprecated → superseded
 
-FollowUp
-  └── linked_goal_title ──→ Goal.title                      (add_followup appends to Goal.followup_ids)
+FollowUp (data/followups.md)
+  ├── linked_goal_title ──→ Goal.title                        (add_followup appends to Goal.followup_ids)
+  └── convert_followup_to_task() ──→ Janus Task               (follows to Goal.related_tasks)
 
-Hermes Kanban Task (janus_domain frontmatter)
-  └── completed_at ──→ execution_feedback._ingest_research/_ingest_decision
-      └── persists to data/research/ or docs/decisions/ + runs pipeline + links
+Hermes Kanban Task (janus_domain frontmatter in task body)
+  ├── object: research|finding|decision ──→ execution_feedback._ingest_research/_ingest_decision
+  │    └── persists to data/research/ or docs/decisions/
+  │        + runs knowledge pipeline (validate → summary → gaps → links)
+  └── object: goal|task|milestone ──→ execution_feedback.dispatch_completion()
+       └── goals.update_goal_progress() / tasks.complete_janus_task() / milestones.update_milestone_status()
+           └── Goal.recent_activity + MetricSnapshot / task evidence / milestone completion
 ```
 
 ### End-to-end trace example
 
+**Path A — Research artifact ingestion (Hermes → Janus):**
+
 1. A Hermes Kanban task completes with `janus_domain: object: research`. The task body contains a research artifact markdown file.
-2. `execution_feedback.dispatch_completion()` parses the frontmatter and dispatches to `_ingest_research()`.
-3. `_ingest_research()` strips the `janus_domain` frontmatter, parses the artifact markdown via `markdown_research._parse_artifact_content()`, and persists it via `create_artifact()`.
-4. The knowledge pipeline runs: `validate_artifact()` → `generate_summary()` → `emit_knowledge_gaps_as_attention()` → `link_artifact_to_goal()` (for declared goals) → `_link_findings_to_decisions()` (for declared `decision_numbers`).
-5. Attention items surface in the next daily briefing via `get_attention_items()`.
-6. The user manually converts a knowledge gap to a FollowUp (or directly to a Task).
-7. The completed task feeds back via `execution_feedback._ingest_research()` → `goals.update_goal_progress()` → `Goal.recent_activity` + `MetricSnapshot`.
-8. `next_action.derive_next_action()` reflects the updated goal and task state.
+2. The `janus_sync` plugin (`plugins/janus_sync/__init__.py`) fires on the `kanban_task_completed` hook.
+3. `execution_feedback.dispatch_completion()` parses the frontmatter via `parse_janus_domain_metadata()` and dispatches to `_ingest_research()`.
+4. `_ingest_research()` strips the `janus_domain` frontmatter, parses the artifact markdown via `markdown_research._parse_artifact_content()`, and persists it via `create_artifact()` → `data/research/<slug>.md`.
+5. The knowledge pipeline runs: `validate_artifact()` → `generate_summary()` → `emit_knowledge_gaps_as_attention()` → `link_artifact_to_goal()` (for declared goals) → `_link_findings_to_decisions()` (for declared `decision_numbers`).
+6. Attention items surface in the next daily briefing via `get_attention_items()`.
+
+**Path B — Goal/task completion feedback (Hermes → Janus):**
+
+1. A Hermes Kanban task completes with `janus_domain: object: goal|task|milestone`.
+2. The `janus_sync` plugin fires on `kanban_task_completed`.
+3. `execution_feedback.dispatch_completion()` dispatches to the appropriate service:
+   - `object: goal` → `goals.update_goal_progress()` → appends to `Goal.recent_activity` + `MetricSnapshot`
+   - `object: task` → `tasks.complete_janus_task()` → marks task complete in `data/tasks.md` with evidence metadata
+   - `object: milestone` → `milestones.update_milestone_status()` → checks task completion threshold, marks milestone complete
+4. An audit comment is recorded on the completed Kanban task.
+
+**Loop closure:**
+
+7. The user converts a knowledge gap from Path A into a FollowUp (via `add_followup()` with `linked_goal_title`) → appends to `Goal.followup_ids`, or directly creates a Janus Task linked to the goal (via `Goal.related_tasks`).
+8. `next_action.derive_next_action()` reflects the updated goal, milestone, project, and task state — producing the next recommended action.
+9. When that task completes (via Path B), `update_goal_progress()` records it in `Goal.recent_activity`, which feeds stall detection in the attention engine — ready for the next cycle.
 
 ---
 
