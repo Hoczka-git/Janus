@@ -383,6 +383,12 @@ def _describe_state_changes(
             changes.append(f"recorded evidence on goal for milestone {metadata.title!r}")
         if isinstance(ms_info, dict) and ms_info.get("status") == "completed":
             changes.append(f"milestone {metadata.title!r} auto-completed")
+    elif obj == "project":
+        proj_info = result.get("project", {})
+        if "project" in result:
+            changes.append(f"recorded evidence on goal for project {metadata.title!r}")
+        if isinstance(proj_info, dict) and proj_info.get("status") == "completed":
+            changes.append(f"project {metadata.title!r} completed")
     elif obj in ("research", "finding"):
         res = result.get("research", {})
         if isinstance(res, dict) and "skipped" not in res and "error" not in res:
@@ -629,6 +635,12 @@ def dispatch_completion(
         results["milestone"] = update_milestone_status(
             title=metadata.title,
             completed_task_id=evidence.task_id,
+            evidence=evidence_dict,
+        )
+    elif metadata.object == "project":
+        from janus.services.projects import complete_project_by_title
+        results["project"] = complete_project_by_title(
+            project_title=metadata.title,
             evidence=evidence_dict,
         )
     elif metadata.object in ("research", "finding", "decision"):
