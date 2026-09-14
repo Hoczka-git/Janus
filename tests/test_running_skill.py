@@ -969,6 +969,50 @@ class TestWorkoutMdFunctions:
         assert len(result) == 1
         assert result[0].id == "rw-002"
 
+    def test_load_workouts_detects_duplicate_ids(self, tmp_path, monkeypatch):
+        """load_workouts raises ValueError when duplicate workout_ids exist."""
+        import janus.integrations.workout_md as wm
+        monkeypatch.setattr(wm, "PROJECT_ROOT", tmp_path)
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        workouts_file = data_dir / "workouts.md"
+        workouts_file.write_text(
+            "# Fitness Workouts\n\n"
+            "## Workout:\n"
+            "id = rw-001\n"
+            "date = 2026-09-12T10:00:00+00:00\n"
+            "workout_type = running\n"
+            "distance_km = 5.0\n"
+            "duration_minutes = 30.0\n\n"
+            "## Workout:\n"
+            "id = rw-001\n"  # duplicate!
+            "date = 2026-09-13T10:00:00+00:00\n"
+            "workout_type = running\n"
+            "distance_km = 10.0\n"
+            "duration_minutes = 60.0\n"
+        )
+        with pytest.raises(ValueError, match="Duplicate workout_id"):
+            wm.load_workouts()
+
+    def test_finalize_workout_validates_id_uniqueness(self):
+        """_finalize_workout raises ValueError on duplicate id in seen_ids."""
+        from janus.integrations.workout_md import _finalize_workout
+        seen: set[str] = set()
+        _finalize_workout(
+            {"id": "w-1", "date": "2026-09-12T10:00:00+00:00",
+             "workout_type": "running", "distance_km": "5.0",
+             "duration_minutes": "30.0"},
+            seen_ids=seen,
+        )
+        with pytest.raises(ValueError, match="Duplicate workout_id"):
+            _finalize_workout(
+                {"id": "w-1", "date": "2026-09-12T11:00:00+00:00",
+                 "workout_type": "running", "distance_km": "5.0",
+                 "duration_minutes": "30.0"},
+                seen_ids=seen,
+            )
+
 
 # ── Dedup key rules for WORKOUT_ADDED ────────────────────────────────────────
 
