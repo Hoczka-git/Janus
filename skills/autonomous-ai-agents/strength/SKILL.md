@@ -125,7 +125,7 @@ Provides the Janus **domain slice** for strength workouts:
 
 - Changing the on-disk markdown format of `data/workouts.md`.
 - Cross-domain aggregation (workouts → goal progress). This is aspirational
-  (see `docs/goal_milestone_project_task_hierarchy.md:1563`); the strength
+  (see `docs/design/goal_milestone_project_task_hierarchy.md:1563`); the strength
   skill does **not** update goal `Current:` / `Target:` values.
 - Wearable sync protocols (Strava API, FIT file parsing) — these are
   separate integrations that produce `ActivityRecord` values which then flow
@@ -633,7 +633,7 @@ only the first will be persisted under the default reject policy.
 
 1. **No cross-domain goal aggregation.** The strength skill does not
    update `data/goals.md` when a workout is added. This is tracked as
-   aspirational in `docs/goal_milestone_project_task_hierarchy.md:1563`.
+   aspirational in `docs/design/goal_milestone_project_task_hierarchy.md:1563`.
 2. **No wearable sync.** Strava / Garmin / FIT / GPX import is a
    separate integration that must produce `ActivityRecord` values before
    routing through this skill's ingestion path.
@@ -658,7 +658,7 @@ only the first will be persisted under the default reject policy.
 
 - `docs/decisions/005-activity-data-ingestion-layer.md` — ADR-005 (the
   ingestion gateway design)
-- `docs/activity_data_guide.md` — operational guide for the ingestion layer
+- `docs/guides/activity_data_guide.md` — operational guide for the ingestion layer
 - `docs/strength-skill-spec.md` — this specification (detailed blueprint)
 - `src/janus/models/workout.py` — `StrengthWorkout`, `Exercise`, `Set` dataclasses + validation
 - `src/janus/integrations/workout_md.py` — persistence layer

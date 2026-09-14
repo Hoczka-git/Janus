@@ -527,24 +527,24 @@ The strength domain logic currently lives in **shared** modules (not in the
 skill directory itself). The skill's SKILL.md documents these as the
 implementation surface:
 
-| File | Role for strength |
-|------|-------------------|
-| `src/janus/models/workout.py` | `StrengthWorkout`, `Exercise`, `Set`, `workout_to_dict`, `dict_to_workout` — domain model + validation. |
-| `src/janus/integrations/workout_md.py` | `load_workouts`, `save_workout`, `find_history_by_exercise`, `_workout_to_markdown_lines`, `_finalize_workout`, `find_last_n`, `find_workout_by_id`, `find_workouts_by_date_range`, `find_running_workouts` — persistence + query. |
-| `src/janus/services/workout_analytics.py` | `compute_exercise_summary`, `compute_running_summary`, `compute_overall_summary`, plus `ExerciseSummary`, `RunningSummary`, `OverallSummary`, `ExerciseProgressionPoint` dataclasses. |
-| `src/janus/workout_cli.py` | `handle_workout_add`, `handle_workout_show`, `handle_workout_summary`, `_parse_sets`, `_generate_id`. |
-| `src/janus/services/activity_ingest.py` | `_dispatch_workout`, `compute_dedup_key`, `_validate_record`, `ActivityRecord`, `ActivityType`, `ingest_activities`, `IngestResult`, `IngestDryRun`, `IngestConfig`, `_gen_uuid`. |
-| `src/janus/integrations/atomic_io.py` | `atomic_write`, `atomic_read`, `read_modify_write`, `read_modify_write_with_retry`, `ConcurrentWriteError`, `AtomicWriteError`. |
-| `src/janus/integrations/data_protection.py` | `protected_write`, `compute_content_hash`, `backup_previous`, regeneration gate, `allowed_regenerators` set. |
-| `config/config.example.toml` | `[data_ingestion]`, `[data_ingestion.files]`, `[data_ingestion.normalization]` sections. |
-| `data/workouts.md` | Canonical fitness data file (gitignored — `data/*` in `.gitignore`). Shared by running + strength. |
-| `tests/test_fitness.py` | Model validation + persistence round-trip tests. |
-| `tests/test_workout_cli.py` | CLI handler tests. |
-| `tests/test_workout_analytics.py` | Analytics correctness tests. |
-| `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005 design doc. |
-| `docs/activity_data_guide.md` | Operational guide for the ingestion layer. |
-| `docs/goal_milestone_project_task_hierarchy.md` | Aspirational cross-domain workout→goal aggregation (line 1563). |
-| `scripts/repair_workouts.py` | Data repair utility (context for why atomic writes matter). |
+|| File | Role for strength |
+||------|-------------------|
+|| `src/janus/models/workout.py` | `StrengthWorkout`, `Exercise`, `Set`, `workout_to_dict`, `dict_to_workout` — domain model + validation. |
+|| `src/janus/integrations/workout_md.py` | `load_workouts`, `save_workout`, `find_history_by_exercise`, `_workout_to_markdown_lines`, `_finalize_workout`, `find_last_n`, `find_workout_by_id`, `find_workouts_by_date_range`, `find_running_workouts` — persistence + query. |
+|| `src/janus/services/workout_analytics.py` | `compute_exercise_summary`, `compute_running_summary`, `compute_overall_summary`, plus `ExerciseSummary`, `RunningSummary`, `OverallSummary`, `ExerciseProgressionPoint` dataclasses. |
+|| `src/janus/workout_cli.py` | `handle_workout_add`, `handle_workout_show`, `handle_workout_summary`, `_parse_sets`, `_generate_id`. |
+|| `src/janus/services/activity_ingest.py` | `_dispatch_workout`, `compute_dedup_key`, `_validate_record`, `ActivityRecord`, `ActivityType`, `ingest_activities`, `IngestResult`, `IngestDryRun`, `IngestConfig`, `_gen_uuid`. |
+|| `src/janus/integrations/atomic_io.py` | `atomic_write`, `atomic_read`, `read_modify_write`, `read_modify_write_with_retry`, `ConcurrentWriteError`, `AtomicWriteError`. |
+|| `src/janus/integrations/data_protection.py` | `protected_write`, `compute_content_hash`, `backup_previous`, regeneration gate, `allowed_regenerators` set. |
+|| `config/config.example.toml` | `[data_ingestion]`, `[data_ingestion.files]`, `[data_ingestion.normalization]` sections. |
+|| `data/workouts.md` | Canonical fitness data file (gitignored — `data/*` in `.gitignore`). Shared by running + strength. |
+|| `tests/test_fitness.py` | Model validation + persistence round-trip tests. |
+|| `tests/test_workout_cli.py` | CLI handler tests. |
+|| `tests/test_workout_analytics.py` | Analytics correctness tests. |
+|| `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005 design doc. |
+|| `docs/guides/activity_data_guide.md` | Operational guide for the ingestion layer. |
+|| `docs/design/goal_milestone_project_task_hierarchy.md:1563` | Aspirational cross-domain workout→goal aggregation (line 1563). |
+|| `scripts/repair_workouts.py` | Data repair utility (context for why atomic writes matter). |
 
 ### 4.4 File the skill references as its mandatory dependency
 
@@ -558,6 +558,21 @@ body) and MUST route all persistence through its interface.
 
 **Sibling skill** (shared model, not a dependency):
 `/home/dan11hermes/workspaces/janus/skills/autonomous-ai-agents/running/SKILL.md`
+
+### 4.5 Prohibitions
+
+- **Directly modify files under `data/`.** Never call `Path.write_text()`,
+  `open(..., "w")`, or any I/O targeting `data/workouts.md` from
+  model-driven code.
+- **Generate or rewrite `data/workouts.md`.** The model emits structured
+  `ActivityRecord` values; the gateway owns serialization via the existing
+  `_workout_to_markdown_lines()`.
+- **Implement its own persistence or deduplication logic.** No custom
+  `save_workouts()` or dedup logic in the strength skill. Use the gateway.
+- **Bypass `ActivityRecord` / `ingest_activities()`.** Never call
+  `workout_md.save_workout()` from model-driven code. The CLI path
+  (`handle_workout_add`) is the exception — it is a human-operated path
+  that calls `save_workout()` directly.
 
 ---
 
@@ -686,13 +701,11 @@ These apply to all `ingest_activities()` calls, including `WORKOUT_ADDED`.
 Every domain skill (activity-ingestion, running, strength) follows the same
 template. The strength skill's SKILL.md MUST follow this structure:
 
-1. **Frontmatter** — `name`, `description`, `version`, `author`, `license`,
-   `platforms`, `metadata.hermes.tags`, `metadata.hermes.related_skills`.
-2. **When to Use** — trigger scenarios (chat capture, wearable sync,
-   completed Kanban task, CLI).
 3. **Dependency: Activity Data Ingestion** — mandatory routing rule
    (ActivityRecord → Activity Ingestion → Janus service → data/), explicit
    file path, and the prohibition list.
+4. **Purpose and Scope** — model, serialization, parsing, analytics, CLI,
+   ingestion; what is and is not in scope.
 4. **Purpose and Scope** — model, serialization, parsing, analytics, CLI,
    ingestion; what is and is not in scope.
 5. **Data Model** — dataclass definitions (§1 of this spec), validation rules.

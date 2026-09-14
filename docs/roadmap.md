@@ -93,6 +93,7 @@ The following items represent planned implementation work derived from
 existing design and planning artifacts in this repository.
 
 - [x] Implement the execution planning extension described in
+- [x] Implement the execution planning extension described in
   [`docs/design/execution_planning.md`](../docs/design/execution_planning.md)
 - [x] Implement the structured observability log schema and instrumentation
   described in [`docs/design/observability_plan.md`](../docs/design/observability_plan.md)

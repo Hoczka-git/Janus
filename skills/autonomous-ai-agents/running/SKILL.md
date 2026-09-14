@@ -119,7 +119,7 @@ Provides the Janus **domain slice** for running workouts:
 
 - Changing the on-disk markdown format of `data/workouts.md`.
 - Cross-domain aggregation (workouts → goal progress). This is aspirational
-  (see `docs/goal_milestone_project_task_hierarchy.md:1563`); the running
+  (see `docs/design/goal_milestone_project_task_hierarchy.md:1563`); the running
   skill does **not** update goal `Current:` / `Target:` values.
 - Wearable sync protocols (Strava API, FIT file parsing) — these are
   separate integrations that produce `ActivityRecord` values which then flow
@@ -565,7 +565,7 @@ spec itself):
 | `config/config.example.toml` | `[data_ingestion]` + `[data_ingestion.files]` config. |
 | `data/workouts.md` | The persisted running workout data. |
 | `docs/decisions/005-activity-data-ingestion-layer.md` | ADR-005 design. |
-| `docs/activity_data_guide.md` | Operational guide for the ingestion layer. |
+| `docs/guides/activity_data_guide.md` | Operational guide for the ingestion layer. |
 
 No new implementation files are needed for this specification — this
 document is the blueprint. When implementation begins, it will extend the
@@ -580,7 +580,7 @@ gateway.
 
 1. **No cross-domain goal aggregation.** The running skill does not update
    `data/goals.md` `Current:` values when a run is added. This is tracked as
-   aspirational in `docs/goal_milestone_project_task_hierarchy.md:1563`.
+   aspirational in `docs/design/goal_milestone_project_task_hierarchy.md:1563`.
 2. **No wearable sync.** Strava / Garmin / FIT / GPX import is a separate
    integration that must produce `ActivityRecord` values before routing
    through this skill's ingestion path.
@@ -600,7 +600,7 @@ gateway.
 
 - `docs/decisions/005-activity-data-ingestion-layer.md` — ADR-005 (design
   decisions, controlled-write gateway, alternatives considered).
-- `docs/activity_data_guide.md` — operational guide for the ingestion layer.
+- `docs/guides/activity_data_guide.md` — operational guide for the ingestion layer.
 - `src/janus/models/workout.py` — `RunningWorkout` domain model + validation.
 - `src/janus/integrations/workout_md.py` — persistence layer.
 - `src/janus/services/workout_analytics.py` — analytics functions.
@@ -614,7 +614,7 @@ gateway.
 - `tests/test_fitness.py` — model validation + persistence round-trip tests.
 - `tests/test_workout_cli.py` — CLI handler tests.
 - `tests/test_workout_analytics.py` — analytics correctness tests.
-- `docs/goal_milestone_project_task_hierarchy.md:1563` — aspirational
+- `docs/design/goal_milestone_project_task_hierarchy.md:1563` — aspirational
   cross-domain workout → goal progress aggregation.
 - Parent skill: `skills/autonomous-ai-agents/activity-ingestion/SKILL.md`
   — the mandatory ingestion gateway this skill depends on.

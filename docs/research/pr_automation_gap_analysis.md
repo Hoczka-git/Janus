@@ -2,7 +2,7 @@
 
 **Task:** t_6b060ae7
 **Date:** 2026-09-02
-**Source design:** `docs/research/pr_automation_workflow_design.md` (commit `a6987ec`, branch `wt/t_2fbd2e6e`)
+**Source design:** `docs/design/pr_automation_workflow_design.md` (commit `a6987ec`, branch `wt/t_2fbd2e6e`)
 **Target workflow:** implementation → commit → push → synchronize with latest target branch → run verification/tests again → create GitHub PR → wait for CI → enable/use GitHub auto-merge → verify PR was actually merged into target branch → only then mark Kanban task as DONE → kanban_task_completed → replenishment
 
 ---
