@@ -59,6 +59,24 @@ class EvidencePackage:
             "body": self.body,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "EvidencePackage":
+        """Deserialize from a plain dict (inverse of :meth:`to_dict`).
+
+        Tolerates missing keys — every field has a sensible default so a
+        partial or truncated dict (e.g. from markdown storage) reconstructs
+        a valid, if minimal, ``EvidencePackage``.
+        """
+        return cls(
+            task_id=data.get("task_id", ""),
+            summary=data.get("summary", ""),
+            completed_at=data.get("completed_at"),
+            changed_files=data.get("changed_files") or [],
+            tests_passed=data.get("tests_passed"),
+            pr_url=data.get("pr_url"),
+            body=data.get("body"),
+        )
+
 
 # ── janus_domain frontmatter parser ───────────────────────────────────────────
 
@@ -95,6 +113,144 @@ class JanusDomainMetadata:
             or self.tests_passed is not None
             or bool(self.pr_url)
         )
+
+    def to_dict(self) -> dict:
+        """Serialize to a plain dict (inverse of :meth:`from_dict`).
+
+        Only the four frontmatter-defined fields are serialized; runtime-only
+        state is excluded so the dict round-trips cleanly through YAML/JSON.
+        """
+        return {
+            "object": self.object,
+            "title": self.title,
+            "changed_files": self.changed_files or [],
+            "tests_passed": self.tests_passed,
+            "pr_url": self.pr_url,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JanusDomainMetadata":
+        """Deserialize from a plain dict.
+
+        Requires ``object`` and ``title`` (raises ``ValueError`` otherwise),
+        mirroring the validation in :func:`parse_janus_domain_metadata`.
+        """
+        obj = data.get("object")
+        title = data.get("title")
+        if not obj or not isinstance(obj, str):
+            raise ValueError("janus_domain.object is required and must be a string")
+        if not title or not isinstance(title, str):
+            raise ValueError("janus_domain.title is required and must be a string")
+        return cls(
+            object=obj.strip(),
+            title=title.strip(),
+            changed_files=data.get("changed_files") or [],
+            tests_passed=data.get("tests_passed"),
+            pr_url=data.get("pr_url"),
+        )
+
+
+# ── Execution result message (serializable protocol unit) ────────────────────
+#
+# An ``ExecutionResultMessage`` is the structured wire-format that travels
+# from a Hermes worker back to the Janus side when a Kanban task that
+# carries ``janus_domain`` linkage completes.  It bundles the task handoff
+# metadata (which Janus domain object the task targets) together with the
+# execution-result evidence (which files changed, did tests pass, PR URL)
+# into a single serializable unit so that the Hermes → Janus channel has
+# a well-defined, self-describing message rather than ad-hoc dicts.
+#
+# The message is JSON-serializable via :meth:`to_json` /
+# :meth:`from_json` and dict-serializable via :meth:`to_dict` /
+# :meth:`from_dict`.  The dispatch helpers :func:`send_execution_result`
+# and :func:`receive_execution_result` provide the send/receive entry
+# points for the protocol.
+
+@dataclass
+class ExecutionResultMessage:
+    """Structured handoff + execution result message (Hermes → Janus).
+
+    Combines the Janus domain linkage metadata with the evidence package
+    that describes what the completed task accomplished.  This is the
+    canonical message type for the execution-feedback write-back path.
+
+    Attributes:
+        metadata: The Janus domain linkage (object, title, evidence fields).
+        evidence: The execution evidence (task_id, summary, changed_files, etc.).
+    """
+    metadata: JanusDomainMetadata
+    evidence: EvidencePackage
+
+    def to_dict(self) -> dict:
+        """Serialize to a plain dict suitable for JSON or YAML storage."""
+        return {
+            "metadata": self.metadata.to_dict(),
+            "evidence": self.evidence.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExecutionResultMessage":
+        """Deserialize from a plain dict.
+
+        Raises ``ValueError`` if the ``metadata`` sub-dict is invalid
+        (missing ``object`` or ``title``) — propagates from
+        :meth:`JanusDomainMetadata.from_dict`.
+        """
+        md = JanusDomainMetadata.from_dict(data["metadata"])
+        ev = EvidencePackage.from_dict(data["evidence"])
+        return cls(metadata=md, evidence=ev)
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string."""
+        import json
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, text: str) -> "ExecutionResultMessage":
+        """Deserialize from a JSON string.
+
+        Raises ``json.JSONDecodeError`` on malformed JSON, or
+        ``ValueError`` if required fields are missing.
+        """
+        import json
+        return cls.from_dict(json.loads(text))
+
+
+def send_execution_result(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+) -> str:
+    """Serialize a handoff + result into a self-contained JSON message.
+
+    This is the **sender** side of the Hermes → Janus protocol: a worker
+    (or the Hermes sync listener) calls this to produce a durable,
+    self-describing message string that can be passed to
+    :func:`receive_execution_result` (in a different process, thread, or
+    even logged for audit).
+
+    Returns:
+        A compact JSON string encoding both the domain linkage metadata
+        and the execution evidence.
+    """
+    msg = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+    return msg.to_json()
+
+
+def receive_execution_result(message: str) -> dict:
+    """Deserialize and dispatch a handoff + result message to Janus services.
+
+    This is the **receiver** side of the Hermes → Janus protocol: it
+    parses the JSON message produced by :func:`send_execution_result`,
+    reconstructs the :class:`JanusDomainMetadata` and
+    :class:`EvidencePackage`, and routes them to
+    :func:`dispatch_completion`.
+
+    Returns:
+        The dispatch result dict (same shape as
+        :func:`dispatch_completion`).
+    """
+    msg = ExecutionResultMessage.from_json(message)
+    return dispatch_completion(msg.metadata, msg.evidence)
 
 
 def parse_janus_domain_metadata(body: str | None) -> JanusDomainMetadata | None:
