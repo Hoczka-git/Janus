@@ -45,6 +45,7 @@ def load_workouts() -> list[Workout]:
 
     workouts: list[Workout] = []
     current: dict[str, Any] | None = None
+    seen_ids: set[str] = set()
 
     with path.open() as f:
         for line in f:
@@ -52,7 +53,7 @@ def load_workouts() -> list[Workout]:
 
             if stripped.startswith("## Workout:"):
                 if current is not None:
-                    workouts.append(_finalize_workout(current))
+                    workouts.append(_finalize_workout(current, seen_ids))
                 current = {"raw": stripped[len("## Workout:"):].strip()}
             elif current is not None:
                 if "=" in stripped and not stripped.startswith("#"):
@@ -60,7 +61,7 @@ def load_workouts() -> list[Workout]:
                     current[key.strip()] = value.strip()
 
         if current is not None:
-            workouts.append(_finalize_workout(current))
+            workouts.append(_finalize_workout(current, seen_ids))
 
     return workouts
 
@@ -125,11 +126,26 @@ def _workout_to_markdown_lines(workout: Workout) -> list[str]:
     return lines
 
 
-def _finalize_workout(data: dict[str, Any]) -> Workout:
+def _finalize_workout(data: dict[str, Any], seen_ids: set[str] | None = None) -> Workout:
+    """Finalize a parsed workout dict, validating required fields and
+    workout_id uniqueness.
+
+    When *seen_ids* is provided, the workout's ``id`` is checked against the
+    set and added to it; a duplicate raises ``ValueError`` so that corrupt
+    duplicate records in ``data/workouts.md`` are rejected rather than
+    silently returned twice by :func:`load_workouts`.
+    """
     required = ("id", "date", "workout_type")
     for key in required:
         if key not in data:
             raise ValueError(f"Workout missing required field '{key}'")
+    if seen_ids is not None:
+        wid = data["id"]
+        if wid in seen_ids:
+            raise ValueError(
+                f"Duplicate workout_id '{wid}' — already seen during load"
+            )
+        seen_ids.add(wid)
     # exercises is stored as a JSON string in the markdown file
     if "exercises" in data and isinstance(data["exercises"], str):
         try:
