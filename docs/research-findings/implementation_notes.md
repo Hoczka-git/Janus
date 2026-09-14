@@ -105,10 +105,10 @@ functions).  The handoff mechanism itself (phases 1–2) lives in the Hermes rep
 ## Test results
 
 ```
-tests/test_execution_feedback.py: 95 passed (was 36; +59 for attach_evidence,
+tests/test_execution_feedback.py: 77 passed (was 36; +41 for attach_evidence,
   propagate_state_updates, send/receive protocol, ExecutionResultMessage, and
   _normalize_to_jsonable)
-tests/plugins/test_janus_sync_plugin.py: 39 passed (was 20; +19 for propagate_state_updates
+tests/plugins/test_janus_sync_plugin.py: 19 passed (was 0; +19 for propagate_state_updates
   integration, audit comments, and re-entrancy guard)
 Full suite: 1809 passed
 ```
