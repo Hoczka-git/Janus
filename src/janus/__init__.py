@@ -91,6 +91,8 @@ def main() -> None:
             show_today(trace_id=trace_id)
         elif command == "telegram":
             show_telegram(trace_id=trace_id)
+        elif command == "telegram-weekly":
+            send_weekly_telegram(trace_id=trace_id)
         elif command == "task":
             if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
                 print_task_help()
@@ -165,8 +167,6 @@ def main() -> None:
                 print("       janus goal milestone <add|list|show|complete|update> <goal> ...")
                 print("       janus goal next <title>")
                 print("       janus goal health [<title>]")
-        elif command == "telegram-weekly":
-            send_weekly_telegram()
         elif command == "weekly":
             show_weekly(trace_id=trace_id)
         elif command == "inbox":
