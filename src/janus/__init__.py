@@ -6,6 +6,7 @@ import uuid
 from janus.logging_config import setup_logging
 from janus._log import emit
 from janus.today import show_today, show_telegram
+from janus.telegram_weekly_cli import send_weekly_telegram
 from janus.weekly import show_weekly
 from janus.telegram_weekly_cli import send_weekly_telegram
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, print_task_help
