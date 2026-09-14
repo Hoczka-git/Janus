@@ -185,6 +185,41 @@ class TestGoalDispatch:
         assert entry["task_id"] == tid
         assert entry["summary"] == "Goal work done"
 
+    def test_state_updates_propagated_and_stamped(self,
+                                                   conn, plugin_module, tmp_path,
+                                                   monkeypatch):
+        """Completing a Janus-backed task propagates structured state changes
+        back through the channel and stamps the sync-complete marker."""
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: My goal\nStatus: active\n",
+        )
+        tid = _create_task(conn, title="Goal task", body=_JANUS_DOMAIN_GOAL)
+        kb.complete_task(conn, tid, result="done", summary="Goal work done")
+
+        result = plugin_module.on_task_completed(tid, board="default",
+                                                 run_id=1,
+                                                 summary="Goal work done")
+
+        # The result carries the propagated state-update payload.
+        assert result["status"] == "synced"
+        assert "state_changes" in result
+        assert isinstance(result["state_changes"], list)
+        assert len(result["state_changes"]) > 0
+        assert any("recent_activity" in c for c in result["state_changes"])
+        assert "synced_at" in result
+        assert result["synced_at"] is not None
+
+        # Re-dispatch is a no-op (marker already stamped).
+        second = plugin_module.on_task_completed(tid, board="default",
+                                                 run_id=1,
+                                                 summary="Goal work done")
+        assert second["status"] == "already_synced"
+        # No additional goal activity should have been appended.
+        from janus.integrations.markdown_goals import load_goals
+        goal = load_goals()[0]
+        assert len(goal.recent_activity) == 1
+
     def test_goal_dispatch_idempotent(self, conn, plugin_module, tmp_path, monkeypatch):
         _setup_goals(
             tmp_path, monkeypatch,
