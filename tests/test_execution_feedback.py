@@ -993,3 +993,271 @@ class TestResearchToFindingConnection:
         assert "link_errors" in pipe
         assert len(pipe["link_errors"]) == 1
         assert pipe["link_errors"][0]["goal_title"] == "Nonexistent Goal"
+
+
+# ── ExecutionResultMessage: serialization & send/receive protocol ────────────
+#
+# Tests for the formal message type that bundles Janus domain linkage
+# metadata with execution evidence, plus the send/receive dispatch helpers.
+# Covers: dict round-trip, JSON round-trip, EvidencePackage.from_dict
+# deserialization, JanusDomainMetadata.to_dict/from_dict, and the
+# send → receive → dispatch_completion end-to-end protocol for goal,
+# task, and research objects.
+
+class TestExecutionResultMessageSerialization:
+    """EvidencePackage.from_dict and JanusDomainMetadata to/from dict."""
+
+    def test_evidence_package_from_dict_full(self):
+        from janus.services.execution_feedback import EvidencePackage
+        d = {
+            "task_id": "t_abc",
+            "summary": "Implement X",
+            "completed_at": "2026-09-09T10:00:00Z",
+            "changed_files": ["src/x.py"],
+            "tests_passed": True,
+            "pr_url": "https://example.com/pr/1",
+            "body": "---\njanus_domain:\n  object: goal\n  title: G\n---\n",
+        }
+        ep = EvidencePackage.from_dict(d)
+        assert ep.task_id == "t_abc"
+        assert ep.summary == "Implement X"
+        assert ep.completed_at == "2026-09-09T10:00:00Z"
+        assert ep.changed_files == ["src/x.py"]
+        assert ep.tests_passed is True
+        assert ep.pr_url == "https://example.com/pr/1"
+        assert ep.body == d["body"]
+
+    def test_evidence_package_from_dict_minimal(self):
+        from janus.services.execution_feedback import EvidencePackage
+        ep = EvidencePackage.from_dict({"task_id": "t_1", "summary": "s"})
+        assert ep.task_id == "t_1"
+        assert ep.summary == "s"
+        assert ep.changed_files == []
+        assert ep.tests_passed is None
+        assert ep.pr_url is None
+        assert ep.body is None
+
+    def test_evidence_package_roundtrip(self):
+        from janus.services.execution_feedback import EvidencePackage
+        original = EvidencePackage(
+            task_id="t_1", summary="s",
+            completed_at="2026-01-01",
+            changed_files=["a.py"],
+            tests_passed=True,
+            pr_url="https://x",
+            body="body text",
+        )
+        restored = EvidencePackage.from_dict(original.to_dict())
+        assert restored == original
+
+    def test_janus_domain_metadata_to_dict(self):
+        from janus.services.execution_feedback import JanusDomainMetadata
+        md = JanusDomainMetadata(
+            object="goal", title="My Goal",
+            changed_files=["src/foo.py"],
+            tests_passed=True,
+            pr_url="https://example.com/pr/1",
+        )
+        d = md.to_dict()
+        assert d["object"] == "goal"
+        assert d["title"] == "My Goal"
+        assert d["changed_files"] == ["src/foo.py"]
+        assert d["tests_passed"] is True
+        assert d["pr_url"] == "https://example.com/pr/1"
+
+    def test_janus_domain_metadata_from_dict(self):
+        from janus.services.execution_feedback import JanusDomainMetadata
+        d = {
+            "object": "task",
+            "title": "Build feature",
+            "changed_files": ["src/a.py"],
+            "tests_passed": False,
+        }
+        md = JanusDomainMetadata.from_dict(d)
+        assert md.object == "task"
+        assert md.title == "Build feature"
+        assert md.changed_files == ["src/a.py"]
+        assert md.tests_passed is False
+        assert md.pr_url is None
+
+    def test_janus_domain_metadata_roundtrip(self):
+        from janus.services.execution_feedback import JanusDomainMetadata
+        original = JanusDomainMetadata(
+            object="milestone", title="M1",
+            changed_files=["x.py"], tests_passed=True, pr_url="https://p",
+        )
+        restored = JanusDomainMetadata.from_dict(original.to_dict())
+        assert restored == original
+
+    def test_janus_domain_metadata_from_dict_missing_object_raises(self):
+        from janus.services.execution_feedback import JanusDomainMetadata
+        with pytest.raises(ValueError, match="object is required"):
+            JanusDomainMetadata.from_dict({"title": "X"})
+
+    def test_janus_domain_metadata_from_dict_missing_title_raises(self):
+        from janus.services.execution_feedback import JanusDomainMetadata
+        with pytest.raises(ValueError, match="title is required"):
+            JanusDomainMetadata.from_dict({"object": "goal"})
+
+
+class TestExecutionResultMessage:
+    """ExecutionResultMessage to_dict/from_dict and to_json/from_json."""
+
+    def _make(self):
+        from janus.services.execution_feedback import (
+            EvidencePackage, ExecutionResultMessage, JanusDomainMetadata,
+        )
+        md = JanusDomainMetadata(
+            object="goal", title="Test goal",
+            changed_files=["src/foo.py"], tests_passed=True,
+            pr_url="https://example.com/pr/1",
+        )
+        ev = EvidencePackage(
+            task_id="t_abc", summary="Implement feature X",
+            completed_at="2026-09-09T10:00:00Z",
+        )
+        return ExecutionResultMessage(metadata=md, evidence=ev)
+
+    def test_to_dict_nests_metadata_and_evidence(self):
+        msg = self._make()
+        d = msg.to_dict()
+        assert d["metadata"]["object"] == "goal"
+        assert d["metadata"]["title"] == "Test goal"
+        assert d["evidence"]["task_id"] == "t_abc"
+        assert d["evidence"]["summary"] == "Implement feature X"
+        assert d["evidence"]["completed_at"] == "2026-09-09T10:00:00Z"
+
+    def test_from_dict_roundtrip(self):
+        from janus.services.execution_feedback import ExecutionResultMessage
+        msg = self._make()
+        restored = ExecutionResultMessage.from_dict(msg.to_dict())
+        assert restored.metadata == msg.metadata
+        assert restored.evidence == msg.evidence
+
+    def test_to_json_is_valid_json(self):
+        import json
+        from janus.services.execution_feedback import ExecutionResultMessage
+        msg = self._make()
+        text = msg.to_json()
+        parsed = json.loads(text)
+        assert parsed["metadata"]["object"] == "goal"
+        assert parsed["evidence"]["task_id"] == "t_abc"
+
+    def test_from_json_roundtrip(self):
+        from janus.services.execution_feedback import ExecutionResultMessage
+        msg = self._make()
+        restored = ExecutionResultMessage.from_json(msg.to_json())
+        assert restored.metadata == msg.metadata
+        assert restored.evidence == msg.evidence
+
+    def test_from_json_malformed_raises(self):
+        from janus.services.execution_feedback import ExecutionResultMessage
+        with pytest.raises(Exception):
+            ExecutionResultMessage.from_json("not json")
+
+    def test_from_dict_missing_metadata_raises(self):
+        from janus.services.execution_feedback import ExecutionResultMessage
+        with pytest.raises(KeyError):
+            ExecutionResultMessage.from_dict({"evidence": {"task_id": "t"}})
+
+
+class TestSendReceiveProtocol:
+    """send_execution_result → receive_execution_result round-trip + dispatch."""
+
+    def test_send_receive_round_trips_metadata_and_evidence(self):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata,
+            send_execution_result, receive_execution_result,
+        )
+        md = JanusDomainMetadata(object="goal", title="Test goal")
+        ev = EvidencePackage(
+            task_id="t_1", summary="Done", completed_at="2026-09-09",
+        )
+        message = send_execution_result(md, ev)
+        assert isinstance(message, str)
+        assert '"metadata"' in message
+        assert '"evidence"' in message
+        assert '"task_id": "t_1"' in message
+
+    def test_receive_dispatches_to_goal_service(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata,
+            send_execution_result, receive_execution_result,
+        )
+        self._setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Test goal\nStatus: active\n",
+        )
+        md = JanusDomainMetadata(object="goal", title="Test goal")
+        ev = EvidencePackage(
+            task_id="t_abc", summary="Implement feature X",
+            completed_at="2026-09-09T10:00:00Z",
+        )
+        message = send_execution_result(md, ev)
+        results = receive_execution_result(message)
+        assert "goal" in results
+        from janus.integrations.markdown_goals import load_goals
+        g = load_goals()[0]
+        assert len(g.recent_activity) == 1
+        assert g.recent_activity[0]["task_id"] == "t_abc"
+
+    def test_receive_dispatches_to_task_service(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata,
+            send_execution_result, receive_execution_result,
+        )
+        self._setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature X\n")
+        md = JanusDomainMetadata(object="task", title="Build feature X")
+        ev = EvidencePackage(
+            task_id="t_1", summary="Done", completed_at="2026-09-09",
+        )
+        message = send_execution_result(md, ev)
+        results = receive_execution_result(message)
+        assert "task" in results
+        content = (tmp_path / "tasks.md").read_text()
+        assert "- [x] Build feature X" in content
+
+    def test_receive_dispatches_to_milestone_service(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata,
+            send_execution_result, receive_execution_result,
+        )
+        self._setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: G\nStatus: active\n\n"
+            "## Milestones\n### Milestone: M1  (order: 0)\nStatus: open\n",
+        )
+        self._setup_tasks(tmp_path, monkeypatch, "- [x] Task A\n")
+        md = JanusDomainMetadata(object="milestone", title="M1")
+        ev = EvidencePackage(
+            task_id="t_2", summary="Task A", completed_at="2026-09-09",
+        )
+        message = send_execution_result(md, ev)
+        results = receive_execution_result(message)
+        assert "milestone" in results
+
+    def test_receive_skips_unknown_object(self, tmp_path, monkeypatch):
+        from janus.services.execution_feedback import (
+            EvidencePackage, JanusDomainMetadata,
+            send_execution_result, receive_execution_result,
+        )
+        # JanusDomainMetadata.from_dict doesn't validate object values, but
+        # dispatch_completion will skip unknown objects via the else branch.
+        md = JanusDomainMetadata(object="widget", title="X")
+        ev = EvidencePackage(task_id="t_1", summary="s", completed_at="2026-01-01")
+        message = send_execution_result(md, ev)
+        results = receive_execution_result(message)
+        assert results.get("skipped") == "widget"
+
+    # -- helpers --
+    @staticmethod
+    def _setup_goals(tmp_path, monkeypatch, content="# Goals\n"):
+        goals_file = tmp_path / "goals.md"
+        goals_file.write_text(content)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+
+    @staticmethod
+    def _setup_tasks(tmp_path, monkeypatch, content="- [ ] Placeholder\n"):
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(content)
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
