@@ -45,6 +45,31 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
+# Per-task serialization lock for concurrent hook invocations.  Two workers
+# firing ``kanban_task_completed`` for the same Janus-linked task at the same
+# time would otherwise both pass the fast-path ``janus_sync_already_processed``
+# read and then race to dispatch + stamp the marker, causing Janus
+# ``protected_write`` to raise ``DataConflictError`` (a file-level hash race,
+# not a logical one — the service functions are idempotent by title/task_id).
+# A threading.Lock keyed by task_id serializes dispatch so only the winning
+# thread touches Janus storage; the other observes the stamped marker and
+# returns ``already_synced``.  This keeps the marker applied *after* a
+# successful dispatch (preserving the failure-retry contract from design §5.1)
+# while making concurrent dispatch safe.
+_sync_locks: dict[str, threading.Lock] = {}
+_sync_locks_guard = threading.Lock()
+
+
+def _task_sync_lock(task_id: str) -> threading.Lock:
+    """Return (creating if needed) the per-task sync lock."""
+    with _sync_locks_guard:
+        lock = _sync_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _sync_locks[task_id] = lock
+        return lock
+
+
 # ---------------------------------------------------------------------------
 # Per-task re-entrancy guard (in-process concurrency)
 # ---------------------------------------------------------------------------
@@ -142,58 +167,73 @@ def _run_sync(
 
         conn = kb.connect(board=board) if board else kb.connect()
         try:
-            task = kb.get_task(conn, task_id)
+        task = kb.get_task(conn, task_id)
 
-            if task is None:
-                return None
+        if task is None:
+            return None
 
-            body = task.body or ""
+        body = task.body or ""
 
-            # Re-entrancy guard: a completed, already-synced task is skipped.
-            # The marker is read directly from the DB via kanban_db rather than
-            # the in-memory ``body`` copy, so it survives across worker runs.
+        # Fast-path re-entrancy guard. The marker is read directly from the DB
+        # so it survives across worker runs.
+        if kb.janus_sync_already_processed(conn, task_id):
+            return {"status": "already_synced", "task_id": task_id}
+
+        # Parse janus_domain frontmatter (Janus-side helper).
+        try:
+            metadata = _parse_janus_domain(body)
+        except ValueError as exc:
+            _try_record_error(task_id, board, exc, detail="parse_janus_domain")
+            return {
+                "status": "parse_error",
+                "task_id": task_id,
+                "error": str(exc),
+            }
+
+        if metadata is None:
+            # No Janus linkage — nothing to sync (common completion path untouched).
+            return {"status": "no_linkage", "task_id": task_id}
+
+        # Build the evidence package from the completion payload + run metadata.
+        evidence = _build_evidence(task, run_id, summary, conn, kb)
+
+        # Serialize concurrent hook invocations for the same task. The initial
+        # janus_sync_already_processed() check is not atomic with the marker
+        # write, so two concurrent workers could otherwise both dispatch.
+        with _task_sync_lock(task_id):
+            # Re-check under the lock: another thread may have completed the
+            # sync while this thread was waiting.
             if kb.janus_sync_already_processed(conn, task_id):
                 return {"status": "already_synced", "task_id": task_id}
 
-            # Parse janus_domain frontmatter (Janus-side helper).
-            try:
-                metadata = _parse_janus_domain(body)
-            except ValueError as exc:
-                _try_record_error(task_id, board, exc, detail="parse_janus_domain")
-                return {"status": "parse_error", "task_id": task_id, "error": str(exc)}
-
-            if metadata is None:
-                # No Janus linkage — nothing to sync (common completion path untouched).
-                return {"status": "no_linkage", "task_id": task_id}
-
-            # Build the evidence package from the completion payload + run metadata.
-            evidence = _build_evidence(task, run_id, summary, conn, kb)
-
-            # Dispatch to the Janus service function (idempotent) and capture the
-            # resulting state changes for back-propagation through the channel.
+            # Dispatch to the Janus service function (idempotent) and capture
+            # the resulting state changes for back-propagation through the
+            # channel.
             propagation = _dispatch_to_janus(metadata, evidence)
+
+            # Stamp the marker only after successful dispatch. If dispatch
+            # fails, the marker remains absent and a later hook invocation can
+            # retry the sync.
+            kb.mark_janus_sync_completed(conn, task_id)
 
             # Record an audit comment on the completed task.
             _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
 
-            # Stamp the sync-complete marker so re-fires are no-ops.
-            kb.mark_janus_sync_completed(conn, task_id)
-
-            # ``dispatch`` preserves the raw service dispatch results (backward-
-            # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
-            # top-level ``state_changes`` surfaces what Janus actually mutated —
-            # the propagated state updates echoing back through the channel.
-            return {
-                "status": "synced",
-                "task_id": task_id,
-                "domain_object": metadata.object,
-                "domain_title": metadata.title,
-                "dispatch": propagation.get("dispatch", {}),
-                "state_changes": propagation.get("state_changes", []),
-                "synced_at": propagation.get("synced_at"),
-            }
-        finally:
-            conn.close()
+        # ``dispatch`` preserves the raw service dispatch results (backward-
+        # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
+        # top-level ``state_changes`` surfaces what Janus actually mutated —
+        # the propagated state updates echoing back through the channel.
+        return {
+            "status": "synced",
+            "task_id": task_id,
+            "domain_object": metadata.object,
+            "domain_title": metadata.title,
+            "dispatch": propagation.get("dispatch", {}),
+            "state_changes": propagation.get("state_changes", []),
+            "synced_at": propagation.get("synced_at"),
+        }
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
