@@ -13,7 +13,38 @@ set containing "Prepare training plan" — mirroring the content of the real
 behave as if the production file existed with that content.
 """
 
+import logging
+
 import pytest
+
+from janus.logging_config import _StructuredFormatter
+
+
+@pytest.fixture
+def captor():
+    """Attach a stream handler to the ``janus`` logger, capturing formatted lines.
+
+    Returns a list of raw formatted log strings (one per emitted record).
+    """
+    records: list[str] = []
+
+    class _ListHandler(logging.Handler):
+        def emit(self, record):
+            records.append(self.format(record))
+
+    handler = _ListHandler()
+    handler.setFormatter(_StructuredFormatter())
+
+    root = logging.getLogger("janus")
+    root.setLevel(logging.INFO)
+    saved_handlers = list(root.handlers)
+    root.handlers = [handler]
+    root.propagate = False
+    try:
+        yield records
+    finally:
+        root.handlers = saved_handlers
+        root.propagate = False
 
 
 @pytest.fixture(autouse=True)
