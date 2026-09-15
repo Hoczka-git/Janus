@@ -37,11 +37,37 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Per-task serialization lock for concurrent hook invocations.  Two workers
+# firing ``kanban_task_completed`` for the same Janus-linked task at the same
+# time would otherwise both pass the fast-path ``janus_sync_already_processed``
+# read and then race to dispatch + stamp the marker, causing Janus
+# ``protected_write`` to raise ``DataConflictError`` (a file-level hash race,
+# not a logical one — the service functions are idempotent by title/task_id).
+# A threading.Lock keyed by task_id serializes dispatch so only the winning
+# thread touches Janus storage; the other observes the stamped marker and
+# returns ``already_synced``.  This keeps the marker applied *after* a
+# successful dispatch (preserving the failure-retry contract from design §5.1)
+# while making concurrent dispatch safe.
+_sync_locks: dict[str, threading.Lock] = {}
+_sync_locks_guard = threading.Lock()
+
+
+def _task_sync_lock(task_id: str) -> threading.Lock:
+    """Return (creating if needed) the per-task sync lock."""
+    with _sync_locks_guard:
+        lock = _sync_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _sync_locks[task_id] = lock
+        return lock
 
 
 # ---------------------------------------------------------------------------
@@ -125,15 +151,33 @@ def _run_sync(
         # Build the evidence package from the completion payload + run metadata.
         evidence = _build_evidence(task, run_id, summary, conn, kb)
 
-        # Dispatch to the Janus service function (idempotent) and capture the
-        # resulting state changes for back-propagation through the channel.
-        propagation = _dispatch_to_janus(metadata, evidence)
+        # Serialize concurrent hook invocations for the same task.  The
+        # fast-path ``janus_sync_already_processed`` read above is a
+        # non-atomic check; two threads can both pass it before either
+        # stamps the marker.  The per-task lock ensures only the winning
+        # thread dispatches to Janus (avoiding ``protected_write`` hash
+        # conflicts) while preserving the contract that the marker is
+        # stamped *after* a successful dispatch.  On exit of the losing
+        # thread, the re-check inside the lock sees the marker and returns
+        # ``already_synced``.
+        with _task_sync_lock(task_id):
+            # Re-check under the lock: a prior thread may have completed
+            # the sync while we were waiting.
+            if kb.janus_sync_already_processed(conn, task_id):
+                return {"status": "already_synced", "task_id": task_id}
 
-        # Record an audit comment on the completed task.
-        _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
+            # Dispatch to the Janus service function (idempotent) and capture
+            # the resulting state changes for back-propagation through the
+            # channel.
+            propagation = _dispatch_to_janus(metadata, evidence)
 
-        # Stamp the sync-complete marker so re-fires are no-ops.
-        kb.mark_janus_sync_completed(conn, task_id)
+            # Stamp the sync-complete marker so re-fires are no-ops.  Applied
+            # only after a successful dispatch — a dispatch failure leaves the
+            # marker absent, preserving the retry path (design §5.1).
+            kb.mark_janus_sync_completed(conn, task_id)
+
+            # Record an audit comment on the completed task.
+            _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
 
         # ``dispatch`` preserves the raw service dispatch results (backward-
         # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
