@@ -103,6 +103,7 @@ class JanusDomainMetadata:
     changed_files: list[str] | None = field(default_factory=list)
     tests_passed: bool | None = None
     pr_url: str | None = None
+    skill_name: str | None = None  # optional skill label for evidence-based tracking
 
     @property
     def is_execution_feedback(self) -> bool:
@@ -129,6 +130,7 @@ class JanusDomainMetadata:
             "changed_files": self.changed_files or [],
             "tests_passed": self.tests_passed,
             "pr_url": self.pr_url,
+            "skill_name": self.skill_name,
         }
 
     @classmethod
@@ -150,6 +152,7 @@ class JanusDomainMetadata:
             changed_files=data.get("changed_files") or [],
             tests_passed=data.get("tests_passed"),
             pr_url=data.get("pr_url"),
+            skill_name=data.get("skill_name"),
         )
 
 
@@ -374,6 +377,8 @@ def _describe_state_changes(
             changes.append(f"appended recent_activity entry to goal {metadata.title!r}")
         if evidence.pr_url:
             changes.append(f"linked evidence PR {evidence.pr_url} to goal {metadata.title!r}")
+        if getattr(metadata, "skill_name", None):
+            changes.append(f"associated skill {metadata.skill_name!r} evidence with goal {metadata.title!r}")
     elif obj == "task":
         if "task" in result:
             changes.append(f"marked Janus task {metadata.title!r} completed with evidence")
@@ -521,6 +526,7 @@ def parse_janus_domain_metadata(body: str | None) -> JanusDomainMetadata | None:
         changed_files=metadata.get("changed_files") or [],
         tests_passed=metadata.get("tests_passed"),
         pr_url=metadata.get("pr_url"),
+        skill_name=metadata.get("skill_name"),
     )
 
 
@@ -617,6 +623,7 @@ def dispatch_completion(
             completed_task_id=evidence.task_id,
             completed_task_title=evidence.summary,
             evidence=evidence_dict,
+            skill_name=getattr(metadata, "skill_name", None),
         )
     elif metadata.object == "task":
         from janus.services.tasks import complete_janus_task

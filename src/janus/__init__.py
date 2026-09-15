@@ -50,6 +50,8 @@ from janus.goals_cli import (
     handle_goal_milestone,
     handle_goal_project,
     handle_goal_health,
+    handle_goal_skills,
+    handle_goal_set_skill,
     print_goal_help,
 )
 
@@ -146,6 +148,10 @@ def main() -> None:
                 handle_goal_update(filtered[2:])
             elif sub == "complete":
                 handle_goal_complete(filtered[2:])
+            elif sub == "skills":
+                handle_goal_skills(filtered[2:])
+            elif sub == "set-skill":
+                handle_goal_set_skill(filtered[2:])
             elif sub == "milestone":
                 handle_goal_milestone(filtered[2:])
             elif sub == "project":
