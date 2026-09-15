@@ -13,6 +13,8 @@ class MockEvidence:
         self.changed_files = []
         self.tests_passed = True
         self.pr_url = None
+        self.janus_body = None
+        self.metric_updates = None
 
 
 class MockMetadata:

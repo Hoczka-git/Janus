@@ -238,7 +238,10 @@ def update_goal_progress(
         evidence: Evidence package dict with keys ``task_id``,
             ``summary``, ``completed_at``, ``changed_files``,
             ``tests_passed``, ``pr_url``.  May also include
-            ``current_value`` to advance the goal's metric.
+            ``current_value`` to advance the goal's metric (legacy,
+            deprecated in favor of ``metric_updates``), or
+            ``metric_updates`` — a list of ``{"metric_name", "value",
+            "unit"}`` dicts for declarative multi-metric advancement.
 
     Returns:
         The updated Goal.
@@ -267,9 +270,26 @@ def update_goal_progress(
     ]
     goal.recent_activity.append(entry)
 
-    # Optionally advance the metric
+    # Optionally advance the metric.  The evidence dict may carry a
+    # declarative ``metric_updates`` list (design §6.2), where each entry is
+    # a dict with ``metric_name``, ``value`` and optional ``unit``.  This
+    # supports multi-metric goals and supersedes the single-value
+    # ``current_value`` legacy field (kept for one migration cycle).
     current_val = (evidence or {}).get("current_value")
-    if current_val is not None and goal.metric_name is not None:
+    metric_updates = (evidence or {}).get("metric_updates")
+    if metric_updates:
+        for mu in metric_updates:
+            if not isinstance(mu, dict):
+                continue
+            mu_name = mu.get("metric_name")
+            mu_val = mu.get("value")
+            mu_unit = mu.get("unit")
+            if mu_name == goal.metric_name and mu_val is not None:
+                goal.current_value = float(mu_val)
+                if mu_unit and not goal.metric_unit:
+                    goal.metric_unit = mu_unit
+    elif current_val is not None and goal.metric_name is not None:
+        # Legacy single-value path (deprecated, one migration cycle).
         goal.current_value = float(current_val)
 
     update_goal(goal)

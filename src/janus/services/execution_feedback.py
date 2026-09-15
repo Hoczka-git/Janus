@@ -37,14 +37,26 @@ class EvidencePackage:
     ``janus_domain.object`` is ``research`` or ``decision`` — the body
     contains the artifact or ADR markdown that must be ingested into
     Janus storage (design spec §7.2 Option B / §7.3 Option B).
+
+    The ``janus_body`` field is an optional clean artifact/ADR body,
+    separate from any Kanban-injected metadata (design spec §7.3 Option A).
+    When present it is preferred over ``body`` for ingestion.
+
+    The ``metric_updates`` field is an optional declarative list of metric
+    advancements for goal objects (design spec §6.2). Each entry is a dict
+    with ``metric_name``, ``value``, and optional ``unit``. This supports
+    multi-metric goals and is cleaner than overloading a single
+    ``current_value``.
     """
     task_id: str
     summary: str
-    completed_at: str | None = None
-    changed_files: list[str] | None = field(default_factory=list)
+    completed_at: str | None = None         # ISO-8601 UTC
+    changed_files: list[str] | None = field(default_factory=list)  # defaults to []
     tests_passed: bool | None = None
     pr_url: str | None = None
-    body: str | None = None
+    body: str | None = None                 # full task body (for research/decision ingestion)
+    janus_body: str | None = None           # clean artifact/ADR body (design §7.3 Option A)
+    metric_updates: list[dict] | None = None  # declarative metric advancement (design §6.2)
 
     def to_dict(self) -> dict:
         """Serialize to a plain dict for storage in ``Goal.recent_activity``.
@@ -60,6 +72,8 @@ class EvidencePackage:
             "tests_passed": self.tests_passed,
             "pr_url": self.pr_url,
             "body": self.body,
+            "janus_body": self.janus_body,
+            "metric_updates": self.metric_updates,
         }
 
     @classmethod
@@ -78,6 +92,8 @@ class EvidencePackage:
             tests_passed=data.get("tests_passed"),
             pr_url=data.get("pr_url"),
             body=data.get("body"),
+            janus_body=data.get("janus_body"),
+            metric_updates=data.get("metric_updates"),
         )
 
 
@@ -641,7 +657,7 @@ def dispatch_completion(
         # For "decision" the body is an ADR markdown file
         # (frontmatter with adr_number/title/status/etc.). It is parsed
         # and persisted via services.decisions.
-        if not evidence.body:
+        if not evidence.body and not evidence.janus_body:
             results["skipped"] = metadata.object
             results["reason"] = "no body content to ingest"
         elif metadata.object == "decision":
@@ -698,12 +714,16 @@ def _ingest_research(
         update_artifact,
     )
 
-    if not evidence.body:
+    if not evidence.body and not evidence.janus_body:
         return {"skipped": metadata.object, "reason": "no body content to ingest"}
 
-    # Strip the leading janus_domain frontmatter block (if present) so the
-    # artifact's own frontmatter is the first --- block.
-    artifact_body = _strip_janus_domain_frontmatter(evidence.body)
+    # Prefer the clean janus_body (design §7.3 Option A) when present — it is
+    # stripped of any Kanban-injected metadata lines.  Fall back to stripping
+    # the janus_domain frontmatter from the full body (Option B).
+    if evidence.janus_body:
+        artifact_body = evidence.janus_body
+    else:
+        artifact_body = _strip_janus_domain_frontmatter(evidence.body or "")
     if not artifact_body or not artifact_body.strip():
         return {"skipped": metadata.object, "reason": "no artifact markdown body"}
 
@@ -875,15 +895,19 @@ def _ingest_decision(
     Returns a dict with the persisted ADR path, or ``"skipped"`` when the
     body cannot be parsed as an ADR.
     """
-    if not evidence.body:
+    if not evidence.body and not evidence.janus_body:
         return {"skipped": metadata.object, "reason": "no body content to ingest"}
 
     from janus.decision_cli import _parse_decision_content
     from janus.integrations.markdown_research import _strip_janus_domain_frontmatter
 
-    # Strip the leading janus_domain frontmatter block (if present) so the
-    # ADR's own frontmatter is the first --- block.
-    adr_body = _strip_janus_domain_frontmatter(evidence.body)
+    # Prefer the clean janus_body (design §7.3 Option A) when present.
+    # Fall back to stripping the janus_domain frontmatter from the full body
+    # (Option B).
+    if evidence.janus_body:
+        adr_body = evidence.janus_body
+    else:
+        adr_body = _strip_janus_domain_frontmatter(evidence.body or "")
     if not adr_body or not adr_body.strip():
         return {"skipped": metadata.object, "reason": "no ADR markdown body"}
 
