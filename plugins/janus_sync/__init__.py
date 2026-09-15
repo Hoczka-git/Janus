@@ -137,6 +137,10 @@ def on_task_completed(
             task_id, exc, exc_info=True,
         )
         _try_record_error(task_id, board, exc)
+        # Phase 1 — emit a structured janus_sync_failed event (design §6.5)
+        # so the dispatcher / dashboard surfaces the failure alongside the
+        # audit comment.
+        _try_append_sync_failed_event(task_id, board, exc)
         return None
 
 
@@ -219,6 +223,23 @@ def _run_sync(
             # Record an audit comment on the completed task.
             _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
 
+        # Phase 1 — structured state-change events (design §6.1/§6.5).
+        # The kanban_db mark_janus_sync_completed() emits a bare
+        # ``janus_sync_completed`` event ({"synced_at": ts}).  We append a
+        # richer ``janus_sync_succeeded`` event carrying the domain object,
+        # title, and the concrete state_changes so downstream tasks / the
+        # dispatcher can read what Janus actually mutated without parsing
+        # audit comments.
+        _try_append_sync_event(
+            conn, kb, task_id, "janus_sync_succeeded",
+            {
+                "domain_object": metadata.object,
+                "domain_title": metadata.title,
+                "state_changes": propagation.get("state_changes", []),
+                "synced_at": propagation.get("synced_at"),
+            },
+        )
+
         # ``dispatch`` preserves the raw service dispatch results (backward-
         # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
         # top-level ``state_changes`` surfaces what Janus actually mutated —
@@ -269,6 +290,11 @@ def _build_evidence(
       flag, if reported by the closing run.
     * ``pr_url``    — worker metadata ``pr_url``, if the integration gate
       produced one.
+    * ``janus_body`` — worker metadata ``janus_body``, a clean artifact/ADR
+      body separate from Kanban metadata (design §7.3 Option A). Used in
+      preference to ``body`` for research/finding/decision ingestion.
+    * ``metric_updates`` — worker metadata ``metric_updates``: a declarative
+      list of metric advancements for goal objects (design §6.2).
     """
     from janus.services.execution_feedback import EvidencePackage
 
@@ -276,6 +302,8 @@ def _build_evidence(
     changed_files: list[str] = []
     tests_passed = None
     pr_url = None
+    janus_body = None
+    metric_updates = None
 
     # The task body carries ``janus_domain`` frontmatter and — for
     # ``object: research|finding|decision`` — the full markdown artifact or
@@ -321,6 +349,14 @@ def _build_evidence(
         cf = meta.get("changed_files")
         if isinstance(cf, list) and cf:
             changed_files = [str(f) for f in cf]
+        # Design §6.2: declarative metric_updates from the worker.
+        mu = meta.get("metric_updates")
+        if isinstance(mu, list) and mu:
+            metric_updates = [m for m in mu if isinstance(m, dict)]
+        # Design §7.3 Option A: a clean janus_body separate from Kanban metadata.
+        jb = meta.get("janus_body")
+        if isinstance(jb, str) and jb.strip():
+            janus_body = jb
 
     # Fall back to a workspace git diff for changed files.
     if not changed_files:
@@ -334,6 +370,8 @@ def _build_evidence(
         tests_passed=tests_passed,
         pr_url=pr_url,
         body=body,
+        janus_body=janus_body,
+        metric_updates=metric_updates,
     )
 
 
@@ -516,6 +554,60 @@ def _try_record_error(
         )
     except Exception:  # noqa: BLE001
         pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Structured sync events (design §6.1 / §6.5)
+# ---------------------------------------------------------------------------
+def _try_append_sync_event(
+    conn, kb, task_id: str, kind: str, payload: dict,
+) -> None:
+    """Append a structured ``janus_sync_*`` task event, best-effort.
+
+    ``mark_janus_sync_completed`` emits a bare ``janus_sync_completed`` event
+    carrying only ``{"synced_at": ts}``.  These helpers append richer events
+    (``janus_sync_succeeded`` / ``janus_sync_failed``) carrying the domain
+    object, title, and concrete state_changes so downstream tasks and the
+    dispatcher can read what Janus actually mutated without parsing audit
+    comments.
+
+    Called from within the already-open ``_run_sync`` txn context (the
+    connection is already open).  For the failure path (called from
+    ``on_task_completed``'s except handler) the connection is opened fresh
+    via :func:`_try_append_sync_failed_event`.
+    """
+    try:
+        kb._append_event(conn, task_id, kind, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("janus_sync: _append_event(%s) failed: %s", kind, exc)
+
+
+def _try_append_sync_failed_event(
+    task_id: Optional[str], board: Optional[str], exc: Exception,
+) -> None:
+    """Append a ``janus_sync_failed`` task event, best-effort.
+
+    Mirrors :func:`_try_record_error` for connection lifecycle: opens a
+    connection to the same board as the sync attempt, appends the event,
+    and never raises.
+    """
+    from hermes_cli import kanban_db as kb
+
+    if not task_id:
+        return
+    conn = None
+    try:
+        conn = kb.connect(board=board) if board else kb.connect()
+        kb._append_event(conn, task_id, "janus_sync_failed", {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "detail": getattr(exc, "args", None),
+        })
+    except Exception as exc2:  # noqa: BLE001
+        logger.debug("janus_sync: _append_event(janus_sync_failed) failed: %s", exc2)
     finally:
         if conn is not None:
             conn.close()
