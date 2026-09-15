@@ -71,6 +71,41 @@ def _task_sync_lock(task_id: str) -> threading.Lock:
 
 
 # ---------------------------------------------------------------------------
+# Per-task re-entrancy guard (in-process concurrency)
+# ---------------------------------------------------------------------------
+# ``janus_sync_already_processed`` (SELECT) and ``mark_janus_sync_completed``
+# (UPDATE) are not atomic with each other, so two concurrent hook firings for
+# the same task can both pass the "already processed" check before either
+# stamps the marker — a classic TOCTOU race.  SQLite's ``BEGIN IMMEDIATE``
+# write lock would serialize the writes, but the *read-check* happens before
+# the write txn opens, so it doesn't close the gap.
+#
+# We close it with a process-local ``threading.Lock`` per ``task_id``: the
+# first thread to enter acquires the lock, performs the full read-check-dispatch-
+# stamp cycle, and only then releases so the second thread — running the
+# same ``_run_sync`` — observes the stamped marker and returns
+# ``already_synced`` instead of re-dispatching.
+#
+# This covers *in-process* concurrency (the dispatcher may fan out multiple
+# worker hooks into the same observer host).  Cross-process re-entrancy is
+# already guarded by ``janus_sync_already_processed`` reading the DB marker,
+# which persists across worker restarts — this lock simply makes the
+# same-process race-safe so the marker is observed exactly once per task.
+_janus_sync_locks: dict[str, threading.Lock] = {}
+_janus_sync_locks_guard = threading.Lock()
+
+
+def _sync_lock_for(task_id: str) -> threading.Lock:
+    """Return (creating if necessary) the in-process lock for *task_id*."""
+    with _janus_sync_locks_guard:
+        lock = _janus_sync_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _janus_sync_locks[task_id] = lock
+        return lock
+
+
+# ---------------------------------------------------------------------------
 # Hook callback
 # ---------------------------------------------------------------------------
 def on_task_completed(
@@ -119,11 +154,19 @@ def _run_sync(
 
     Returns the dispatch result dict, or ``None`` when the task has no Janus
     linkage (no ``janus_domain`` frontmatter).
-    """
-    from hermes_cli import kanban_db as kb
 
-    conn = kb.connect(board=board) if board else kb.connect()
-    try:
+    Concurrency: a per-task process lock serializes concurrent hook firings
+    for the *same* task_id, closing the TOCTOU gap between
+    ``janus_sync_already_processed`` (read) and ``mark_janus_sync_completed``
+    (write).  The second concurrent caller observes the stamped marker and
+    returns ``already_synced`` instead of re-dispatching.
+    """
+    lock = _sync_lock_for(task_id)
+    with lock:
+        from hermes_cli import kanban_db as kb
+
+        conn = kb.connect(board=board) if board else kb.connect()
+        try:
         task = kb.get_task(conn, task_id)
 
         if task is None:
@@ -131,9 +174,8 @@ def _run_sync(
 
         body = task.body or ""
 
-        # Re-entrancy guard: a completed, already-synced task is skipped.
-        # The marker is read directly from the DB via kanban_db rather than
-        # the in-memory ``body`` copy, so it survives across worker runs.
+        # Fast-path re-entrancy guard. The marker is read directly from the DB
+        # so it survives across worker runs.
         if kb.janus_sync_already_processed(conn, task_id):
             return {"status": "already_synced", "task_id": task_id}
 
@@ -142,7 +184,11 @@ def _run_sync(
             metadata = _parse_janus_domain(body)
         except ValueError as exc:
             _try_record_error(task_id, board, exc, detail="parse_janus_domain")
-            return {"status": "parse_error", "task_id": task_id, "error": str(exc)}
+            return {
+                "status": "parse_error",
+                "task_id": task_id,
+                "error": str(exc),
+            }
 
         if metadata is None:
             # No Janus linkage — nothing to sync (common completion path untouched).
@@ -151,18 +197,12 @@ def _run_sync(
         # Build the evidence package from the completion payload + run metadata.
         evidence = _build_evidence(task, run_id, summary, conn, kb)
 
-        # Serialize concurrent hook invocations for the same task.  The
-        # fast-path ``janus_sync_already_processed`` read above is a
-        # non-atomic check; two threads can both pass it before either
-        # stamps the marker.  The per-task lock ensures only the winning
-        # thread dispatches to Janus (avoiding ``protected_write`` hash
-        # conflicts) while preserving the contract that the marker is
-        # stamped *after* a successful dispatch.  On exit of the losing
-        # thread, the re-check inside the lock sees the marker and returns
-        # ``already_synced``.
+        # Serialize concurrent hook invocations for the same task. The initial
+        # janus_sync_already_processed() check is not atomic with the marker
+        # write, so two concurrent workers could otherwise both dispatch.
         with _task_sync_lock(task_id):
-            # Re-check under the lock: a prior thread may have completed
-            # the sync while we were waiting.
+            # Re-check under the lock: another thread may have completed the
+            # sync while this thread was waiting.
             if kb.janus_sync_already_processed(conn, task_id):
                 return {"status": "already_synced", "task_id": task_id}
 
@@ -171,9 +211,9 @@ def _run_sync(
             # channel.
             propagation = _dispatch_to_janus(metadata, evidence)
 
-            # Stamp the sync-complete marker so re-fires are no-ops.  Applied
-            # only after a successful dispatch — a dispatch failure leaves the
-            # marker absent, preserving the retry path (design §5.1).
+            # Stamp the marker only after successful dispatch. If dispatch
+            # fails, the marker remains absent and a later hook invocation can
+            # retry the sync.
             kb.mark_janus_sync_completed(conn, task_id)
 
             # Record an audit comment on the completed task.
