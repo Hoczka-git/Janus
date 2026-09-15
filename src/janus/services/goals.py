@@ -33,6 +33,7 @@ def add_goal(
     measurement_requirements: list[dict] | None = None,
     research_artifact_titles: list[str] | None = None,
     inactivity_window_days: int | None = None,
+    skill_name: str | None = None,
 ) -> Goal:
     """Validate and persist a new Goal.
 
@@ -58,6 +59,7 @@ def add_goal(
         measurement_requirements=measurement_requirements,
         research_artifact_titles=research_artifact_titles,
         inactivity_window_days=inactivity_window_days,
+        skill_name=skill_name,
     )
     # Check for duplicate title before saving
     existing = load_goals()
@@ -99,7 +101,8 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
                   set_measurement_requirements,
                   add_research_artifact, remove_research_artifact,
                   set_research_artifacts,
-                  inactivity_window_days.
+                  inactivity_window_days,
+                  skill_name.
     Returns the updated Goal. Raises ValueError if goal not found or validation fails.
     """
     goal = get_goal(title)
@@ -170,6 +173,8 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         followup_ids=goal.followup_ids,
         inactivity_window_days=goal.inactivity_window_days,
         recent_activity=goal.recent_activity,
+        skill_name=goal.skill_name,
+        skill_evidence=goal.skill_evidence,
     )
 
     update_goal(goal)
@@ -216,6 +221,7 @@ def update_goal_progress(
     completed_task_id: str,
     completed_task_title: str,
     evidence: dict | None = None,
+    skill_name: str | None = None,
 ) -> Goal:
     """Record completion evidence on a Goal and bump its progress.
 
@@ -227,6 +233,12 @@ def update_goal_progress(
     the goal.  If the evidence package indicates the goal's metric
     ``current_value`` should advance (via ``evidence.current_value``),
     the metric is updated too.
+
+    If ``skill_name`` is provided and matches ``goal.skill_name`` (or the
+    goal has no skill set yet), the evidence entry is also appended to
+    ``goal.skill_evidence``.  If the skill_name does not match the goal's
+    existing skill, evidence goes to ``recent_activity`` only (a warning
+    is logged).
 
     This operation is idempotent: if an activity entry with the same
     ``task_id`` already exists, it is replaced rather than duplicated.
@@ -242,6 +254,7 @@ def update_goal_progress(
             deprecated in favor of ``metric_updates``), or
             ``metric_updates`` — a list of ``{"metric_name", "value",
             "unit"}`` dicts for declarative multi-metric advancement.
+        skill_name: Optional skill label to associate with this evidence.
 
     Returns:
         The updated Goal.
@@ -269,6 +282,29 @@ def update_goal_progress(
         if e.get("task_id") != completed_task_id
     ]
     goal.recent_activity.append(entry)
+
+    # Skill evidence: if skill_name matches the goal's skill (or the goal
+    # has no skill yet), append the entry to skill_evidence too.
+    # The entry shape matches recent_activity entries (design §4.1).
+    if skill_name:
+        if goal.skill_name is None:
+            goal.skill_name = skill_name.strip()
+        if goal.skill_evidence is None:
+            goal.skill_evidence = []
+        if goal.skill_name == skill_name.strip():
+            # Replace existing skill_evidence entry for this task_id (idempotent)
+            goal.skill_evidence = [
+                e for e in goal.skill_evidence
+                if e.get("task_id") != completed_task_id
+            ]
+            goal.skill_evidence.append(entry)
+        else:
+            # Skill mismatch — evidence goes to recent_activity only
+            logger.warning(
+                "skill_name %r does not match goal %r's skill %r; "
+                "evidence recorded in recent_activity only",
+                skill_name, goal.title, goal.skill_name,
+            )
 
     # Optionally advance the metric.  The evidence dict may carry a
     # declarative ``metric_updates`` list (design §6.2), where each entry is
