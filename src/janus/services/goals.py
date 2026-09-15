@@ -250,7 +250,6 @@ def update_goal_progress(
         evidence: Evidence package dict with keys ``task_id``,
             ``summary``, ``completed_at``, ``changed_files``,
             ``tests_passed``, ``pr_url``.  May also include
-<<<<<<< HEAD
             ``current_value`` to advance the goal's metric (legacy,
             deprecated in favor of ``metric_updates``), or
             ``metric_updates`` — a list of ``{"metric_name", "value",
