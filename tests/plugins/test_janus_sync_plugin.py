@@ -479,6 +479,62 @@ class TestReentrancyMarker:
 
 
 # ---------------------------------------------------------------------------
+# Structured sync events (design §6.1 / §6.5)
+# ---------------------------------------------------------------------------
+class TestStructuredSyncEvents:
+    def test_janus_sync_succeeded_event_emitted(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A successful sync appends a janus_sync_succeeded task event
+        carrying domain_object, domain_title, and state_changes."""
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: My goal\nStatus: active\n",
+        )
+        tid = _create_task(conn, title="Goal task", body=_JANUS_DOMAIN_GOAL)
+        kb.complete_task(conn, tid, result="done", summary="Goal work done")
+
+        plugin_module.on_task_completed(tid, board="default",
+                                        run_id=1, summary="Goal work done")
+
+        events = kb.list_events(conn, tid)
+        sync_events = [e for e in events if e.kind == "janus_sync_succeeded"]
+        assert len(sync_events) == 1
+        payload = sync_events[0].payload
+        assert payload["domain_object"] == "goal"
+        assert payload["domain_title"] == "My goal"
+        assert isinstance(payload["state_changes"], list)
+        assert len(payload["state_changes"]) > 0
+        assert "synced_at" in payload
+
+    def test_janus_sync_failed_event_emitted_on_error(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A sync exception appends a janus_sync_failed task event with the
+        error type and message, and the observer never raises."""
+        _setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature X\n")
+        tid = _create_task(conn, title="T", body=_JANUS_DOMAIN_TASK)
+        kb.complete_task(conn, tid, result="done", summary="Done")
+
+        with mock.patch(
+            "janus.services.execution_feedback.dispatch_completion",
+            side_effect=RuntimeError("Janus exploded"),
+        ):
+            # Must not raise — fail-safe observer.
+            result = plugin_module.on_task_completed(
+                tid, board="default", run_id=1, summary="Done",
+            )
+
+        assert result is None  # the hook callback returns None on failure
+        events = kb.list_events(conn, tid)
+        failed_events = [e for e in events if e.kind == "janus_sync_failed"]
+        assert len(failed_events) == 1
+        payload = failed_events[0].payload
+        assert payload["error_type"] == "RuntimeError"
+        assert "Janus exploded" in payload["error_message"]
+
+
+# ---------------------------------------------------------------------------
 # Research artifact & decision ingestion via the full plugin path
 # ---------------------------------------------------------------------------
 # These tests exercise the Hermes → Janus write-back flow end-to-end:
@@ -634,3 +690,140 @@ class TestResearchDecisionPluginSync:
         assert decision.title == "ADR-005: Accumulate GLUE shares"
         assert decision.status == "accepted"
         assert "GLUE Research Report" in decision.finding_sources
+
+
+# ---------------------------------------------------------------------------
+# Evidence lifecycle: run metadata -> EvidencePackage -> Janus domain state
+# ---------------------------------------------------------------------------
+class TestEvidenceLifecycle:
+    """Targeted tests for the evidence capture and attachment lifecycle:
+    how execution evidence (changed_files, tests_passed, pr_url,
+    janus_body, metric_updates) flows from run metadata through
+    _build_evidence into an EvidencePackage and then into Janus domain
+    state via dispatch_completion.
+    """
+
+    def test_evidence_fields_propagate_to_goal_recent_activity(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """changed_files, tests_passed, pr_url from run metadata land in the
+        goal's recent_activity entry via the assembled EvidencePackage."""
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: My goal\nStatus: active\n",
+        )
+        tid = _create_task(conn, title="Goal task", body=_JANUS_DOMAIN_GOAL)
+        kb.complete_task(
+            conn, tid, result="done", summary="Goal work done",
+            metadata={
+                "changed_files": ["src/a.py", "src/b.py"],
+                "tests_passed": True,
+                "pr_url": "https://example.com/pr/5",
+            },
+        )
+
+        plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Goal work done"
+        )
+
+        from janus.integrations.markdown_goals import load_goals
+        goal = load_goals()[0]
+        assert len(goal.recent_activity) == 1
+        entry = goal.recent_activity[0]
+        assert entry["task_id"] == tid
+        assert entry["summary"] == "Goal work done"
+        assert entry["changed_files"] == ["src/a.py", "src/b.py"]
+        assert entry["tests_passed"] is True
+        assert entry["pr_url"] == "https://example.com/pr/5"
+
+    def test_metric_updates_from_run_metadata_advances_goal_metric(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """metric_updates in run metadata flows through _build_evidence into
+        the EvidencePackage and advances the goal's current_value."""
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Weight\nStatus: active\n"
+            "Metric: Weight\nUnit: kg\nStart: 80\nCurrent: 78\n"
+            "Target: 70\nDirection: decrease\n",
+        )
+        goal_body = (
+            "---\njanus_domain:\n  object: goal\n  title: Weight\n---\n"
+            "Lose weight."
+        )
+        tid = _create_task(conn, title="Weight task", body=goal_body)
+        kb.complete_task(
+            conn, tid, result="done", summary="Diet plan",
+            metadata={
+                "metric_updates": [
+                    {"metric_name": "Weight", "value": 72.0, "unit": "kg"},
+                ],
+            },
+        )
+
+        plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Diet plan"
+        )
+
+        from janus.services.goals import get_goal
+        g = get_goal("Weight")
+        assert g.current_value == 72.0
+        assert g.metric_unit == "kg"
+
+    def test_janus_body_used_for_research_ingestion(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """When janus_body is provided in run metadata, it is used (preferred
+        over evidence.body) for research artifact ingestion."""
+        research_dir = tmp_path / "research"
+        from janus.integrations import markdown_research
+        monkeypatch.setattr(markdown_research, "RESEARCH_DIR", research_dir)
+        monkeypatch.setattr(
+            "janus.services.research_artifacts.RESEARCH_DIR", research_dir
+        )
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Test Research\nStatus: active\n",
+        )
+
+        research_body = (
+            "---\ntitle: \"Test Research\"\nartifact_type: report\n"
+            "target: Test\nversion: 1\n---\n\n"
+            "# Summary\nClean janus_body research.\n\n"
+            "# Findings\n\n## Finding 1\n"
+            "**Statement:** Test finding\n**Topic:** test\n"
+            "**Confidence:** wyzszy\n**Decision numbers:** []\n\n"
+            "### Sources\n"
+            "- [url](http://example.com)\n  - title: Ex\n  - type: web\n"
+        )
+
+        tid = _create_task(
+            conn, title="Research task",
+            body=_JANUS_DOMAIN_RESEARCH_CLEAN,
+        )
+        kb.complete_task(
+            conn, tid, result="done", summary="Research done",
+            metadata={"janus_body": research_body},
+        )
+
+        result = plugin_module.on_task_completed(
+            tid, board="default", run_id=1, summary="Research done"
+        )
+        assert result["status"] == "synced"
+        assert result["domain_object"] == "research"
+
+        from janus.services.research_artifacts import load_artifact
+        artifact = load_artifact("test-research")
+        assert artifact.title == "Test Research"
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].statement == "Test finding"
+
+
+_JANUS_DOMAIN_RESEARCH_CLEAN = (
+    "---\n"
+    "janus_domain:\n"
+    "  object: research\n"
+    "  title: \"Test Research\"\n"
+    "---\n"
+    "Task body, but janus_body metadata should be used instead."
+)
