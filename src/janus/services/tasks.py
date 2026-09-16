@@ -64,7 +64,7 @@ def complete_task(title: str) -> Task:
     if not matches:
         raise ValueError(f"Task not found: {title}")
     if len(matches) > 1:
-        raise ValueError(f"Multiple open tasks found with title: {title}")
+        raise ValueError(f"Found {len(matches)} open tasks matching title: {title}")
 
     idx = matches[0]
     line = lines[idx]
