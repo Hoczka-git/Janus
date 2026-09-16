@@ -53,6 +53,21 @@ class Goal:
     #                  tests_passed, pr_url}
     recent_activity: list[dict] | None = None
 
+    # Skill tracking (MVP — evidence-based skill development, see design §4.1)
+    skill_name: str | None = None
+        # Human-readable skill label, e.g. "Python", "ML system design",
+        # "technical writing". A goal develops one primary skill.
+        # None = no skill tracking for this goal.
+
+    skill_evidence: list[dict] | None = None
+        # Filtered/projected view of recent_activity for tasks that
+        # practiced this skill. Each dict has the same shape as
+        # recent_activity entries:
+        #   {task_id, summary, completed_at, changed_files,
+        #    tests_passed, pr_url}
+        # Computed on demand at first; persisted if query performance
+        # requires it.
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
@@ -69,6 +84,8 @@ class Goal:
         self.research_artifact_titles = self._dedup_related_tasks(self.research_artifact_titles)
         if self.recent_activity is None:
             self.recent_activity = []
+        if self.skill_evidence is None:
+            self.skill_evidence = []
         if self.decision_numbers is None:
             self.decision_numbers = []
         self.decision_numbers = self._dedup_related_tasks(self.decision_numbers)
@@ -81,6 +98,12 @@ class Goal:
                     f"Goal.research_artifact_titles must contain str instances, "
                     f"got {type(t).__name__}"
                 )
+        if self.skill_name is not None:
+            if not isinstance(self.skill_name, str) or not self.skill_name.strip():
+                raise ValueError(
+                    "skill_name must be a non-empty string if provided"
+                )
+            self.skill_name = self.skill_name.strip()
         if self.status not in ("active", "completed", "inactive"):
             raise ValueError(
                 f"Invalid goal status: {self.status!r}. "

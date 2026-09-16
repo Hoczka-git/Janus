@@ -374,3 +374,110 @@ def reopen_project(
     return update_project(
         goal_title, milestone_title, project_title, status="open"
     )
+
+
+def complete_project_by_title(
+    project_title: str,
+    evidence: dict | None = None,
+) -> Project:
+    """Mark a project complete, resolving the goal/milestone by project title.
+
+    Called by the Hermes-side execution-feedback sync listener when a
+    Kanban task that carries ``janus_domain: object: project`` linkage
+    completes.  Like :func:`janus.services.milestones.update_milestone_status`,
+    the goal and parent milestone are resolved by searching all goals for a
+    project whose title matches (the ``janus_domain`` frontmatter carries only
+    the project title, not the enclosing goal/milestone).
+
+    The project is marked ``completed`` and an evidence entry is appended to
+    the enclosing goal's ``recent_activity`` (mirroring
+    :func:`janus.services.milestones._append_milestone_evidence`), so the
+    completion is visible on the goal's audit trail.
+
+    Idempotent: a re-entrant completion for an already-completed project is a
+    no-op on status, but the evidence entry is refreshed.
+
+    Args:
+        project_title: Project title (exact match within any goal).
+        evidence: Evidence package dict with keys ``task_id``, ``summary``,
+            ``completed_at``, ``changed_files``, ``tests_passed``, ``pr_url``.
+
+    Returns:
+        The updated Project.
+
+    Raises:
+        ValueError: if no project with this title is found.
+    """
+    evidence = evidence or {}
+    # Find the goal + milestone that contain this project, by title.
+    goal = None
+    goal_title_found = None
+    proj_idx = None
+    for g in load_goals():
+        if g.projects is None:
+            continue
+        for i, p in enumerate(g.projects):
+            if p.get("title") == project_title:
+                goal = g
+                goal_title_found = g.title
+                proj_idx = i
+                break
+        if goal is not None:
+            break
+    if goal is None:
+        raise ValueError(f"Project not found: {project_title!r}")
+    assert proj_idx is not None  # narrowed by the loop above
+
+    proj_dict = goal.projects[proj_idx]
+    ms_title = proj_dict.get("milestone_title", "")
+
+    # If already completed, refresh evidence but skip the status write.
+    if proj_dict.get("status") == "completed":
+        _append_project_evidence(goal, evidence.get("task_id", ""), evidence)
+        emit(logger, "service.project.update",
+             trace_id=None, span_id="service",
+             operation="complete_existing", goal_title=goal_title_found,
+             milestone_title=ms_title, project_title=project_title,
+             message=f"Project '{project_title}' already completed; "
+                     f"refreshed evidence")
+        return _project_from_dict(proj_dict)
+
+    proj_dict["status"] = "completed"
+    goal.projects[proj_idx] = proj_dict
+    update_goal(goal)
+
+    _append_project_evidence(goal, evidence.get("task_id", ""), evidence)
+
+    emit(logger, "service.project.mutated",
+         trace_id=None, span_id="service",
+         operation="complete", goal_title=goal_title_found,
+         milestone_title=ms_title, project_title=project_title,
+         changes={"status": "completed"},
+         message=f"Project '{project_title}' completed via execution feedback")
+    return _project_from_dict(proj_dict)
+
+
+def _append_project_evidence(
+    goal: Goal, task_id: str, evidence: dict,
+) -> None:
+    """Append an evidence entry to a goal's ``recent_activity`` from a project
+    completion sync.
+
+    Idempotent: replaces any existing entry with the same ``task_id``.
+    """
+    if goal.recent_activity is None:
+        goal.recent_activity = []
+    entry = {
+        "task_id": task_id,
+        "summary": evidence.get("summary", ""),
+        "completed_at": evidence.get("completed_at"),
+        "changed_files": evidence.get("changed_files", []) or [],
+        "tests_passed": evidence.get("tests_passed"),
+        "pr_url": evidence.get("pr_url"),
+    }
+    goal.recent_activity = [
+        e for e in goal.recent_activity
+        if e.get("task_id") != task_id
+    ]
+    goal.recent_activity.append(entry)
+    update_goal(goal)

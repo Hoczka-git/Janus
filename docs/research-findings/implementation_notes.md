@@ -39,10 +39,28 @@ functions).  The handoff mechanism itself (phases 1–2) lives in the Hermes rep
   `parse_janus_domain_metadata()`, links a Kanban task to a Janus domain object
   (`goal`, `task`, `milestone`, `project`, `finding`, `decision`).
 - **`EvidencePackage`** dataclass: `{task_id, summary, completed_at, changed_files,
-  tests_passed, pr_url}` — matches design §4.5 evidence flow table.
+  tests_passed, pr_url, body}` — matches design §4.5 evidence flow table; `body`
+  carries the full task body for `research`/`finding`/`decision` objects (design §7.2/§7.3
+  Option B).
+- **`JanusDomainMetadata`** dataclass: parsed `janus_domain` frontmatter —
+  `{object, title, changed_files, tests_passed, pr_url}`.
+- **`ExecutionResultMessage`** dataclass: wire-format combining `JanusDomainMetadata`
+  + `EvidencePackage`; JSON-serializable via `to_json`/`from_json`, dict-serializable
+  via `to_dict`/`from_dict`.
+- **`send_execution_result(metadata, evidence)`** / **`receive_execution_result(message)`**:
+  send/receive entry points for the Hermes → Janus protocol. The sender serializes
+  to JSON; the receiver deserializes and dispatches to Janus services.
+- **`attach_evidence(metadata, evidence)`**: Janus-side entry point that bundles
+  metadata + evidence into an `ExecutionResultMessage` (object form, evidence attached).
+- **`propagate_state_updates(metadata, evidence)`**: dispatches attached evidence
+  via `dispatch_completion`, captures resulting state changes via
+  `_describe_state_changes()`, and returns a structured, JSON-serializable payload
+  `{task_id, domain_object, domain_title, dispatch, state_changes, synced_at}` for
+  back-propagation through the Janus↔Hermes channel. Round-trips through the
+  send/receive protocol so the same wire format is exercised end-to-end.
 - **`dispatch_completion(metadata, evidence)`**: routes to
-  `update_goal_progress`, `complete_janus_task`, or `update_milestone_status`
-  based on `metadata.object`.
+  `update_goal_progress`, `complete_janus_task`, `update_milestone_status`, or
+  `_ingest_research`/`_ingest_decision` based on `metadata.object`.
 - **Service function signatures:**
   - `update_goal_progress(title, completed_task_id, completed_task_title, evidence) -> Goal`
   - `complete_janus_task(title, evidence) -> Task`
@@ -87,8 +105,12 @@ functions).  The handoff mechanism itself (phases 1–2) lives in the Hermes rep
 ## Test results
 
 ```
-tests/test_execution_feedback.py: 36 passed
-Full suite: 1385 passed
+tests/test_execution_feedback.py: 77 passed (was 36; +41 for attach_evidence,
+  propagate_state_updates, send/receive protocol, ExecutionResultMessage, and
+  _normalize_to_jsonable)
+tests/plugins/test_janus_sync_plugin.py: 19 passed (was 0; +19 for propagate_state_updates
+  integration, audit comments, and re-entrancy guard)
+Full suite: 1809 passed
 ```
 
 ## What is NOT implemented (Hermes-side, out of this repo's scope)
@@ -96,9 +118,15 @@ Full suite: 1385 passed
 - `create_task()` `integration_required` auto-injection (Hermes `kanban_db.py`)
 - `continuation_contract` parsing, `should_continue()`, `validate_continuation_artifacts()`,
   `create_continuation_task()` (Hermes `kanban_db.py`)
-- `kanban_task_completed` sync listener plugin (Hermes `plugins/janus_sync/`)
 - `build_worker_context()` Integration Gate + Continuation sections (Hermes `kanban_db.py`)
 - CLI/MCP flag forwarding (`--integration-required`, `integration_required` param)
+
+## What IS implemented (added in follow-up: `attach_evidence` / `propagate_state_updates`)
+
+The Hermes-side sync listener plugin (`plugins/janus_sync/__init__.py`) and the
+re-entrancy guard (`janus_sync_completed_at` via `kanban_db`) are implemented
+in the companion Hermes repo and exercised by this repo's `execution_feedback`
+module via `propagate_state_updates()`.
 
 These are tracked in the sibling Hermes task and the design doc's integration
 touchpoints (§8.2).

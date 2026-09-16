@@ -1,0 +1,5 @@
+t_9e722789 integration marker — end-to-end execution feedback flow tests
+PR: https://github.com/Hoczka-git/Janus/pull/155
+Tests: 1873 passed, 0 failed (full suite)
+New: 9 end-to-end integration tests in tests/plugins/test_e2e_execution_feedback.py
+CI: blocked by GitHub Actions billing issue (account spending limit)

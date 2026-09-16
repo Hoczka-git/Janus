@@ -82,6 +82,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
     current_requirement: dict | None = None
     in_list_section: str | None = None  # "related_tasks", "research_artifacts", or "project_related_tasks"
     in_recent_activity = False          # inside a goal's ## Recent activity section
+    in_skill_evidence = False           # inside a goal's ## Skill evidence section
     lines_scanned = 0
     validation_errors = 0
 
@@ -129,6 +130,8 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "followup_ids": [],
                     "inactivity_window_days": None,
                     "recent_activity": [],
+                    "skill_name": None,
+                    "skill_evidence": [],
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -143,6 +146,7 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 current_requirement = None
                 in_list_section = None
                 in_recent_activity = False
+                in_skill_evidence = False
                 continue
 
             if current is None:
@@ -240,6 +244,33 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 in_measurement_requirements = False
                 in_list_section = None
                 in_recent_activity = True
+                in_skill_evidence = False
+                continue
+
+            # --- Skill evidence section detection ---
+            if stripped == "## Skill evidence":
+                # Flush any pending milestone before leaving milestones section
+                if current_milestone is not None:
+                    current["milestones"].append(_finalize_milestone(current_milestone))
+                    current_milestone = None
+                in_milestones = False
+                in_milestone = False
+                current_milestone = None
+                # Flush any pending project
+                if current_project is not None:
+                    current["projects"].append(_finalize_project(current_project))
+                    current_project = None
+                in_projects = False
+                in_project = False
+                current_project = None
+                # Flush any pending measurement requirement
+                if current_requirement is not None:
+                    current["measurement_requirements"].append(current_requirement)
+                    current_requirement = None
+                in_measurement_requirements = False
+                in_list_section = None
+                in_recent_activity = False
+                in_skill_evidence = True
                 continue
 
             # --- Handle measurement requirements lines ---
@@ -352,10 +383,34 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                         except json.JSONDecodeError:
                             validation_errors += 1
                 elif stripped.startswith("## ") or stripped.startswith("### "):
-                    # End of recent activity section
+                    # End of recent activity section — let the section handler
+                    # below process the section header (fall through, don't continue).
                     in_recent_activity = False
-                    continue  # let the goal-level section handler process it
-                continue
+                    # Fall through to goal-level section detection
+                else:
+                    # Blank line or other content inside recent activity — ignore
+                    continue
+
+            # --- Handle skill evidence lines ---
+            if in_skill_evidence:
+                if stripped.startswith("# "):
+                    # Comment line containing a JSON dict
+                    json_str = stripped[2:].strip()
+                    if json_str:
+                        try:
+                            entry = json.loads(json_str)
+                            if isinstance(entry, dict):
+                                current["skill_evidence"].append(entry)
+                        except json.JSONDecodeError:
+                            validation_errors += 1
+                elif stripped.startswith("## "):
+                    # End of skill evidence section — let the section handler
+                    # below process the section header (fall through, don't continue).
+                    in_skill_evidence = False
+                    # Fall through to goal-level section detection
+                else:
+                    # Blank line or other content inside skill evidence — ignore
+                    continue
 
             if not in_milestones:
                 if stripped.startswith("Description:"):
@@ -408,6 +463,9 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                             raise ValueError(
                                 f"Invalid InactivityWindowDays at line {line_num}: {raw}"
                             )
+                elif stripped.startswith("Skill:"):
+                    raw = stripped[6:].strip()
+                    current["skill_name"] = raw if raw else None
                 if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:") or stripped.startswith("Decision numbers:") or stripped.startswith("Follow-up IDs:"):
                     # Determine which list section we're entering
                     if stripped.startswith("Research artifacts:"):
@@ -559,6 +617,8 @@ def _finalize_goal(data: dict) -> Goal:
         followup_ids=data["followup_ids"],
         inactivity_window_days=data["inactivity_window_days"],
         recent_activity=data["recent_activity"],
+        skill_name=data["skill_name"],
+        skill_evidence=data["skill_evidence"],
     )
 
 
@@ -658,6 +718,14 @@ def _format_goal_block(goal: Goal) -> list[str]:
                 lines.append(f"    preferred_time: {req['preferred_time']}")
             if req.get("interval_days"):
                 lines.append(f"    interval_days: {req['interval_days']}")
+
+    if goal.skill_name:
+        lines.append(f"Skill: {goal.skill_name}")
+
+    if goal.skill_evidence:
+        lines.append("## Skill evidence")
+        for entry in goal.skill_evidence:
+            lines.append(f"# {json.dumps(entry)}")
 
     if goal.recent_activity:
         lines.append("## Recent activity")
