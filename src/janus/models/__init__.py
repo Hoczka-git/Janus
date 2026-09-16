@@ -32,6 +32,7 @@ from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
 from janus.models.decision import Decision
 from janus.models.goal_signal import GoalSignal
 from janus.models.goal_health_assessment import GoalHealthAssessment
+from janus.models.strategic_summary import StrategicSummary, PortfolioHealthCounts
 from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
 from janus.models.metric_snapshot import MetricSnapshot
@@ -54,6 +55,8 @@ __all__ = [
     "Decision",
     "GoalSignal",
     "GoalHealthAssessment",
+    "StrategicSummary",
+    "PortfolioHealthCounts",
     "MetricSnapshot",
     "InboxItem",
     "FollowUp",
