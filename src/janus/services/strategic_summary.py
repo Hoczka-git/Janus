@@ -202,11 +202,14 @@ def _compute_assessments(
     open_task_titles: set[str],
 ) -> list[GoalHealthAssessment]:
     """Compute health assessments for all active goals via assess_goal_health."""
-    from janus.integrations.markdown_tasks import load_tasks
-    from janus.services.attention import _load_all_task_titles
     from janus.services.goal_health import assess_goal_health
+    from janus.services.attention import _load_all_task_titles
 
-    tasks = load_tasks()
+    try:
+        from janus.integrations.markdown_tasks import load_tasks
+        tasks = load_tasks()
+    except FileNotFoundError:
+        return []
     open_task_titles.update({t.title for t in tasks})
     tasks_path = PROJECT_ROOT / "data" / "tasks.md"
     all_task_titles = _load_all_task_titles(tasks_path)
