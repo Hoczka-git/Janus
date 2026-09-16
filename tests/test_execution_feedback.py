@@ -66,6 +66,28 @@ class TestEvidencePackage:
         assert d["tests_passed"] is True
         assert d["pr_url"] == "https://github.com/u/r/pull/1"
 
+    def test_to_dict_includes_janus_body_and_metric_updates(self):
+        """EvidencePackage round-trips janus_body and metric_updates (design §6.2/§7.3)."""
+        from janus.services.execution_feedback import EvidencePackage
+        ep = EvidencePackage(
+            task_id="t_abc",
+            summary="Implement X",
+            completed_at="2026-09-09T10:00:00Z",
+            janus_body="# Research\nSome clean artifact body",
+            metric_updates=[
+                {"metric_name": "Weight", "value": 76.5, "unit": "kg"},
+            ],
+        )
+        d = ep.to_dict()
+        assert d["janus_body"] == "# Research\nSome clean artifact body"
+        assert d["metric_updates"] == [
+            {"metric_name": "Weight", "value": 76.5, "unit": "kg"},
+        ]
+        # Round-trip through from_dict
+        ep2 = EvidencePackage.from_dict(d)
+        assert ep2.janus_body == ep.janus_body
+        assert ep2.metric_updates == ep.metric_updates
+
     def test_defaults(self):
         from janus.services.execution_feedback import EvidencePackage
         ep = EvidencePackage(task_id="t_1", summary="s", completed_at="2026-01-01T00:00:00Z")
@@ -73,6 +95,8 @@ class TestEvidencePackage:
         assert d["changed_files"] == []
         assert d["tests_passed"] is None
         assert d["pr_url"] is None
+        assert d["janus_body"] is None
+        assert d["metric_updates"] is None
 
 
 # ── parse_janus_domain_metadata ───────────────────────────────────────────────
@@ -275,6 +299,27 @@ class TestUpdateGoalProgress:
         update_goal_progress("Weight", "t_1", "Diet plan", evidence)
         g = get_goal("Weight")
         assert g.current_value == 76.5
+        assert len(g.recent_activity) == 1
+
+    def test_updates_metric_via_metric_updates(self, tmp_path, monkeypatch):
+        """metric_updates field advances goal current_value (design §6.2)."""
+        from janus.services.goals import update_goal_progress, get_goal
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Weight\nStatus: active\n"
+            "Metric: Weight\nUnit: kg\nStart: 80\nCurrent: 78\nTarget: 70\n"
+            "Direction: decrease\n",
+        )
+        evidence = {
+            "completed_at": "2026-09-09",
+            "metric_updates": [
+                {"metric_name": "Weight", "value": 75.0, "unit": "kg"},
+            ],
+        }
+        update_goal_progress("Weight", "t_1", "Diet plan", evidence)
+        g = get_goal("Weight")
+        assert g.current_value == 75.0
+        assert g.metric_unit == "kg"
         assert len(g.recent_activity) == 1
 
     def test_nonexistent_goal_raises(self, tmp_path, monkeypatch):

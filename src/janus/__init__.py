@@ -6,8 +6,9 @@ import uuid
 from janus.logging_config import setup_logging
 from janus._log import emit
 from janus.today import show_today, show_telegram
+from janus.telegram_weekly_cli import send_weekly_telegram
 from janus.weekly import show_weekly
-from janus.status_cli import show_status
+from janus.strategic_cli import show_status
 from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, print_task_help
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary, print_workout_help
 from janus.inbox_cli import (
@@ -51,6 +52,8 @@ from janus.goals_cli import (
     handle_goal_milestone,
     handle_goal_project,
     handle_goal_health,
+    handle_goal_skills,
+    handle_goal_set_skill,
     print_goal_help,
 )
 
@@ -91,6 +94,8 @@ def main() -> None:
             show_today(trace_id=trace_id)
         elif command == "telegram":
             show_telegram(trace_id=trace_id)
+        elif command == "telegram-weekly":
+            send_weekly_telegram(trace_id=trace_id)
         elif command == "task":
             if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
                 print_task_help()
@@ -147,6 +152,10 @@ def main() -> None:
                 handle_goal_update(filtered[2:])
             elif sub == "complete":
                 handle_goal_complete(filtered[2:])
+            elif sub == "skills":
+                handle_goal_skills(filtered[2:])
+            elif sub == "set-skill":
+                handle_goal_set_skill(filtered[2:])
             elif sub == "milestone":
                 handle_goal_milestone(filtered[2:])
             elif sub == "project":

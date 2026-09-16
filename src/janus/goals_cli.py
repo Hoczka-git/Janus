@@ -237,6 +237,13 @@ def handle_goal_show(args: list[str]) -> None:
     else:
         print("\n  No projects.")
 
+    if goal.skill_name:
+        print(f"\n  Skill:       {goal.skill_name}")
+        if goal.skill_evidence:
+            print(f"  Evidence entries: {len(goal.skill_evidence)}")
+    else:
+        print("\n  Skill:       not set")
+
 
 def handle_goal_add(args: list[str]) -> None:
     """janus goal add <title> [options]
@@ -253,6 +260,7 @@ def handle_goal_add(args: list[str]) -> None:
     target_value: Optional[float] = None
     direction: Optional[str] = None
     related_tasks: list[str] = []
+    skill_name: Optional[str] = None
 
     state = "parse_title"
     i = 0
@@ -340,6 +348,12 @@ def handle_goal_add(args: list[str]) -> None:
                     print("Error: --related-task requires a value", file=sys.stderr)
                     sys.exit(1)
                 related_tasks.append(args[i])
+            elif arg == "--skill":
+                i += 1
+                if i >= len(args):
+                    print("Error: --skill requires a value", file=sys.stderr)
+                    sys.exit(1)
+                skill_name = args[i]
             else:
                 print(f"Error: unknown argument: {arg}", file=sys.stderr)
                 sys.exit(1)
@@ -366,6 +380,7 @@ def handle_goal_add(args: list[str]) -> None:
             target_value=target_value,
             direction=direction,
             related_tasks=related_tasks,
+            skill_name=skill_name,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -487,6 +502,12 @@ def handle_goal_update(args: list[str]) -> None:
                     print("Error: --remove-related-task requires a value", file=sys.stderr)
                     sys.exit(1)
                 remove_tasks.append(args[i])
+            elif arg == "--skill":
+                i += 1
+                if i >= len(args):
+                    print("Error: --skill requires a value", file=sys.stderr)
+                    sys.exit(1)
+                updates["skill_name"] = args[i]
             else:
                 print(f"Error: unknown argument: {arg}", file=sys.stderr)
                 sys.exit(1)
@@ -535,6 +556,82 @@ def handle_goal_complete(args: list[str]) -> None:
     print(f"Completed goal: {goal.title}")
 
 
+def handle_goal_skills(args: list[str]) -> None:
+    """janus goal skills
+    List all skills tracked across goals with evidence counts.
+    """
+    from janus.services.skill_tracking import list_all_skills
+
+    skills = list_all_skills()
+    print("JANUS — SKILLS")
+    print("=" * 60)
+    if not skills:
+        print("  No skills tracked.")
+        return
+    print(f"  {len(skills)} skill(s) tracked:")
+    for s in skills:
+        print(f"    {s['skill_name']}: {s['evidence_count']} evidence entries, {len(s['goals'])} goal(s)")
+        for t in s["goals"]:
+            print(f"      - {t}")
+
+
+def handle_goal_set_skill(args: list[str]) -> None:
+    """janus goal set-skill <title> [--skill NAME]
+
+    Set or clear the skill association on an existing goal.
+    """
+    if len(args) < 1:
+        print("Error: goal title is required", file=sys.stderr)
+        sys.exit(1)
+
+    title_parts: list[str] = []
+    skill: Optional[str] = None
+    clear: bool = False
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--skill":
+            i += 1
+            if i >= len(args):
+                print("Error: --skill requires a value", file=sys.stderr)
+                sys.exit(1)
+            skill = args[i]
+        elif arg == "--clear":
+            clear = True
+        else:
+            title_parts.append(arg)
+        i += 1
+
+    title = " ".join(title_parts)
+    if not title:
+        print("Error: goal title is required", file=sys.stderr)
+        sys.exit(1)
+
+    updates: dict = {}
+    if clear:
+        if skill is not None:
+            print("Error: cannot use --clear with --skill", file=sys.stderr)
+            sys.exit(1)
+        updates["skill_name"] = None
+    else:
+        if skill is None:
+            print("Error: --skill NAME is required (or use --clear to remove skill)", file=sys.stderr)
+            sys.exit(1)
+        updates["skill_name"] = skill.strip()
+
+    try:
+        goal = update_goal_fields(title, **updates)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if clear:
+        print(f"Cleared skill on goal: {goal.title}")
+    else:
+        print(f"Set skill '{goal.skill_name}' on goal: {goal.title}")
+
+
 # ===========================================================================
 # Milestone CLI handlers
 # ===========================================================================
@@ -560,6 +657,9 @@ Commands:
   complete <title>                Mark a goal as completed
   next <title>                    Print the derived next action for a goal
   health [<title>]                Show health assessment for goals
+  skills                          List all tracked skills with evidence counts
+  set-skill <title> --skill NAME  Set the skill for a goal
+  set-skill <title> --clear       Clear the skill from a goal
   milestone <action> ...          Manage milestones for a goal
   project <action> ...            Manage projects under milestones
 
@@ -574,6 +674,7 @@ Goal options:
   --target VALUE                  Target metric value
   --direction <increase|decrease>  Metric direction
   --related-task TITLE            Link a related task (repeatable)
+  --skill NAME                    Track this goal under a named skill
 
 Milestone subcommands:
   add <goal> <title> [options]    Create a milestone

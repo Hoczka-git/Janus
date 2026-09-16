@@ -37,11 +37,72 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# Per-task serialization lock for concurrent hook invocations.  Two workers
+# firing ``kanban_task_completed`` for the same Janus-linked task at the same
+# time would otherwise both pass the fast-path ``janus_sync_already_processed``
+# read and then race to dispatch + stamp the marker, causing Janus
+# ``protected_write`` to raise ``DataConflictError`` (a file-level hash race,
+# not a logical one — the service functions are idempotent by title/task_id).
+# A threading.Lock keyed by task_id serializes dispatch so only the winning
+# thread touches Janus storage; the other observes the stamped marker and
+# returns ``already_synced``.  This keeps the marker applied *after* a
+# successful dispatch (preserving the failure-retry contract from design §5.1)
+# while making concurrent dispatch safe.
+_sync_locks: dict[str, threading.Lock] = {}
+_sync_locks_guard = threading.Lock()
+
+
+def _task_sync_lock(task_id: str) -> threading.Lock:
+    """Return (creating if needed) the per-task sync lock."""
+    with _sync_locks_guard:
+        lock = _sync_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _sync_locks[task_id] = lock
+        return lock
+
+
+# ---------------------------------------------------------------------------
+# Per-task re-entrancy guard (in-process concurrency)
+# ---------------------------------------------------------------------------
+# ``janus_sync_already_processed`` (SELECT) and ``mark_janus_sync_completed``
+# (UPDATE) are not atomic with each other, so two concurrent hook firings for
+# the same task can both pass the "already processed" check before either
+# stamps the marker — a classic TOCTOU race.  SQLite's ``BEGIN IMMEDIATE``
+# write lock would serialize the writes, but the *read-check* happens before
+# the write txn opens, so it doesn't close the gap.
+#
+# We close it with a process-local ``threading.Lock`` per ``task_id``: the
+# first thread to enter acquires the lock, performs the full read-check-dispatch-
+# stamp cycle, and only then releases so the second thread — running the
+# same ``_run_sync`` — observes the stamped marker and returns
+# ``already_synced`` instead of re-dispatching.
+#
+# This covers *in-process* concurrency (the dispatcher may fan out multiple
+# worker hooks into the same observer host).  Cross-process re-entrancy is
+# already guarded by ``janus_sync_already_processed`` reading the DB marker,
+# which persists across worker restarts — this lock simply makes the
+# same-process race-safe so the marker is observed exactly once per task.
+_janus_sync_locks: dict[str, threading.Lock] = {}
+_janus_sync_locks_guard = threading.Lock()
+
+
+def _sync_lock_for(task_id: str) -> threading.Lock:
+    """Return (creating if necessary) the in-process lock for *task_id*."""
+    with _janus_sync_locks_guard:
+        lock = _janus_sync_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _janus_sync_locks[task_id] = lock
+        return lock
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +137,10 @@ def on_task_completed(
             task_id, exc, exc_info=True,
         )
         _try_record_error(task_id, board, exc)
+        # Phase 1 — emit a structured janus_sync_failed event (design §6.5)
+        # so the dispatcher / dashboard surfaces the failure alongside the
+        # audit comment.
+        _try_append_sync_failed_event(task_id, board, exc)
         return None
 
 
@@ -93,63 +158,103 @@ def _run_sync(
 
     Returns the dispatch result dict, or ``None`` when the task has no Janus
     linkage (no ``janus_domain`` frontmatter).
+
+    Concurrency: a per-task process lock serializes concurrent hook firings
+    for the *same* task_id, closing the TOCTOU gap between
+    ``janus_sync_already_processed`` (read) and ``mark_janus_sync_completed``
+    (write).  The second concurrent caller observes the stamped marker and
+    returns ``already_synced`` instead of re-dispatching.
     """
-    from hermes_cli import kanban_db as kb
+    lock = _sync_lock_for(task_id)
+    with lock:
+        from hermes_cli import kanban_db as kb
 
-    conn = kb.connect(board=board) if board else kb.connect()
-    try:
-        task = kb.get_task(conn, task_id)
-
-        if task is None:
-            return None
-
-        body = task.body or ""
-
-        # Re-entrancy guard: a completed, already-synced task is skipped.
-        # The marker is read directly from the DB via kanban_db rather than
-        # the in-memory ``body`` copy, so it survives across worker runs.
-        if kb.janus_sync_already_processed(conn, task_id):
-            return {"status": "already_synced", "task_id": task_id}
-
-        # Parse janus_domain frontmatter (Janus-side helper).
+        conn = kb.connect(board=board) if board else kb.connect()
         try:
-            metadata = _parse_janus_domain(body)
-        except ValueError as exc:
-            _try_record_error(task_id, board, exc, detail="parse_janus_domain")
-            return {"status": "parse_error", "task_id": task_id, "error": str(exc)}
+            task = kb.get_task(conn, task_id)
 
-        if metadata is None:
-            # No Janus linkage — nothing to sync (common completion path untouched).
-            return {"status": "no_linkage", "task_id": task_id}
+            if task is None:
+                return None
 
-        # Build the evidence package from the completion payload + run metadata.
-        evidence = _build_evidence(task, run_id, summary, conn, kb)
+            body = task.body or ""
 
-        # Dispatch to the Janus service function (idempotent) and capture the
-        # resulting state changes for back-propagation through the channel.
-        propagation = _dispatch_to_janus(metadata, evidence)
+            # Fast-path re-entrancy guard. The marker is read directly from the DB
+            # so it survives across worker runs.
+            if kb.janus_sync_already_processed(conn, task_id):
+                return {"status": "already_synced", "task_id": task_id}
 
-        # Record an audit comment on the completed task.
-        _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
+            # Parse janus_domain frontmatter (Janus-side helper).
+            try:
+                metadata = _parse_janus_domain(body)
+            except ValueError as exc:
+                _try_record_error(task_id, board, exc, detail="parse_janus_domain")
+                return {
+                    "status": "parse_error",
+                    "task_id": task_id,
+                    "error": str(exc),
+                }
 
-        # Stamp the sync-complete marker so re-fires are no-ops.
-        kb.mark_janus_sync_completed(conn, task_id)
+            if metadata is None:
+                # No Janus linkage — nothing to sync (common completion path untouched).
+                return {"status": "no_linkage", "task_id": task_id}
 
-        # ``dispatch`` preserves the raw service dispatch results (backward-
-        # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
-        # top-level ``state_changes`` surfaces what Janus actually mutated —
-        # the propagated state updates echoing back through the channel.
-        return {
-            "status": "synced",
-            "task_id": task_id,
-            "domain_object": metadata.object,
-            "domain_title": metadata.title,
-            "dispatch": propagation.get("dispatch", {}),
-            "state_changes": propagation.get("state_changes", []),
-            "synced_at": propagation.get("synced_at"),
-        }
-    finally:
-        conn.close()
+            # Build the evidence package from the completion payload + run metadata.
+            evidence = _build_evidence(task, run_id, summary, conn, kb)
+
+            # Serialize concurrent hook invocations for the same task. The initial
+            # janus_sync_already_processed() check is not atomic with the marker
+            # write, so two concurrent workers could otherwise both dispatch.
+            with _task_sync_lock(task_id):
+                # Re-check under the lock: another thread may have completed the
+                # sync while this thread was waiting.
+                if kb.janus_sync_already_processed(conn, task_id):
+                    return {"status": "already_synced", "task_id": task_id}
+
+                # Dispatch to the Janus service function (idempotent) and capture
+                # the resulting state changes for back-propagation through the
+                # channel.
+                propagation = _dispatch_to_janus(metadata, evidence)
+
+                # Stamp the marker only after successful dispatch. If dispatch
+                # fails, the marker remains absent and a later hook invocation can
+                # retry the sync.
+                kb.mark_janus_sync_completed(conn, task_id)
+
+                # Record an audit comment on the completed task.
+                _try_add_audit_comment(conn, kb, task_id, metadata, propagation)
+
+            # Phase 1 — structured state-change events (design §6.1/§6.5).
+            # The kanban_db mark_janus_sync_completed() emits a bare
+            # ``janus_sync_completed`` event ({"synced_at": ts}).  We append a
+            # richer ``janus_sync_succeeded`` event carrying the domain object,
+            # title, and the concrete state_changes so downstream tasks / the
+            # dispatcher can read what Janus actually mutated without parsing
+            # audit comments.
+            _try_append_sync_event(
+                conn, kb, task_id, "janus_sync_succeeded",
+                {
+                    "domain_object": metadata.object,
+                    "domain_title": metadata.title,
+                    "state_changes": propagation.get("state_changes", []),
+                    "synced_at": propagation.get("synced_at"),
+                },
+            )
+
+            # ``dispatch`` preserves the raw service dispatch results (backward-
+            # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
+            # top-level ``state_changes`` surfaces what Janus actually mutated —
+            # the propagated state updates echoing back through the channel.
+            return {
+                "status": "synced",
+                "task_id": task_id,
+                "domain_object": metadata.object,
+                "domain_title": metadata.title,
+                "dispatch": propagation.get("dispatch", {}),
+                "state_changes": propagation.get("state_changes", []),
+                "synced_at": propagation.get("synced_at"),
+            }
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +290,11 @@ def _build_evidence(
       flag, if reported by the closing run.
     * ``pr_url``    — worker metadata ``pr_url``, if the integration gate
       produced one.
+    * ``janus_body`` — worker metadata ``janus_body``, a clean artifact/ADR
+      body separate from Kanban metadata (design §7.3 Option A). Used in
+      preference to ``body`` for research/finding/decision ingestion.
+    * ``metric_updates`` — worker metadata ``metric_updates``: a declarative
+      list of metric advancements for goal objects (design §6.2).
     """
     from janus.services.execution_feedback import EvidencePackage
 
@@ -192,6 +302,8 @@ def _build_evidence(
     changed_files: list[str] = []
     tests_passed = None
     pr_url = None
+    janus_body = None
+    metric_updates = None
 
     # The task body carries ``janus_domain`` frontmatter and — for
     # ``object: research|finding|decision`` — the full markdown artifact or
@@ -237,6 +349,14 @@ def _build_evidence(
         cf = meta.get("changed_files")
         if isinstance(cf, list) and cf:
             changed_files = [str(f) for f in cf]
+        # Design §6.2: declarative metric_updates from the worker.
+        mu = meta.get("metric_updates")
+        if isinstance(mu, list) and mu:
+            metric_updates = [m for m in mu if isinstance(m, dict)]
+        # Design §7.3 Option A: a clean janus_body separate from Kanban metadata.
+        jb = meta.get("janus_body")
+        if isinstance(jb, str) and jb.strip():
+            janus_body = jb
 
     # Fall back to a workspace git diff for changed files.
     if not changed_files:
@@ -250,6 +370,8 @@ def _build_evidence(
         tests_passed=tests_passed,
         pr_url=pr_url,
         body=body,
+        janus_body=janus_body,
+        metric_updates=metric_updates,
     )
 
 
@@ -432,6 +554,60 @@ def _try_record_error(
         )
     except Exception:  # noqa: BLE001
         pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Structured sync events (design §6.1 / §6.5)
+# ---------------------------------------------------------------------------
+def _try_append_sync_event(
+    conn, kb, task_id: str, kind: str, payload: dict,
+) -> None:
+    """Append a structured ``janus_sync_*`` task event, best-effort.
+
+    ``mark_janus_sync_completed`` emits a bare ``janus_sync_completed`` event
+    carrying only ``{"synced_at": ts}``.  These helpers append richer events
+    (``janus_sync_succeeded`` / ``janus_sync_failed``) carrying the domain
+    object, title, and concrete state_changes so downstream tasks and the
+    dispatcher can read what Janus actually mutated without parsing audit
+    comments.
+
+    Called from within the already-open ``_run_sync`` txn context (the
+    connection is already open).  For the failure path (called from
+    ``on_task_completed``'s except handler) the connection is opened fresh
+    via :func:`_try_append_sync_failed_event`.
+    """
+    try:
+        kb._append_event(conn, task_id, kind, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("janus_sync: _append_event(%s) failed: %s", kind, exc)
+
+
+def _try_append_sync_failed_event(
+    task_id: Optional[str], board: Optional[str], exc: Exception,
+) -> None:
+    """Append a ``janus_sync_failed`` task event, best-effort.
+
+    Mirrors :func:`_try_record_error` for connection lifecycle: opens a
+    connection to the same board as the sync attempt, appends the event,
+    and never raises.
+    """
+    from hermes_cli import kanban_db as kb
+
+    if not task_id:
+        return
+    conn = None
+    try:
+        conn = kb.connect(board=board) if board else kb.connect()
+        kb._append_event(conn, task_id, "janus_sync_failed", {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "detail": getattr(exc, "args", None),
+        })
+    except Exception as exc2:  # noqa: BLE001
+        logger.debug("janus_sync: _append_event(janus_sync_failed) failed: %s", exc2)
     finally:
         if conn is not None:
             conn.close()

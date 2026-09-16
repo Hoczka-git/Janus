@@ -1,30 +1,190 @@
-"""Strategic summary data model for Janus (design spec §5).
+"""Strategic state and summary data models for Janus.
 
-A ``StrategicSummary`` is the structured, on-demand snapshot of the whole
-portfolio's strategic state — health counts, stalled and neglected goals,
-and ranked recommended next actions with cross-domain links.
+Defines the data structures for strategic state summaries and meaningful
+change detection, as specified in ``docs/design/strategic_summary_spec.md``.
 
-Health state and signals are *derived* (design §13.1), so the summary is a
-consumption format assembled from existing services rather than a persisted
-record. This model is a pure addition — no existing surfaces change (§83).
+A ``StrategicSummary`` is an aggregated, on-demand snapshot of the goal
+portfolio's strategic health — which goals are neglected or stalled, what
+the recommended next actions are, and which cross-domain knowledge artifacts
+are linked to each goal.
+
+A ``StrategicStateSnapshot`` is a point-in-time capture of the strategic
+state of all active goals. By comparing two snapshots, the change-detection
+service can identify meaningful changes in the strategic picture.
+
+Health state and signals are derived, not persisted.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
 
 
+# ── Meaningful change types ──────────────────────────────────────────────────
+#
+# Each enum value corresponds to a criterion in design spec §1 "Meaningful
+# change (what triggers a strategic summary update)".
+
+CHANGE_HEALTH_STATE = "health_state_transition"
+CHANGE_DOMINANT_SIGNAL_SCORE = "dominant_signal_score_change"
+CHANGE_PROGRESS_DELTA = "progress_delta_threshold_cross"
+CHANGE_STALLED_SIGNAL = "stalled_signal_activated_or_cleared"
+CHANGE_MEASUREMENT_DUE = "measurement_requirement_overdue_fired_or_satisfied"
+CHANGE_GOAL_STATUS = "goal_status_transition"
+CHANGE_MILESTONE_STATUS = "milestone_status_changed"
+CHANGE_CROSS_DOMAIN_LINK = "cross_domain_link_changed"
+
+# All valid change types, for validation / iteration.
+ALL_CHANGE_TYPES = (
+    CHANGE_HEALTH_STATE,
+    CHANGE_DOMINANT_SIGNAL_SCORE,
+    CHANGE_PROGRESS_DELTA,
+    CHANGE_STALLED_SIGNAL,
+    CHANGE_MEASUREMENT_DUE,
+    CHANGE_GOAL_STATUS,
+    CHANGE_MILESTONE_STATUS,
+    CHANGE_CROSS_DOMAIN_LINK,
+)
+
+# Signals that count as "stalled-work signals" for §1 criterion 3.
+_STALLED_SIGNALS = frozenset({
+    "goal_stalled",
+    "goal_overdue",
+    "milestone_slipped",
+    "no_recent_activity",
+})
+
+
+@dataclass
+class GoalStateSnapshot:
+    """Point-in-time strategic state of a single goal.
+
+    This is a lightweight, hashable-by-construction view of a goal's
+    strategic-relevant fields, designed to be cheap to construct and
+    compare. It captures exactly the fields the meaningful-change detector
+    needs — no more — so snapshots are not coupled to the full ``Goal``
+    model.
+    """
+
+    goal_title: str
+    health_state: str | None = None
+    dominant_signal: str | None = None
+    dominant_signal_score: int = 0
+    progress: float | None = None
+    progress_delta: float | None = None
+    measurement_overdue_count: int = 0
+    signals: frozenset[str] = field(default_factory=frozenset)
+    goal_status: str = "active"
+    milestone_statuses: dict[str, str] = field(default_factory=dict)
+    linked_research_artifacts: list[str] = field(default_factory=list)
+    linked_decision_numbers: list[str] = field(default_factory=list)
+    linked_followup_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MeaningfulChange:
+    """A single meaningful change detected in strategic state."""
+
+    change_type: str
+    goal_title: str
+    description: str
+    severity: int = 0
+    details: dict = field(default_factory=dict)
+    timestamp: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.change_type not in ALL_CHANGE_TYPES:
+            raise ValueError(
+                f"Invalid change_type: {self.change_type!r}. "
+                f"Allowed: {', '.join(ALL_CHANGE_TYPES)}"
+            )
+
+
+@dataclass
+class StrategicStateSnapshot:
+    """A point-in-time capture of the strategic state across all goals."""
+
+    generated_at: datetime
+    goals: list[GoalStateSnapshot] = field(default_factory=list)
+
+    def goal_by_title(self, title: str) -> GoalStateSnapshot | None:
+        """Look up a goal in this snapshot by title."""
+        for goal in self.goals:
+            if goal.goal_title == title:
+                return goal
+        return None
+
+
+# ── Strategic summary models ─────────────────────────────────────────────────
+
+
+@dataclass
+class StalledGoal:
+    """A goal whose health state is ``stalled`` (no forward momentum)."""
+
+    goal_title: str
+    health_state: str
+    dominant_signal: str
+    dominant_signal_score: int
+    dominant_signal_reason: str
+    progress: float | None = None
+    progress_delta: float | None = None
+    days_since_last_activity: int | None = None
+    measurement_overdue_count: int = 0
+
+
+@dataclass
+class NeglectedGoal:
+    """A goal that is at-risk with insufficient strategic attention."""
+
+    goal_title: str
+    health_state: str
+    dominant_signal: str
+    dominant_signal_score: int
+    dominant_signal_reason: str
+    progress: float | None = None
+    progress_delta: float | None = None
+    days_since_last_activity: int | None = None
+    measurement_overdue_count: int = 0
+    has_open_related_tasks: bool = True
+    has_upcoming_deadline: bool = True
+
+
+@dataclass
+class CrossDomainLink:
+    """A cross-domain knowledge artifact linked to a goal.
+
+    Categories:
+      - ``research_artifact``
+      - ``decision``
+      - ``follow_up``
+    """
+
+    goal_title: str
+    category: str
+    title: str
+
+
+@dataclass
+class RecommendedAction:
+    """A ranked recommendation for a neglected or stalled goal."""
+
+    goal_title: str
+    health_state: str
+    dominant_signal: str
+    dominant_signal_score: int
+    dominant_signal_reason: str
+    progress: float | None = None
+    progress_delta: float | None = None
+    days_since_last_activity: int | None = None
+    measurement_overdue_count: int = 0
+    suggested_next_step: str | None = None
+    attention_reason: str | None = None
+    cross_links: list[CrossDomainLink] = field(default_factory=list)
+
+
 @dataclass
 class PortfolioHealthCounts:
-    """Counts of goals grouped by health state (spec §5, §6.7).
-
-    Attributes:
-        total_active: Number of goals with status ``active``.
-        healthy: Active goals with ``health_state == healthy``.
-        watch: Active goals with ``health_state == watch``.
-        stalled: Active goals with ``health_state == stalled``.
-        completed: Goals with status ``completed``.
-        inactive: Goals with status ``inactive`` (excluded from health eval).
-    """
+    """Counts of goals grouped by health state."""
 
     total_active: int = 0
     healthy: int = 0
@@ -35,50 +195,24 @@ class PortfolioHealthCounts:
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
+
         return asdict(self)
 
 
 @dataclass
 class StrategicSummary:
-    """The strategic next-action summary for the goal portfolio (spec §5).
+    """Aggregated strategic view of the goal portfolio."""
 
-    Aggregates the outputs of:
-    - ``assess_goal_health()`` → health state + dominant signal (§4 source 1)
-    - ``get_attention_items()`` → dominant attention category + reason (§4)
-    - ``GoalReview.suggested_next_step`` (via weekly review / next_action)
-    - ``recommendations`` service → task-level recommendations (§4 source 3)
-    - cross-domain links → research artifacts, decisions, follow-ups (§4, §82)
-
-    Attributes:
-        generated_at: When this summary was computed.
-        portfolio_health_counts: Counts of goals by health state.
-        stalled_goals: All goals with ``health_state == stalled``, sorted by
-            dominant signal score descending (spec §3.9).
-        neglected_goals: Goals meeting the neglected threshold (spec §26):
-            health == watch/stalled AND (inactive > window OR measurement
-            overdue > 0 OR no open tasks with upcoming milestone/deadline).
-            Excludes ``inactive`` and ``completed`` goals (spec §80).
-        recommended_actions: Ranked next-action recommendations, one per
-            stalled/neglected goal (spec §4, §61).
-        cross_domain_links: All cross-domain links surfaced for the goals in
-            the summary (spec §4, §82).
-    """
-
-    generated_at: datetime | None = None
-    portfolio_health_counts: PortfolioHealthCounts = field(default_factory=PortfolioHealthCounts)
-    stalled_goals: list = field(default_factory=list)
-    neglected_goals: list = field(default_factory=list)
-    recommended_actions: list = field(default_factory=list)
-    cross_domain_links: list = field(default_factory=list)
+    generated_at: datetime
+    portfolio_health_counts: PortfolioHealthCounts
+    stalled_goals: list[StalledGoal] = field(default_factory=list)
+    neglected_goals: list[NeglectedGoal] = field(default_factory=list)
+    recommended_actions: list[RecommendedAction] = field(default_factory=list)
+    cross_domain_links: list[CrossDomainLink] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Serialize to a JSON-friendly dict (spec §73).
+        """Serialize to a JSON-friendly dict."""
 
-        Health assessments and recommended actions already expose ``to_dict``
-        (or are dataclasses via ``asdict``); cross-domain links likewise.
-        """
         from dataclasses import asdict
-        d = asdict(self)
-        # generated_at may be a datetime; keep it as-is (isoformat at JSON
-        # serialization time by the caller) but normalize to dict shape.
-        return d
+
+        return asdict(self)
