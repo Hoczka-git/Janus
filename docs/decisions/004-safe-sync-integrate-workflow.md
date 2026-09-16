@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (with implementation caveats)
 
 ---
 
