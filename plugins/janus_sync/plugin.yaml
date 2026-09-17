@@ -14,4 +14,5 @@ description: >-
   are no-ops; the common completion path is untouched.
 author: NousResearch
 hooks:
+  - kanban_task_claimed
   - kanban_task_completed

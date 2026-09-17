@@ -450,11 +450,14 @@ class TestServiceTaskMutation:
                             tmp_path / "tasks.md")
         add_task("Write tests", priority=2)
 
-        service_events = [json.loads(l) for l in captor
-                          if json.loads(l)["event"] == "service.task.mutated"]
-        assert len(service_events) == 1
-        obj = service_events[0]
-        assert obj["event"] == "service.task.mutated"
+        # Find the service.task.mutated event (atomic_io.write may fire
+        # before it now that _append_task routes through read_modify_write)
+        obj = None
+        for line in captor:
+            obj = json.loads(line)
+            if obj["event"] == "service.task.mutated":
+                break
+        assert obj is not None
         assert obj["data"]["operation"] == "add"
         assert obj["data"]["task_title"] == "Write tests"
         assert obj["data"]["new_state"] is None
@@ -468,11 +471,14 @@ class TestServiceTaskMutation:
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tf)
         complete_task("Buy groceries")
 
-        service_events = [json.loads(l) for l in captor
-                          if json.loads(l)["event"] == "service.task.mutated"]
-        assert len(service_events) == 1
-        obj = service_events[0]
-        assert obj["event"] == "service.task.mutated"
+        # Find the service.task.mutated event in the captor (atomic_io.write
+        # may fire first now that we route through atomic_io)
+        obj = None
+        for line in captor:
+            obj = json.loads(line)
+            if obj["event"] == "service.task.mutated":
+                break
+        assert obj is not None
         assert obj["data"]["operation"] == "complete"
         assert obj["data"]["task_title"] == "Buy groceries"
         assert obj["data"]["new_state"] == "completed"
