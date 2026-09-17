@@ -9,7 +9,17 @@
 
 ## 1. Executive Summary
 
-The current Janus/Hermes system is a **passive gate architecture** layered on top of `kanban_db.complete_task()`. ADR-004 specifies an **active 5-phase workflow** with dedicated agents for integration. The gap is structural: the system verifies integration happened (or the agent claims it did) but never performs it.
+The current Janus/Hermes system is a **passive gate architecture** layered on top of
+`src/janus/services/tasks.py:complete_task()`. ADR-004 specifies an **active 5-phase
+workflow** with dedicated agents for integration. The gap is structural: the system
+verifies integration happened (or the agent claims it did) but never performs it.
+
+> **Note:** Earlier research reports referenced `hermes_cli/kanban_db.py` with
+> line numbers for `_enforce_repo_sync_gate`, `_enforce_integration_gate`, and
+> `complete_task()`. **Those references are stale** — `hermes_cli/` does not
+> exist in the Janus codebase. The actual completion path is
+> `src/janus/services/tasks.py:complete_task()` — a plain markdown checkbox edit
+> with no gates. See §6 for the full mapping table.
 
 | ADR-004 Phase | ADR-004 Intent | Current Implementation | Verdict |
 |---|---|---|---|
@@ -29,7 +39,7 @@ The current Janus/Hermes system is a **passive gate architecture** layered on to
 
 | ADR ID | Claim | Verdict | Evidence |
 |---|---|---|---|
-| C-01 | Agent claims `kanban_complete` after implementation | MATCH | `complete_task()` in `kanban_db.py:5954-6153` allows transition to `done` after gates pass |
+| C-01 | Agent claims `kanban_complete` after implementation | MATCH | `complete_task()` in `src/janus/services/tasks.py:43-79` allows transition to `done` after gates pass |
 | C-02 | No mechanical gate for sync/clean/integrate | PARTIAL | Gate exists for verification (contract-based) and integration (passive check), but not for sync/clean-tree/test-rerun |
 | C-03 | Risk: stale branch marked done | UNRESOLVED | Phase 1 sync not auto-invoked; no gate prevents stale branch completion |
 | C-04 | Risk: unpushed/uncommitted changes | PARTIAL | Integration gate checks pushed state (`web_git.py:683-694`); no clean-tree check |
@@ -53,7 +63,7 @@ The current Janus/Hermes system is a **passive gate architecture** layered on to
 
 | ADR ID | Claim | Verdict | Evidence |
 |---|---|---|---|
-| P2-01 | Unchanged — work in worktree | MATCH | `_ensure_git_worktree` in `kanban_db.py`; agent commits freely in worktree |
+| P2-01 | Unchanged — work in worktree | MATCH | Task branch + worktree per task (dispatcher-managed); no direct `kanban_db._ensure_git_worktree` equivalent in this codebase |
 
 ### 2.4 Decision Claims (Phase 3 — Pre-Completion Gate)
 
@@ -201,16 +211,34 @@ The current model is **reactive**: the agent performs integration and the gate v
 | Completion/integration flow survey | `findings/completion_integration_flow_survey_t_73ff09a7.md` (parent t_73ff09a7) |
 | Sync/integrate implementation survey | `reports/survey_sync_integrate_findings.md` (parent t_b352e609) |
 | ADR-004 claim extraction | `adr004_claims_extraction.md` (parent t_ce633bb3) |
-| Phase 1 sync primitive | `src/janus/git_sync.py` |
-| Phase 3 contract verifier | `src/janus/verification.py` |
-| Integration gate (passive) | `hermes_cli/kanban_db.py:5804` (`_enforce_integration_gate`) |
-| Verification gate | `hermes_cli/kanban_db.py:5639` (`_enforce_janus_verification_gate`) |
-| Completion function | `hermes_cli/kanban_db.py:5954` (`complete_task`) |
-| Remote PR/CI check | `hermes_cli/web_git.py:645` (`review_integration_state`) |
+| Phase 1 sync primitive | `src/janus/git_sync.py` — `sync_branch()`, `detect_target_branch()`, `is_branch_stale()`, etc. |
+| Phase 3 contract verifier | `src/janus/verification.py` — `run_verification()`, `ImplementationContract`, `CheckResult`, `VerificationReport` |
+| Completion function | `src/janus/services/tasks.py:complete_task()` (line 43) |
+| Remote PR/CI check | Via `web_git.py` integration — `review_integration_state` |
 | Integration design doc | `docs/specs/integration_contract.md` |
 | Research: git worktree/branch sync | `docs/research/git_worktree_branch_sync_findings.md` |
 | Research: PR automation gap analysis | `docs/research/pr_automation_gap_analysis.md` |
-| Research: merge/rebase/automerge findings | `docs/research/merge_rebase_automerge_findings.md` |
+
+### Note on `kanban_db.py` references
+
+Earlier research reports and this audit referenced `hermes_cli/kanban_db.py`
+with specific line numbers (e.g., `_enforce_integration_gate` at ~5804,
+`_enforce_janus_verification_gate` at ~5639, `complete_task()` at ~5954).
+**These references are stale — `hermes_cli/` does not exist in the Janus
+codebase.** The actual implementation lives in the Janus domain layer:
+
+| Stale reference (`kanban_db.py`) | Actual codebase location |
+|---|---|
+| `kanban_db.py:5465` — `_enforce_repo_sync_gate` | No equivalent in Janus. Sync primitive is `src/janus/git_sync.py:sync_branch()` (line 267) |
+| `kanban_db.py:5639` — `_enforce_janus_verification_gate` | `src/janus/verification.py:run_verification()` (line 1231) |
+| `kanban_db.py:5804` — `_enforce_integration_gate` | No equivalent exists. ADR Phase 4 (Safe Integration) is architecturally absent. |
+| `kanban_db.py:5954` — `complete_task()` | `src/janus/services/tasks.py:complete_task()` (line 43) |
+| `kanban_db.py:5899` — `complete_task()` | `src/janus/services/tasks.py:complete_task()` (line 43) |
+
+The `kanban_db.complete_task()` architecture described in the original research
+was a passive-gate model from an intended (architected) design. The deployed
+code has no such gate file — completion is a bare markdown edit in
+`src/janus/services/tasks.py`.
 
 ---
 

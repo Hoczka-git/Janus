@@ -106,6 +106,47 @@ class VerificationGate:
 
 
 @dataclass
+class DefaultCheckConfig:
+    """Configuration for default-on deterministic pre-completion checks.
+
+    These checks run at task completion regardless of contract presence.
+    They can be configured (disabled/selective) but are default-on.
+
+    Attributes:
+        enabled: If False, all default checks are skipped (not recommended).
+        run_working_tree_clean: If True (default), check working tree is clean.
+        run_git_diff_check: If True (default), check git diff --check passes.
+        run_tests_after_rebase: If True (default), re-run the test suite.
+        test_command: The command to run for the test suite.
+            Defaults to the repository's verification command from docs/verification.md.
+        test_timeout: Timeout in seconds for the test command.
+        root: Workspace root for git operations (defaults to cwd).
+    """
+    enabled: bool = True
+    run_working_tree_clean: bool = True
+    run_git_diff_check: bool = True
+    run_tests_after_rebase: bool = True
+    test_command: str = "uv run pytest tests/"
+    test_timeout: int = 600
+    root: Path = field(default_factory=lambda: Path.cwd())
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DefaultCheckConfig:
+        """Build a config from a dict (e.g. from contract YAML or kanban frontmatter)."""
+        if not data or not isinstance(data, dict):
+            return cls()
+        return cls(
+            enabled=data.get("enabled", True),
+            run_working_tree_clean=data.get("run_working_tree_clean", True),
+            run_git_diff_check=data.get("run_git_diff_check", True),
+            run_tests_after_rebase=data.get("run_tests_after_rebase", True),
+            test_command=data.get("test_command", "uv run pytest tests/"),
+            test_timeout=int(data.get("test_timeout", 600)),
+            root=Path(data["root"]) if "root" in data else Path.cwd(),
+        )
+
+
+@dataclass
 class ImplementationContract:
     """A loaded and validated implementation contract.
 
@@ -1055,6 +1096,56 @@ def check_symbols_forbidden(contract: ImplementationContract) -> CheckResult:
     return result
 
 
+# ── Conflict-marker detection helper ─────────────────────────────────────
+
+
+# Patterns for git merge/rebase conflict markers.
+_CONFLICT_PATTERNS: tuple[str, ...] = (
+    "<<<<<<<",
+    "=======",
+    ">>>>>>>",
+)
+
+
+def _git_diff_conflict_markers(root: Path) -> list[tuple[str, int]]:
+    """Return (relative_path, line_number) pairs for conflict markers in the diff.
+
+    Scans the working-tree diff (``git diff HEAD``) for lines that begin with
+    git conflict markers. Used by ``check_git_diff_check`` to detect unresolved
+    merge/rebase conflicts, which ``git diff --check`` does NOT catch.
+    """
+    try:
+        diff_result = subprocess.run(
+            ["git", "diff", "HEAD", "--name-only"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if diff_result.returncode != 0:
+            return []
+        changed_files = [
+            f for f in diff_result.stdout.strip().splitlines() if f.strip()
+        ]
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+
+    markers: list[tuple[str, int]] = []
+    for rel_path in changed_files:
+        full_path = root / rel_path
+        try:
+            lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines, start=1):
+            stripped = line.lstrip()
+            for marker in _CONFLICT_PATTERNS:
+                if stripped.startswith(marker):
+                    markers.append((rel_path, i))
+                    break
+    return markers
+
+
 def check_git_diff_check(contract: ImplementationContract) -> CheckResult:
     """Check that the Git diff has no whitespace errors.
 
@@ -1068,8 +1159,12 @@ def check_git_diff_check(contract: ImplementationContract) -> CheckResult:
     'git diff HEAD' instead of 'git diff' ensures staged-only changes
     are not invisible.
 
-    PASS: No whitespace errors.
-    FAIL: Whitespace errors detected or Git command fails.
+    In addition to whitespace errors, this check also detects unresolved
+    conflict markers (<<<<<<<, =======, >>>>>>>) in the working tree diff,
+    which would indicate an incomplete merge/rebase.
+
+    PASS: No whitespace errors and no conflict markers.
+    FAIL: Whitespace errors detected, conflict markers found, or Git command fails.
     """
     result = CheckResult(check_name="check_git_diff_check")
 
@@ -1093,21 +1188,42 @@ def check_git_diff_check(contract: ImplementationContract) -> CheckResult:
             )
             return result
 
+        # Always scan for conflict markers — git diff --check reports them
+        # as "leftover conflict marker" whitespace errors, but we surface them
+        # as a distinct, explicit failure so the report makes the cause clear.
+        conflict_markers = _git_diff_conflict_markers(contract.root)
+
         if diff_result.returncode != 0:
-            # Whitespace errors found
+            # Whitespace errors (which may also include leftover conflict markers).
             error_output = combined_output if combined_output else "unknown whitespace error"
+            message = f"WHITESPACE ERRORS: {error_output[:500]}"
+            if conflict_markers:
+                message += (
+                    "\nCONFLICT MARKERS in diff: "
+                    + "; ".join(f"{rel}:{lineno}" for rel, lineno in conflict_markers[:10])
+                )
             result.add_detail(
                 item="git diff HEAD --check",
                 passed=False,
-                message=f"WHITESPACE ERRORS: {error_output[:500]}",
+                message=message,
             )
         else:
-            result.add_detail(
-                item="git diff HEAD --check",
-                passed=True,
-                message="no whitespace errors",
-            )
-
+            # No whitespace errors — report conflict-marker status explicitly.
+            if conflict_markers:
+                result.add_detail(
+                    item="git diff HEAD --check",
+                    passed=False,
+                    message=(
+                        "CONFLICT MARKERS in diff: "
+                        + "; ".join(f"{rel}:{lineno}" for rel, lineno in conflict_markers[:10])
+                    ),
+                )
+            else:
+                result.add_detail(
+                    item="git diff HEAD --check",
+                    passed=True,
+                    message="no whitespace errors; no conflict markers",
+                )
     except (subprocess.TimeoutExpired, OSError) as e:
         result.add_detail(
             item="git diff HEAD --check",
@@ -1118,10 +1234,305 @@ def check_git_diff_check(contract: ImplementationContract) -> CheckResult:
     return result
 
 
-# ══════════════════════════════════════════════════════════════════════
-# Check functions (Phase 1: files_create, files_immutable, commands)
-# Phase 2: files_modify, unexpected_modified, untracked
-# Phase 3: symbols_required, symbols_forbidden, git_diff_check
+# ──────────────────────────────────────────────────────────────────────
+# Default-on deterministic pre-completion checks (Phase 3)
+# These checks run at task completion regardless of contract presence.
+# They each accept a root Path (workspace) and return a CheckResult.
+# ──────────────────────────────────────────────────────────────────────
+
+# Conflict-marker prefixes that the working-tree-clean check should never see
+# in committed content. (These are also caught by check_git_diff_check, but a
+# clean-tree check that scans the whole working tree is more general.)
+_CONFLICT_PREFIXES: tuple[str, ...] = (
+    "<<<<<<<",
+    ">>>>>>>",
+    "=======",
+)
+
+
+def check_working_tree_clean(root: Path | None = None) -> CheckResult:
+    """Check that the working tree has no unintended changes.
+
+    Runs ``git status --porcelain``. PASS when the output is empty — meaning
+    all intended changes are committed and no stray files remain. FAIL when
+    there is any uncommitted change (modified, staged, or untracked files).
+
+    This is the ADR-004 Phase 3 "working tree clean" gate (AC #1).
+
+    Args:
+        root: Workspace root directory. Defaults to cwd.
+
+    Returns:
+        A CheckResult with check_name ``check_working_tree_clean``.
+    """
+    if root is None:
+        root = Path.cwd()
+    result = CheckResult(check_name="check_working_tree_clean")
+    root = Path(root)
+
+    try:
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        result.add_detail(
+            item="git status --porcelain",
+            passed=False,
+            message=f"GIT COMMAND FAILED: {e}",
+        )
+        return result
+
+    combined = (status_result.stdout + status_result.stderr).strip()
+
+    # Detect non-git directory.
+    if "not a git repository" in combined.lower():
+        result.add_detail(
+            item="git status --porcelain",
+            passed=False,
+            message=f"NOT A GIT REPOSITORY: {combined[:500]}",
+        )
+        return result
+
+    if status_result.returncode != 0 and not combined:
+        result.add_detail(
+            item="git status --porcelain",
+            passed=False,
+            message=f"GIT COMMAND FAILED (rc={status_result.returncode})",
+        )
+        return result
+
+    # Empty porcelain output → clean tree.
+    if not combined:
+        result.add_detail(
+            item="working tree",
+            passed=True,
+            message="working tree is clean",
+        )
+        return result
+
+    # Non-empty → report each line as a failure item.
+    for line in combined.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        status_code = line[:2] if len(line) >= 2 else "?"
+        path = line[3:] if len(line) >= 3 else line
+        result.add_detail(
+            item=path,
+            passed=False,
+            message=f"UNCLEAN: status '{status_code}' — {line}",
+        )
+
+    return result
+
+
+def check_tests_pass_after_rebase(
+    test_command: str = "uv run pytest tests/",
+    root: Path | None = None,
+    timeout: int = 600,
+) -> CheckResult:
+    """Re-run the full test suite after the final rebase.
+
+    This is the ADR-004 Phase 3 test-re-run gate (AC #3). Tests must pass
+    *after* the final rebase, not before — a rebase can introduce breakage
+    that was not present in the pre-rebase state.
+
+    Args:
+        test_command: The test command to run. Defaults to the repository's
+            verification command (``uv run pytest tests/`` per docs/verification.md).
+        root: Workspace root directory. Defaults to cwd.
+        timeout: Timeout in seconds for the test command.
+
+    Returns:
+        A CheckResult with check_name ``check_tests_pass_after_rebase``.
+    """
+    if root is None:
+        root = Path.cwd()
+    root = Path(root)
+    result = CheckResult(check_name="check_tests_pass_after_rebase")
+
+    try:
+        proc = subprocess.run(
+            test_command,
+            shell=True,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        passed = proc.returncode == 0
+        snippet = (proc.stdout + proc.stderr).strip()
+        # Truncate for detail messages but preserve enough to diagnose.
+        snippet = snippet[-2000:] if len(snippet) > 2000 else snippet
+        result.add_detail(
+            item=test_command,
+            passed=passed,
+            message=(
+                f"exit {proc.returncode} (0 = pass)"
+                + (f"\n--- output ---\n{snippet}" if not passed else "")
+            ),
+        )
+    except subprocess.TimeoutExpired:
+        result.add_detail(
+            item=test_command,
+            passed=False,
+            message=f"TIMEOUT after {timeout}s",
+        )
+    except OSError as e:
+        result.add_detail(
+            item=test_command,
+            passed=False,
+            message=f"COMMAND FAILED: {e}",
+        )
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Default-on check runner (no contract required)
+# ═══════════════════════════════════════════════════════════════════════
+
+#: The default-on check registry: name → callable.
+#: Each callable takes (config, root) and returns a CheckResult.
+_DEFAULT_CHECKS: dict[str, Any] = {
+    "working_tree_clean": lambda config, root: check_working_tree_clean(root),
+    "git_diff_check": lambda config, root: check_git_diff_check(
+        _contract_for_root(root)
+    ),
+    "tests_pass_after_rebase": lambda config, root: check_tests_pass_after_rebase(
+        config.test_command, root, config.test_timeout
+    ),
+}
+
+
+def _contract_for_root(root: Path) -> ImplementationContract:
+    """Build a minimal contract pointing at *root* for contract-based checks.
+
+    The default-on checks reuse existing contract-parameterised check functions
+    (e.g. ``check_git_diff_check``) by wrapping them in a minimal contract whose
+    ``root`` is the workspace directory. This keeps the check functions
+    unchanged while allowing them to run without a user-authored contract file.
+    """
+    return ImplementationContract(
+        version=1,
+        task_id="default-pre-completion",
+        root=Path(root),
+    )
+
+
+def run_default_checks(config: DefaultCheckConfig | None = None) -> VerificationReport:
+    """Run the default-on pre-completion checks (no contract file required).
+
+    This is the ADR-004 Phase 3 pre-completion gate entry point (AC #4). It
+    runs the three default-on deterministic checks:
+
+    1. ``check_working_tree_clean`` — working tree clean (``git status --porcelain``).
+    2. ``check_git_diff_check`` — ``git diff HEAD --check`` passes (no whitespace
+       errors, no conflict markers).
+    3. ``check_tests_pass_after_rebase`` — re-run the full test suite.
+
+    The returned :class:`VerificationReport` aggregates results identical to
+    :func:`run_verification`, so callers can treat the output uniformly.
+
+    Args:
+        config: Configuration for which checks to run and how. Defaults to
+            :class:`DefaultCheckConfig` (all checks enabled with standard settings).
+
+    Returns:
+        A :class:`VerificationReport` with overall PASS/FAIL.
+    """
+    if config is None:
+        config = DefaultCheckConfig()
+
+    report = VerificationReport(task_id="default-pre-completion")
+
+    if not config.enabled:
+        # All default checks disabled — report as PASS (no-op gate).
+        report.summary = "default checks disabled"
+        from datetime import datetime, timezone
+        report.generated_at = datetime.now(timezone.utc).isoformat()
+        return report
+
+    root = config.root
+    order = [
+        "working_tree_clean",
+        "git_diff_check",
+        "tests_pass_after_rebase",
+    ]
+
+    for name in order:
+        # Respect config per-check toggles.
+        if name == "working_tree_clean" and not config.run_working_tree_clean:
+            continue
+        if name == "git_diff_check" and not config.run_git_diff_check:
+            continue
+        if name == "tests_pass_after_rebase" and not config.run_tests_after_rebase:
+            continue
+
+        check_fn = _DEFAULT_CHECKS[name]
+        try:
+            cr = check_fn(config, root)
+            report.checks[name] = cr
+        except Exception as e:
+            report.checks[name] = CheckResult(
+                check_name=name,
+                passed=False,
+                error=str(e),
+            )
+
+    # Aggregate failures (mirrors run_verification).
+    failed_checks = []
+    for name, cr in report.checks.items():
+        if cr.has_error:
+            failed_checks.append({"check": name, "error": cr.error})
+        elif not cr.passed:
+            for detail in cr.details:
+                if not detail["passed"]:
+                    failed_checks.append({
+                        "check": name,
+                        "item": detail["item"],
+                        "message": detail["message"],
+                    })
+
+    report.failures = failed_checks
+    report.overall = "FAIL" if failed_checks else "PASS"
+
+    total_items = sum(cr.total_items for cr in report.checks.values())
+    total_failed = sum(cr.failed_items for cr in report.checks.values())
+    total_errors = sum(1 for cr in report.checks.values() if cr.has_error)
+    check_count = len(report.checks)
+
+    if report.is_pass:
+        report.summary = (
+            f"PASS: {check_count} default checks, {total_items} items, 0 failures"
+        )
+    else:
+        report.summary = (
+            f"FAIL: {check_count} default checks, {total_items} items, "
+            f"{total_failed} failures, {total_errors} errors"
+        )
+
+    from datetime import datetime, timezone
+    report.generated_at = datetime.now(timezone.utc).isoformat()
+    return report
+
+
+def run_default_checks_cli(config: DefaultCheckConfig | None = None) -> int:
+    """CLI entry point for default-on checks. Prints JSON report, returns exit code."""
+    report = run_default_checks(config)
+    import json
+    print(json.dumps(report.to_dict(), indent=2))
+    return report.exit_code()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Default-on check functions end
+# ═══════════════════════════════════════════════════════════════════════
+
 # ──────────────────────────────────────────────────────────────────────
 
 def check_files_create(contract: ImplementationContract) -> CheckResult:
