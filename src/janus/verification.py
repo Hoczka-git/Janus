@@ -4,9 +4,9 @@ Provides contract loading, verification result models, and the first three
 check functions (files_create, files_immutable, commands) plus an execution
 framework that aggregates results into overall PASS/FAIL.
 
-Remaining checks (files_modify, unexpected_modified, untracked,
-symbols_required, symbols_forbidden, git_diff_check) are deferred to
-later phases.
+Implemented checks: files_create, files_immutable, commands, files_modify,
+unexpected_modified, untracked, symbols_required, symbols_forbidden,
+os_replace, git_diff_check.
 """
 
 from __future__ import annotations
@@ -127,6 +127,9 @@ class ImplementationContract:
     required_symbols: list[RequiredSymbolEntry] = field(default_factory=list)
     forbidden_symbols: list[ForbiddenSymbolEntry] = field(default_factory=list)
 
+    # Files forbidden from containing os.replace callsites (ADR-005 Amendment 01)
+    forbidden_os_replace: list[str] = field(default_factory=list)
+
     # Commands
     verification_commands: list[VerificationCommand] = field(default_factory=list)
 
@@ -177,6 +180,7 @@ class ImplementationContract:
             files_forbidden=_parse_forbidden_list(raw.get("files", {}).get("forbidden", [])),
             required_symbols=_parse_symbol_list(raw.get("required_symbols", [])),
             forbidden_symbols=_parse_forbidden_symbols(raw.get("forbidden_symbols", [])),
+            forbidden_os_replace=_parse_str_list(raw.get("forbidden_os_replace", [])),
             verification_commands=_parse_command_list(raw.get("verification_commands", [])),
             scope_constraints=_parse_scope(raw.get("scope_constraints", {})),
             completion_gates=_parse_gate_list(raw.get("completion_gates", [])),
@@ -370,6 +374,13 @@ def _parse_forbidden_symbols(raw: Any) -> list[ForbiddenSymbolEntry]:
             type=type_val,
         ))
     return result
+
+
+def _parse_str_list(raw: Any) -> list[str]:
+    """Parse a YAML list of strings, skipping non-string entries."""
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if isinstance(item, str)]
 
 
 def _parse_command_list(raw: Any) -> list[VerificationCommand]:
@@ -1117,6 +1128,88 @@ def check_git_diff_check(contract: ImplementationContract) -> CheckResult:
     return result
 
 
+def _find_os_replace_calls(file_path: Path) -> list[int]:
+    """Find line numbers of ``os.replace(...)`` call sites in *file_path*.
+
+    Uses AST parsing so that ``os.replace`` appearing in comments, docstrings,
+    or string literals does NOT trigger a false positive — only actual
+    ``ast.Call`` nodes whose function is ``os.replace`` are reported.
+
+    Returns a list of 1-based line numbers of matching call sites.
+    """
+    try:
+        source = file_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    try:
+        tree = ast.parse(source, filename=str(file_path))
+    except SyntaxError:
+        return []
+
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == "replace"
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "os"
+            ):
+                lines.append(node.lineno)
+    return lines
+
+
+def check_no_os_replace(contract: ImplementationContract) -> CheckResult:
+    """Assert that forbidden files contain no ``os.replace`` call site.
+
+    This enforces the ADR-005 Amendment 01 invariant that
+    ``atomic_io.atomic_write`` (which lives in ``atomic_io.py``) is the sole
+    module that calls ``os.replace``.  Files listed under the contract's
+    ``forbidden_os_replace`` list (relative path strings) are AST-scanned for
+    ``os.replace(...)`` call expressions.
+
+    PASS: No ``os.replace`` call site is found in any listed file.
+    FAIL: A ``os.replace`` call site is found in a listed file (or the file
+          is missing / unparseable).
+
+    Comments, docstrings, and string literals do NOT trigger a failure —
+    only real AST call expressions are counted.
+    """
+    result = CheckResult(check_name="check_no_os_replace")
+
+    forbidden_files: list[str] = getattr(contract, "forbidden_os_replace", [])
+    for rel_path in forbidden_files:
+        full_path = contract.root / rel_path
+        if not full_path.exists():
+            result.add_detail(
+                item=rel_path,
+                passed=False,
+                message=f"FILE NOT FOUND: {full_path}",
+            )
+            continue
+
+        calls = _find_os_replace_calls(full_path)
+        if calls:
+            result.add_detail(
+                item=rel_path,
+                passed=False,
+                message=(
+                    f"os.replace call site(s) at line(s) "
+                    f"{', '.join(str(n) for n in calls)}"
+                ),
+            )
+        else:
+            result.add_detail(
+                item=rel_path,
+                passed=True,
+                message="no os.replace call site",
+            )
+
+    return result
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Check functions (Phase 1: files_create, files_immutable, commands)
 # Phase 2: files_modify, unexpected_modified, untracked
@@ -1244,6 +1337,7 @@ def run_verification(contract_path: str | Path) -> VerificationReport:
     - check_files_untracked
     - check_symbols_required
     - check_symbols_forbidden
+    - check_no_os_replace
     - check_git_diff_check
     """
     contract = ImplementationContract.load(contract_path)
@@ -1259,6 +1353,7 @@ def run_verification(contract_path: str | Path) -> VerificationReport:
         ("untracked", check_files_untracked),
         ("symbols_required", check_symbols_required),
         ("symbols_forbidden", check_symbols_forbidden),
+        ("os_replace", check_no_os_replace),
         ("git_diff_check", check_git_diff_check),
     ]
 

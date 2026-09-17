@@ -450,7 +450,10 @@ class TestServiceTaskMutation:
                             tmp_path / "tasks.md")
         add_task("Write tests", priority=2)
 
-        obj = json.loads(captor[0])
+        service_events = [json.loads(l) for l in captor
+                          if json.loads(l)["event"] == "service.task.mutated"]
+        assert len(service_events) == 1
+        obj = service_events[0]
         assert obj["event"] == "service.task.mutated"
         assert obj["data"]["operation"] == "add"
         assert obj["data"]["task_title"] == "Write tests"
@@ -465,7 +468,10 @@ class TestServiceTaskMutation:
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tf)
         complete_task("Buy groceries")
 
-        obj = json.loads(captor[0])
+        service_events = [json.loads(l) for l in captor
+                          if json.loads(l)["event"] == "service.task.mutated"]
+        assert len(service_events) == 1
+        obj = service_events[0]
         assert obj["event"] == "service.task.mutated"
         assert obj["data"]["operation"] == "complete"
         assert obj["data"]["task_title"] == "Buy groceries"

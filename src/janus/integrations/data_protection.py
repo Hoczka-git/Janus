@@ -38,7 +38,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -46,6 +45,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from collections import deque
+
+from janus.integrations.atomic_io import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -253,47 +254,15 @@ def detect_conflict(path: Path, expected_hash: str | None) -> bool:
 # ---------------------------------------------------------------------------
 # Atomic write
 # ---------------------------------------------------------------------------
-
-
-def atomic_write(path: Path, content: str, *, encoding: str = "utf-8") -> int:
-    """Write content to path atomically using write-to-temp + rename.
-
-    Uses os.rename() which is atomic on POSIX — either the old file
-    remains or the new file appears, never a partially-written state.
-
-    Returns the number of bytes written.
-    Raises OSError on filesystem failure.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    fd, tmp_path = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.tmp_",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding=encoding) as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-
-        # Atomic rename on POSIX
-        os.replace(tmp_path, path)
-
-        # Sync the directory entry to ensure the rename is durable
-        dir_fd = os.open(str(path.parent), os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-    return len(content.encode(encoding))
+#
+# Delegates to ``janus.integrations.atomic_io.atomic_write`` — the sole module
+# that calls ``os.replace``. ``data_protection`` does not define its own
+# atomic-write body (ADR-005 Amendment 01, Option (b)).
+#
+# ``atomic_write`` is imported from ``atomic_io`` (see top of module) and is
+# kept in this module's namespace for backward compatibility with callers and
+# tests that import it from ``data_protection``. New code should import
+# directly from ``atomic_io``.
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +552,8 @@ def protected_write(
 
     if not config.enabled:
         # Fall back to simple write if protection is disabled
-        bytes_written = atomic_write(path, content)
+        atomic_write(path, content, backup=False)
+        bytes_written = len(content.encode("utf-8"))
         return WriteResult(
             path=path,
             bytes_written=bytes_written,
@@ -613,7 +583,8 @@ def protected_write(
             path.parent / config.backup_dir, path, config.backup_max_age_days
         )
 
-        bytes_written = atomic_write(path, content)
+        atomic_write(path, content, backup=True)
+        bytes_written = len(content.encode("utf-8"))
         content_hash = compute_content_hash(content)
 
         verified = True
@@ -684,7 +655,8 @@ def protected_append(path: Path, content: str, *, written_by: str = "unknown") -
             old_content = ""
         new_content = old_content + content
         backup_path = backup_previous(path)
-        bytes_written = atomic_write(path, new_content)
+        atomic_write(path, new_content, backup=True)
+        bytes_written = len(new_content.encode("utf-8"))
         if config.verify_after_write:
             if not post_write_verify(path, new_content):
                 if backup_path is not None and backup_path.exists():
@@ -730,7 +702,8 @@ def repair_file(
         # Create an extended backup with repair metadata
         backup_path = _create_repair_backup(path, reason)
 
-        bytes_written = atomic_write(path, new_content)
+        atomic_write(path, new_content, backup=True)
+        bytes_written = len(new_content.encode("utf-8"))
         content_hash = compute_content_hash(new_content)
 
         verified = True
