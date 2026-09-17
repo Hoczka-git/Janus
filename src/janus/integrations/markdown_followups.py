@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from datetime import date, datetime
 
+from janus.integrations.atomic_io import read_modify_write
 from janus.models.follow_up import FollowUp, FOLLOWUP_STATES, PRIORITIES
 
 logger = logging.getLogger(__name__)
@@ -185,17 +186,15 @@ def _format_followup_line(fu: FollowUp) -> str:
 def save_followup(fu: FollowUp) -> None:
     """Append a new FollowUp to data/followups.md (append mode, create file if needed)."""
     line = _format_followup_line(fu)
-    with FOLLOWUPS_PATH.open("a") as f:
-        f.write(line + "\n")
+    read_modify_write(
+        FOLLOWUPS_PATH,
+        lambda cur: cur + line + "\n",
+        backup=True,
+    )
 
 
 def update_followup(fu: FollowUp) -> None:
     """In-place rewrite of one follow-up by id."""
-    from janus.integrations.data_protection import (
-        protected_write,
-        compute_content_hash,
-    )
-
     raw_content = FOLLOWUPS_PATH.read_text()
     lines = raw_content.splitlines()
     found = False
@@ -211,9 +210,8 @@ def update_followup(fu: FollowUp) -> None:
         raise ValueError(f"Follow-up not found: {fu.id}")
 
     content = "\n".join(new_lines) + "\n"
-    protected_write(
+    read_modify_write(
         FOLLOWUPS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="markdown_followups.update_followup",
+        lambda cur: content if cur == raw_content else cur,
+        backup=True,
     )

@@ -14,6 +14,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import ast
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1182,6 +1183,120 @@ def check_files_immutable(contract: ImplementationContract) -> CheckResult:
     return result
 
 
+def check_data_write_path(contract: ImplementationContract) -> CheckResult:
+    """Check that no service or integration module uses data_protection.protected_write.
+
+    After ADR-005 migration, all writes to data/ files must go through
+    atomic_io.read_modify_write() — not data_protection.protected_write().
+    This gate enforces that invariant going forward.
+
+    Scans all Python files under src/janus/services/ and src/janus/integrations/
+    for calls to protected_write (excluding atomic_io.py itself and test files).
+
+    PASS: No protected_write calls found in service/integration modules.
+    FAIL: One or more protected_write call sites found.
+    """
+    result = CheckResult(check_name="check_data_write_path")
+    root = contract.root
+
+    scan_dirs = [
+        root / "src" / "janus" / "services",
+        root / "src" / "janus" / "integrations",
+    ]
+
+    pattern = re.compile(r"\bprotected_write\s*\(")
+
+    for scan_dir in scan_dirs:
+        if not scan_dir.exists():
+            continue
+        for py_file in sorted(scan_dir.glob("*.py")):
+            # Skip atomic_io.py itself (it's the replacement, not the legacy path)
+            if py_file.name == "atomic_io.py":
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if pattern.search(content):
+                rel = py_file.relative_to(root)
+                result.add_detail(
+                    item=str(rel),
+                    passed=False,
+                    message=f"protected_write call found in {rel}",
+                )
+
+    return result
+
+
+def check_data_file_write_gates(contract: ImplementationContract) -> CheckResult:
+    """Check that no service or integration module uses direct Path.write_text()
+    or bare Path.open('a') to write to data/ files.
+
+    After ADR-005 migration, all writes to data/ files must go through
+    atomic_io.read_modify_write() — not direct filesystem writes.
+    This gate enforces that invariant going forward by detecting:
+
+    - Path.write_text(...) calls targeting data/ files
+    - Path.open('a') / Path.open("a") calls targeting data/ files
+
+    Scans all Python files under src/janus/services/ and src/janus/integrations/
+    (excluding atomic_io.py itself and test files).
+
+    PASS: No direct write_text or bare append open calls found.
+    FAIL: One or more direct write call sites found.
+    """
+    result = CheckResult(check_name="check_data_file_write_gates")
+    root = contract.root
+
+    scan_dirs = [
+        root / "src" / "janus" / "services",
+        root / "src" / "janus" / "integrations",
+    ]
+
+    # Match Path.write_text(...)  — e.g. TASKS_PATH.write_text(...), path.write_text(...)
+    write_text_pattern = re.compile(r"\b\w+\.write_text\s*\(")
+    # Match .open("a") or .open('a') — bare append-mode opens
+    append_open_pattern = re.compile(r"\.open\s*\(\s*[\"']a[\"']\s*\)")
+
+    for scan_dir in scan_dirs:
+        if not scan_dir.exists():
+            continue
+        for py_file in sorted(scan_dir.glob("*.py")):
+            # Skip atomic_io.py itself (it's the primitive, not a consumer)
+            if py_file.name == "atomic_io.py":
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            violations: list[str] = []
+            for match in write_text_pattern.finditer(content):
+                line_start = content.rfind("\n", 0, match.start()) + 1
+                line_end = content.find("\n", match.end())
+                if line_end == -1:
+                    line_end = len(content)
+                line = content[line_start:line_end].strip()
+                violations.append(f"write_text: {line}")
+            for match in append_open_pattern.finditer(content):
+                line_start = content.rfind("\n", 0, match.start()) + 1
+                line_end = content.find("\n", match.end())
+                if line_end == -1:
+                    line_end = len(content)
+                line = content[line_start:line_end].strip()
+                violations.append(f"open('a'): {line}")
+
+            if violations:
+                rel = py_file.relative_to(root)
+                result.add_detail(
+                    item=str(rel),
+                    passed=False,
+                    message=f"Direct data/ write in {rel}: " + "; ".join(violations),
+                )
+
+    return result
+
+
 def check_commands(contract: ImplementationContract) -> CheckResult:
     """Run each verification command and check its exit code.
 
@@ -1253,6 +1368,8 @@ def run_verification(contract_path: str | Path) -> VerificationReport:
     checks = [
         ("files_create", check_files_create),
         ("files_immutable", check_files_immutable),
+        ("data_write_path", check_data_write_path),
+        ("data_file_write_gates", check_data_file_write_gates),
         ("commands", check_commands),
         ("files_modify", check_files_modify),
         ("unexpected_modified", check_files_unexpected_modified),

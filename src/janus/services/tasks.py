@@ -14,7 +14,8 @@ from janus.integrations.markdown_tasks import (
     _parse_task_line,
     _format_task_line,
 )
-from janus.integrations.data_protection import protected_write, protected_append, compute_content_hash
+from janus.integrations.atomic_io import read_modify_write
+from janus.integrations.data_protection import compute_content_hash
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TASKS_PATH = PROJECT_ROOT / "data" / "tasks.md"
@@ -71,11 +72,10 @@ def complete_task(title: str) -> Task:
     lines[idx] = "- [x] " + line[len("- [ ] "):]
 
     content = "\n".join(lines) + "\n"
-    protected_write(
+    read_modify_write(
         TASKS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="services.tasks.complete_task",
+        lambda cur: content if compute_content_hash(cur) == compute_content_hash(raw_content) else cur,
+        backup=True,
     )
 
     emit(logger, "service.task.mutated",
@@ -181,11 +181,10 @@ def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
     lines[idx] = line
 
     content = "\n".join(lines) + "\n"
-    protected_write(
+    read_modify_write(
         TASKS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="services.tasks.complete_janus_task",
+        lambda cur: content if compute_content_hash(cur) == compute_content_hash(raw_content) else cur,
+        backup=True,
     )
 
     emit(logger, "service.task.mutated",
@@ -281,11 +280,10 @@ def set_task_state(title: str, state: str) -> Task:
     task.state = state
     lines[idx] = _format_task_line(task)
     content = "\n".join(lines) + "\n"
-    protected_write(
+    read_modify_write(
         TASKS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="services.tasks.set_task_state",
+        lambda cur: content if compute_content_hash(cur) == compute_content_hash(raw_content) else cur,
+        backup=True,
     )
 
     emit(logger, "service.task.mutated",
@@ -346,11 +344,10 @@ def set_task_progress(title: str, progress: int) -> Task:
     task.progress = progress
     lines[idx] = _format_task_line(task)
     content = "\n".join(lines) + "\n"
-    protected_write(
+    read_modify_write(
         TASKS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="services.tasks.set_task_progress",
+        lambda cur: content if compute_content_hash(cur) == compute_content_hash(raw_content) else cur,
+        backup=True,
     )
 
     emit(logger, "service.task.mutated",
@@ -364,10 +361,10 @@ def set_task_progress(title: str, progress: int) -> Task:
 
 def _append_task(task: Task) -> None:
     line = _format_task_line(task)
-    protected_append(
+    read_modify_write(
         TASKS_PATH,
-        line + "\n",
-        written_by="services.tasks._append_task",
+        lambda cur: cur + line + "\n",
+        backup=True,
     )
 
 
