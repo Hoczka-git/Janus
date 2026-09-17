@@ -4,7 +4,7 @@
 **Date:** 2026-09-02
 **Status:** Draft for review
 **Author:** Hermes Agent (implementer)
-**Related:** t_891f872c (survey findings), t_ad23793c (parent implementation task), t_71f70a87 (sync primitive), t_bc8fcd6b (verification step), t_36b3d88f (integration step)
+**Related:** t_891f872c (survey findings), t_ad23793c (parent implementation task), t_71f70a87 (sync primitive), t_bc8fcd6b (verification step), t_36b3d88f (integration step; superseded — integration completed incrementally through phase-specific tasks)
 
 ---
 
@@ -543,7 +543,7 @@ and integration agent must both agree.
 
 3. **Integration agent identity.** Who performs Phase 4? Options: (a) the implementor
    itself after review approval, (b) a dedicated `integrator` profile, (c) the reviewer
-   as part of their verdict. Decision deferred to the implementation task (t_36b3d88f).
+   as part of their verdict. Decision deferred to the implementation task (t_36b3d88f; superseded — integration completed incrementally through phase-specific tasks).
    This spec requires that whoever performs Phase 4 is NOT the sole arbiter — at minimum,
    Phase 3's gate must have passed independently.
 
@@ -579,4 +579,4 @@ and integration agent must both agree.
 
 *This spec is a design document only. Implementation is tracked in the child tasks:
 t_71f70a87 (sync primitive), t_bc8fcd6b (verification step),
-t_36b3d88f (integration step), coordinated via t_ad23793c.*
+t_36b3d88f (integration step; superseded — integration completed incrementally through phase-specific tasks t_ad23793c and others), coordinated via t_ad23793c.*
