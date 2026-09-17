@@ -21,7 +21,7 @@ Status definitions:
 
 # Next
 
-- [ ] Implement the structured observability log schema and instrumentation
+- [done] Implement the structured observability log schema and instrumentation
   described in docs/design/observability_plan.md
 
 ## [done] Configure roadmap-driven replenishment for Janus
@@ -45,7 +45,7 @@ Requirements:
 
 ---
 
-## [ready] Goal execution planning
+## [done] Goal execution planning
 
 Extend the Goal System from tracking toward execution planning.
 
