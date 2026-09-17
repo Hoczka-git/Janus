@@ -206,6 +206,14 @@ data/ protection layer, or are caught by the CI grep gate.
 writes outside `atomic_io.py` or the integration modules' `read_modify_write`
 usage is a verification failure.
 
+As of ADR-005 Amendment 01, the gate is extended by `check_no_os_replace`:
+`data_protection.py` no longer defines its own `atomic_write` that calls
+`os.replace` directly. Its `protected_write` / `protected_append` /
+`repair_file` import and call `atomic_io.atomic_write`, so `atomic_io` is the
+sole module that performs `os.replace`. A contract listing
+`data_protection.py` under `forbidden_os_replace` will FAIL the verification
+pipeline if any `os.replace` call site is re-introduced there.
+
 ---
 
 ## 4. Available API, parameters, and policies
