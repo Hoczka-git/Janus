@@ -16,7 +16,10 @@ from datetime import datetime
 from pathlib import Path
 
 from janus._log import emit
-from janus.integrations.data_protection import protected_write, compute_content_hash
+from janus.integrations.atomic_io import (
+    atomic_write,
+    compute_content_hash,
+)
 from janus.models.decision import Decision, VALID_DECISION_STATUSES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -129,7 +132,7 @@ def update_decision_status(adr_number: str, status: str) -> Decision:
 
     content = adr_path.read_text()
     updated = _replace_status_in_markdown(content, status)
-    protected_write(
+    atomic_write(
         adr_path,
         updated,
         expected_hash=compute_content_hash(content),
@@ -169,7 +172,7 @@ def link_decision_to_goal(adr_number: str, goal_title: str) -> Decision:
     if goal_wikilink not in content:
         # Append to the Context section or at the end
         new_content = content.rstrip() + f"\n\nSee {goal_wikilink} for the goal this decision addresses.\n"
-        protected_write(
+        atomic_write(
             adr_path,
             new_content,
             expected_hash=compute_content_hash(content),
@@ -220,7 +223,7 @@ def link_finding_to_decision(adr_number: str, artifact_title: str, finding_index
             content = content[:insert_pos] + f"\n- {artifact_title}\n" + content[insert_pos:]
         else:
             content = content.rstrip() + f"\n- {artifact_title}\n"
-    protected_write(
+    atomic_write(
         adr_path,
         content,
         expected_hash=compute_content_hash(content_before),
@@ -271,7 +274,7 @@ def create_decision(decision: Decision) -> Path:
         lines.append("")
 
     content = "\n".join(lines)
-    protected_write(
+    atomic_write(
         adr_path,
         content,
         expected_hash=None,  # new file

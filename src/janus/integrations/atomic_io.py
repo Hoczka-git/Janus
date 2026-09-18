@@ -54,6 +54,61 @@ class AtomicWriteError(RuntimeError):
     """Raised when the atomic write itself fails (disk full, permissions)."""
 
 
+class HashConflictError(ConcurrentWriteError):
+    """Raised when a content-hash-based conflict is detected.
+
+    A :class:`ConcurrentWriteError` subtype: the file's SHA-256 on disk differs
+    from the ``expected_hash`` captured by the caller at load time.  Raised by
+    :func:`atomic_write` when ``expected_hash`` is supplied and
+    :func:`read_modify_write` / :func:`read_modify_write_with_retry` (which
+    capture the load-time hash automatically).
+
+    ADR-005 Amendment 01 folds the legacy ``data_protection.detect_conflict``
+    SHA-256 check into this primitive so the single choke point carries
+    content-hash-based conflict detection as its default (Augmentation 01).
+    """
+
+
+# ── Content-hash conflict detection (ADR-005 Amendment 01) ──────────────────
+
+def compute_content_hash(content: str) -> str:
+    """Compute the SHA-256 hash of a string's UTF-8 encoding."""
+    import hashlib
+
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def compute_file_hash(path: Path) -> str:
+    """Compute the SHA-256 hash of a file's contents.
+
+    Raises :class:`FileNotFoundError` if the file does not exist.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def detect_hash_conflict(path: Path, expected_hash: str | None) -> bool:
+    """Return True if *path*'s current content SHA-256 differs from
+    *expected_hash*.
+
+    - Missing file or ``expected_hash is None`` → no conflict (``False``).
+    - Otherwise compares the on-disk content hash to *expected_hash*.
+
+    This is the content-hash-based conflict detector that
+    :func:`atomic_write` uses by default when ``expected_hash`` is supplied
+    (replacing/augmenting the inode/mtime/size snapshot).
+    """
+    if not path.exists() or expected_hash is None:
+        return False
+    current_hash = compute_file_hash(path)
+    return current_hash != expected_hash
+
+
 # ── File identity snapshot ─────────────────────────────────────────────────
 
 class _FileSnapshot:
@@ -198,6 +253,8 @@ def atomic_write(
     lock: bool = False,
     verify: bool = False,
     backup_rotation: bool = False,
+    expected_hash: str | None = None,
+    written_by: str | None = None,
 ) -> None:
     """Write *content* to *path* atomically.
 
@@ -219,12 +276,35 @@ def atomic_write(
       *content*; raises ``AtomicWriteError`` on mismatch.
     - ``backup_rotation``: when creating a ``.bak``, rotate existing
       backups so at most ``max_backups`` (default 3) are retained.
+    - ``expected_hash``: SHA-256 hash of the file's content *at load time*.
+      When supplied and the on-disk file has been modified since (its
+      current content hash differs), :class:`HashConflictError` (a
+      :class:`ConcurrentWriteError`) is raised *before* any write occurs.
+      This is the content-hash-based conflict detection that augments the
+      inode/mtime/size snapshot used by :func:`read_modify_write`
+      (ADR-005 Amendment 01, Augmentation 01).  Pass ``None`` (the default)
+      to disable hash-based conflict detection for this write.
 
     Raises:
+        HashConflictError: if *expected_hash* was supplied and the on-disk
+            file's content hash differs (only when ``lock`` is not held —
+            the lock serializes writers so a locked write skips the race).
         AtomicWriteError: on disk-full, permission, OS-level failure,
             or post-write verification mismatch.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Content-hash-based conflict detection (Augmentation 01).  Skipped under
+    # an exclusive lock because the lock already serializes concurrent writers,
+    # and the snapshot check in read_modify_write covers the residual race.
+    if expected_hash is not None and not lock and detect_hash_conflict(
+        path, expected_hash
+    ):
+        current_hash = compute_file_hash(path)
+        raise HashConflictError(
+            f"Hash conflict for {path}: expected {expected_hash}, "
+            f"got {current_hash}"
+        )
 
     lock_cm = _file_lock(path) if lock else _no_lock()
 
@@ -282,6 +362,7 @@ def atomic_write(
         lock=lock,
         verify=verify,
         backup_rotation=backup_rotation,
+        written_by=written_by,
         message="Atomic write complete",
     )
 
@@ -311,12 +392,21 @@ def read_modify_write(
     is written via ``atomic_write`` and a ``ConcurrentWriteError`` is
     raised if the file changed between the read and the write.
 
+    Conflict detection augments the inode/mtime/size snapshot with a
+    SHA-256 content hash: the hash of the content read is captured and
+    passed as ``expected_hash`` to ``atomic_write``, so a stale-overwrite
+    is caught by *content equality* as well as by stat identity
+    (ADR-005 Amendment 01, Augmentation 01).
+
     This eliminates the read-entire-file / modify-one-line /
     write-entire-file pattern that every service method currently
     replicates by hand (ADR-005 §4).
     """
     snapshot = _FileSnapshot(path)
     current = atomic_read(path)
+    # SHA-256 of the content at load time — content-hash-based conflict
+    # detection (Augmentation 01).  Omitted for a brand-new file.
+    expected_hash = compute_content_hash(current) if current else None
 
     new_content = mutate(current)
 
@@ -328,7 +418,7 @@ def read_modify_write(
                 f"read-modify-write; caller should retry."
             )
 
-    atomic_write(path, new_content, backup=backup)
+    atomic_write(path, new_content, backup=backup, expected_hash=expected_hash)
 
 
 def read_modify_write_with_retry(

@@ -22,9 +22,7 @@ from janus.integrations.markdown_tasks import (
     _parse_task_line,
     _format_task_line,
 )
-from janus.integrations.atomic_io import read_modify_write
-from janus.integrations.data_protection import compute_content_hash
-from janus.integrations.data_protection import protected_write, protected_append, compute_content_hash
+from janus.integrations.atomic_io import read_modify_write, compute_content_hash
 from janus.verification import (
     VerificationReport,
     run_default_checks,
@@ -535,7 +533,7 @@ def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
     if not matches:
         raise ValueError(f"Task not found: {title}")
     if len(matches) > 1:
-        raise ValueError(f"Multiple open tasks found with title: {title}")
+        raise ValueError(f"Found {len(matches)} open tasks matching title: {title}")
 
     idx = matches[0]
     task = _parse_task_line(lines[idx], idx + 1)

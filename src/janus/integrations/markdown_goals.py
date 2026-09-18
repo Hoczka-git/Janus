@@ -44,8 +44,8 @@ def get_load_hash(path: Path | None = None) -> str | None:
 def _capture_load_hash(path: Path) -> None:
     """Capture the SHA-256 hash of *path* at load time for later conflict detection."""
     if path.exists():
-        from janus.integrations.data_protection import compute_hash
-        _load_context.last_hash = compute_hash(path)
+        from janus.integrations.atomic_io import compute_file_hash
+        _load_context.last_hash = compute_file_hash(path)
         _load_context.last_loaded_path = path
     else:
         _load_context.last_hash = None

@@ -35,6 +35,24 @@ from typing import Any
 
 import yaml
 
+# ──────────────────────────────────────────────────────────────────────
+# Modules excluded from the data-write-path grep gates.
+#
+# These are the deprecated/shim homes (``data_protection`` re-export shim and
+# ``data_integrity`` which owns the legacy ``protected_write``/``protected_append``
+# definitions and their internal ``atomic_write``/``backup_previous`` calls).
+# The gates must not flag the policy layer itself — they exist to catch stray
+# *caller* sites that bypass ``atomic_io``.  (ADR-005 Amendment 01.)
+# ──────────────────────────────────────────────────────────────────────
+_WRITE_PATH_EXCEPTIONS: frozenset[str] = frozenset(
+    {"atomic_io.py", "data_protection.py", "data_integrity.py"}
+)
+
+
+def _is_write_path_module(py_file: Path) -> bool:
+    """True if *py_file* is a real caller module (not a primitive/shim)."""
+    return py_file.name not in _WRITE_PATH_EXCEPTIONS
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Contract models
@@ -1148,7 +1166,7 @@ def check_data_write_path(
         for py_file in sorted(
             scan_dir.glob("*.py")
         ):
-            if py_file.name == "atomic_io.py":
+            if not _is_write_path_module(py_file):
                 continue
 
             try:
@@ -1204,7 +1222,7 @@ def check_data_file_write_gates(
         for py_file in sorted(
             scan_dir.glob("*.py")
         ):
-            if py_file.name == "atomic_io.py":
+            if not _is_write_path_module(py_file):
                 continue
 
             try:
