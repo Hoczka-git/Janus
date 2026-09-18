@@ -108,7 +108,7 @@ evidence artifacts (pre-completion and integration reports). The existing
   This is the cost of correctness.
 - **Phase 4 requires a separate agent/profile.** The integration step must be performed
   by someone other than the implementor. The exact profile assignment is deferred to
-  the implementation task (t_36b3d88f).
+  the implementation task (t_36b3d88f; superseded — integration completed incrementally through phase-specific tasks).
 
 ### Negative / Risks
 
@@ -170,7 +170,7 @@ Task branches integrate directly into the target.
 - t_ad23793c — Parent implementation task (root task)
 - t_71f70a87 — Sync primitive (child)
 - t_bc8fcd6b — Verification step (child)
-- t_36b3d88f — Integration step (child)
+- t_36b3d88f — Integration step (child; superseded — integration completed incrementally through phase-specific tasks t_021f3833, t_4cd8c17f, and others)
 - `merge-reconciler` skill: `skills/autonomous-ai-agents/merge-reconciler/SKILL.md`
 - `docs/specs/verification_pipeline_design.md` — multi-stage verification pipeline (Stages 0–6)
 - `src/janus/verification.py` — Janus contract verification (9 check types)
