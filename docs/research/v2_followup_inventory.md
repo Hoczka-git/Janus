@@ -8,7 +8,8 @@ based on three parent research reports:
 - `docs/research/vault_versioning_state_report.md` (t_a3635b0a)
 
 **Method:** Every finding from the three parent reports cross-referenced against
-actual current code, docs, and tests in this worktree.
+actual current code, docs, and tests in this worktree (git log, file existence
+checks, grep across src/ and docs/, full pytest run = 2005 passed).
 
 **Critical caveat — report staleness:** The three parent reports were generated
 against a repository state that existed *before* commit `60bed06`. That commit
@@ -17,10 +18,10 @@ content (`src/janus/integration.py`, `tests/test_integration.py`) and rewrote
 ADR-004 with an ADR-to-Codebase Mapping Table. However, this branch's HEAD
 (`4524ee5`) does NOT contain `integration.py` or `test_integration.py` — those
 files were in `60bed06` but are absent from `4524ee5`. Conversely, some items
-the reports describe as present (ADR-004 accepted, roadmap items checked off)
-are NOT present on this branch. This inventory reconciles the three sources
-against what ACTUALLY exists on this branch right now, flagging every stale
-report claim.
+the reports describe as present (ADR-004 accepted, roadmap items checked off,
+ADR-to-Codebase Mapping Table) are NOT present on this branch. This inventory
+reconciles the three sources against what ACTUALLY exists on this branch right
+now, flagging every stale report claim.
 
 ---
 
@@ -33,7 +34,7 @@ report claim.
 | Vault versioning (t_a3635b0a) | 7 | 5 | 0 | 2 |
 | Combined (deduplicated) | ~34 | ~21 | ~10 | **~3** |
 
-**Bottom line:** 3 genuinely open items remain after reconciliation. The
+**Bottom line:** After reconciliation, 3 genuinely open items remain. The
 reports over-claimed — several items they mark as resolved are either absent
 from this branch's working tree (Phase 4 integration module), not yet
 implemented (ADR-to-Codebase Mapping Table, goal_health lifecycle), or still
@@ -111,8 +112,6 @@ $ grep -rn "IntegrationReport" src/
 $ grep -A5 "Phase 5 — Completion" docs/decisions/004-safe-sync-integrate-workflow.md
 → "carries structured metadata (commit SHA, target branch, merge strategy, test
   results) and evidence artifacts (pre-completion and integration reports)."
-  (design description — not implemented)
-```
 
 **Reconciled status:** PARTIALLY CLOSED. The reconciliation report's point that
 these are "desired" not "required" is valid as a design interpretation, but the
@@ -177,11 +176,6 @@ $ grep -rn "lifecycle" src/janus/services/goal_health.py
 → NO HITS
 $ grep -rn "transition_to_invalid\|transition.*invalid\|goal.*lifecycle" src/janus/
 → NO HITS
-$ grep -rn "GoalSignal" src/janus/services/goal_health.py
-→ line 229-234: returns GoalSignal for measurement_due (line 230, score 45,
-  reason, timestamp) — signal IS emitted
-$ grep -rn "GoalSignal" src/janus/models/
-→ GoalSignal dataclass exists (models/goal_signal.py)
 ```
 
 **What IS implemented:**
@@ -190,9 +184,10 @@ $ grep -rn "GoalSignal" src/janus/models/
   score=45, reason, timestamp)` when overdue
 - `src/janus/models/goal_signal.py` — `GoalSignal` dataclass (type, score, reason,
   timestamp) exists
-- Signal emission at the goal-health assessment level IS implemented
+- Signal emission at the goal-health assessment level IS implemented (the one
+  item from the §6.2 checklist that's done)
 
-**What is NOT implemented (per ADR-004 audit §6.2):**
+**What is NOT implemented (per ADR-004 audit §5.3/§6.2):**
 - No `stalled_guard_check` — lifecycle transition orchestration layer for signals
   is absent
 - No `stalled_goal_transition_to_invalid()` — no lifecycle transition method for
@@ -203,7 +198,7 @@ $ grep -rn "GoalSignal" src/janus/models/
 - The signals are computed and returned by `assess_goal_health()` but there is no
   downstream consumer that applies lifecycle transitions
 
-**Design doc claim (design.md §9):**
+**Design doc confirms the gap (design.md §9):**
 ```
 $ grep -A3 "Proactive Telegram notification" docs/design/goal_health_progress_signals_stalled_detection_spec.md
 → "Proactive Telegram notification when a goal transitions into `stalled` state
@@ -220,7 +215,8 @@ this branch. The `goal_health.py:181-234` measurement_due signal emission IS
 the one item in the §6.2 checklist that's implemented; the rest (lifecycle
 transitions, signal-to-status mapping, transition detection) are STILL TODO.
 **Status: OPEN — `stalled_guard_check` lifecycle transitions not implemented;
-goal/metric lifecycle transition methods absent.**
+goal/metric lifecycle transition methods absent. This is the most significant
+genuinely-open gap from the ADR-004 audit.**
 
 ---
 
