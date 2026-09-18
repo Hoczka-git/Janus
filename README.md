@@ -1,60 +1,596 @@
 # Janus
 
-Personal chief of staff assistant focused on proactive personal life management. Janus is the persistent application, domain, and personal-state layer for the Hermes personal agent system — it owns structured data, domain logic, and deterministic analysis across tasks, goals, fitness, calendars, and reviews.
+**Personal Chief of Staff for proactive personal life and work management.**
 
-## Overview
+Janus is the persistent state, planning, and decision-support layer for the [Hermes](https://github.com/NousResearch/hermes-agent) personal agent system.
 
-Janus provides a local, file-backed personal operations system. All state is stored as plain-text markdown/JSON files in `data/` (trackable in git where you choose), and the CLI renders deterministic views over that state. The daily briefing integrates with Google Calendar (read-only) and the Attention Engine to surface what deserves your attention right now.
+Hermes is responsible for **execution**.
 
-Key subsystems:
+Janus is responsible for **knowing what matters, why it matters, what should happen next, and whether it actually happened**.
 
-| Area         | CLI command            | Data file          | Description                                              |
-|--------------|------------------------|--------------------|----------------------------------------------------------|
-| Daily briefing | `janus today`       | —                  | Schedule + attention items + suggested focus           |
-| Tasks        | `janus task <subcommand>` | `data/tasks.md` | Open tasks, priorities, states, progress, due dates      |
-| Goals        | `janus goal <subcommand>` | `data/goals.md` | Long-term goals with metrics, milestones, projects       |
-| Fitness      | `janus workout <subcommand>` | `data/workouts.md` | Strength and running workouts with analytics        |
-| Inbox        | `janus inbox <subcommand>` | `data/inbox.md` | Captured items triaged into tasks or follow-ups        |
-| Follow-ups   | `janus followup <subcommand>` | `data/followups.md` | Lightweight action items with scheduling          |
-| Weekly review | `janus weekly`      | —                  | Completed tasks, open tasks, and goal progress           |
-| Telegram     | `janus telegram` / `janus telegram-weekly` | — | Deliver the daily / weekly briefing to Telegram     |
-| Verification | `janus verify-contract <file>` | —          | Run an implementation contract verification pipeline     |
+Janus keeps structured personal state in local files and exposes deterministic CLI workflows for goals, tasks, workouts, reviews, calendars, research, decisions, and execution feedback.
 
-## Current capabilities
+---
 
-- **Daily briefing** (`janus today`) — upcoming calendar events (Google Calendar, read-only scope), open tasks, active goals, deterministic attention ranking (top 3), and a single recommended suggested-focus item.
-- **Task management** (`janus task`) — add, complete, list open tasks, set state (`todo`/`in_progress`/`blocked`), and set progress percentage. Completion authority is the `[x]` checkbox; `state: done` is rejected.
-- **Goal tracking** (`janus goal`) — goals with optional metrics (`--metric`, `--unit`, `--start`, `--current`, `--target`, `--direction`), deadlines, status (`active`/`completed`/`inactive`), related tasks, milestones, and projects. Milestone and project hierarchies support status transitions (open, in_progress, active, blocked, completed, skipped) and task assignment.
-- **Next action derivation** (`janus goal next <title>`) — deterministically derive the next actionable step for a goal from its milestones, projects, and related tasks, with the rationale for the selection.
-- **Inbox triage** (`janus inbox`) — capture incoming items and triage them into tasks, follow-ups, or discarded items.
-- **Follow-ups** (`janus followup`) — lightweight action items with scheduling (due/scheduled dates), priority, and state. Can be converted to tasks.
-- **Goal health monitoring** (`janus goal health`) — assess the health state (`healthy`/`watch`/`stalled`/`completed`) of active goals from automated signals (deadline proximity, progress-slow, measurement-due, recent activity). Goals are ranked by severity.
-- **Fitness tracking** (`janus workout`) — strength workouts (exercises, sets, weights, RPE) and running workouts (distance, duration, heart rate, elevation). Analytics: overall, running-specific, and per-exercise progression.
-- **Telegram delivery** — push the daily briefing or weekly review to a Telegram chat via bot.
-- **Verification pipeline** (`janus verify-contract`) — validate an implementation contract (`contract.yaml`) against the repository: file creation/immutability checks, modified-file scope, untracked-file detection, AST-based required/forbidden symbol checks, and verification command execution.
+## Why Janus?
 
-## Setup
+A normal task manager answers:
 
-### Requirements
+> What tasks do I have?
 
-- Python 3.11
-- [uv](https://github.com/astral-sh/uv)
-- Google Calendar OAuth credentials (for calendar integration)
-- Telegram bot token + chat id (for Telegram delivery)
+Janus tries to answer a larger question:
 
-### Installation
+> **Given my goals, commitments, current state, recent activity, and unfinished work — what deserves my attention now, what should happen next, and what evidence do I have that I am making progress?**
 
-```bash
-uv sync
+The core loop is:
+
+```text
+                    ┌─────────────┐
+                    │    Goals    │
+                    └──────┬──────┘
+                           │
+                           ▼
+                 ┌──────────────────┐
+                 │ Projects / Plans │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                    ┌───────────┐
+                    │   Tasks   │
+                    └─────┬─────┘
+                          │
+                          ▼
+                 ┌─────────────────┐
+                 │    Execution    │
+                 │     Hermes      │
+                 └────────┬────────┘
+                          │
+                          ▼
+                    ┌───────────┐
+                    │  Evidence │
+                    └─────┬─────┘
+                          │
+                          ▼
+                ┌───────────────────┐
+                │ Completion /      │
+                │ Review            │
+                └─────────┬─────────┘
+                          │
+                          ▼
+                 ┌─────────────────┐
+                 │ Strategic State │
+                 └────────┬────────┘
+                          │
+                          └──────► Next actions
 ```
 
-### Google Calendar setup
+This creates a closed loop:
 
-1. Place `credentials.json` (OAuth client secrets) in the project root.
-2. Copy `config/config.example.toml` to `config/config.toml` and fill in your calendar IDs:
+**Goal → Task → Execution → Evidence → Completion → Review → Updated state → Next action**
+
+---
+
+# What Janus manages
+
+## Goals
+
+Long-term outcomes with:
+
+* measurable metrics
+* current and target values
+* deadlines
+* direction of change
+* related tasks
+* completion state
+
+Example:
+
+```text
+Goal: Complete autumn endurance challenge
+
+Metric: Training preparation sessions
+Target: 12 sessions
+Direction: increase
+
+Related tasks:
+- Prepare training plan
+- Buy running shoes
+```
+
+Goals provide context for tasks rather than being isolated lists of aspirations.
+
+---
+
+## Tasks
+
+Tasks are the executable layer.
+
+Each task can have:
+
+* priority
+* due date
+* state
+* progress
+* relationship to a goal
+* execution/evidence information
+
+Example:
+
+```text
+- [ ] Prepare AI/agent engineering development plan
+  due: 2026-09-15
+  priority: 2
+```
+
+The task lifecycle is explicit:
+
+```text
+todo
+  │
+  ▼
+in_progress
+  │
+  ├──────► blocked
+  │
+  ▼
+completed
+```
+
+Completion is represented by the `[x]` checkbox. `state: done` is intentionally not used as a second source of truth.
+
+---
+
+## Daily briefing
+
+The daily briefing combines several sources of state:
+
+```bash
+uv run janus today
+```
+
+It can include:
+
+* upcoming Google Calendar events
+* open tasks
+* active goals
+* attention items
+* deterministic attention ranking
+* a suggested focus item
+
+Typical usage:
+
+```text
+JANUS — TODAY
+
+SCHEDULE
+- 09:00 — Daily standup
+- 18:00 — Training
+
+REQUIRES ATTENTION
+1. Prepare training plan [FOCUS]
+2. Review open project task
+3. Follow up on decision
+
+SUGGESTED FOCUS
+1. Prepare training plan
+```
+
+The important distinction is that Janus does not simply dump everything that exists.
+
+It tries to reduce the state to:
+
+> **What requires attention now?**
+
+---
+
+# Typical Janus workflow
+
+A normal day can look like this:
+
+### 1. Start with the state
+
+```bash
+uv run janus today
+```
+
+Review:
+
+* calendar
+* attention items
+* active goals
+* suggested focus
+
+### 2. Add or update work
+
+```bash
+uv run janus task add "Review architecture proposal" --priority 2
+```
+
+Move work forward:
+
+```bash
+uv run janus task state "Review architecture proposal" --state in_progress
+```
+
+Update progress:
+
+```bash
+uv run janus task progress "Review architecture proposal" --pct 70
+```
+
+Complete it:
+
+```bash
+uv run janus task complete "Review architecture proposal"
+```
+
+### 3. Execute
+
+Tasks that require agent execution can be handed to Hermes.
+
+The separation is intentional:
+
+```text
+Janus
+  └── decides / tracks / evaluates
+
+Hermes
+  └── executes / interacts with tools / produces evidence
+```
+
+### 4. Review the result
+
+Execution should produce evidence:
+
+* changed files
+* tests
+* command output
+* research artifacts
+* decisions
+* implementation results
+* external actions
+
+Evidence can then be used to update Janus state.
+
+### 5. Review the system
+
+```bash
+uv run janus weekly
+```
+
+The weekly review summarizes:
+
+* completed tasks
+* remaining work
+* tasks needing attention
+* goal progress
+* suggested next steps
+
+---
+
+# Goals in practice
+
+List goals:
+
+```bash
+uv run janus goal list
+```
+
+Inspect a goal:
+
+```bash
+uv run janus goal show "Complete autumn endurance challenge"
+```
+
+Create a measurable goal:
+
+```bash
+uv run janus goal add \
+  "Complete autumn endurance challenge" \
+  --metric "Training preparation sessions" \
+  --unit "sessions" \
+  --start 0 \
+  --current 0 \
+  --target 12 \
+  --direction increase
+```
+
+Update progress:
+
+```bash
+uv run janus goal update \
+  "Complete autumn endurance challenge" \
+  --current 4
+```
+
+Connect a task to a goal:
+
+```bash
+uv run janus goal add \
+  "Improve AI/agent engineering capability" \
+  --related-task "Prepare AI/agent engineering development plan"
+```
+
+The goal/task relationship allows Janus to distinguish:
+
+```text
+I have completed a task
+```
+
+from:
+
+```text
+I am actually making progress toward something important
+```
+
+Those are not always the same thing.
+
+---
+
+# Example: professional development
+
+One of the workflows Janus is designed for is turning an ambiguous development objective into concrete work.
+
+For example:
+
+```text
+Goal
+└── Improve AI / agent engineering capability
+    │
+    ├── Identify key competencies
+    │   ├── AI / LLM systems
+    │   ├── agent systems
+    │   ├── architecture
+    │   ├── distributed systems
+    │   ├── cloud
+    │   └── reliability
+    │
+    ├── Build development plan
+    │
+    ├── Execute selected projects
+    │
+    └── Collect evidence
+        ├── shipped implementation
+        ├── design decisions
+        ├── tests
+        ├── research
+        └── reviews
+```
+
+This is more useful than keeping a single task such as:
+
+```text
+Learn AI agents
+```
+
+because Janus can track the chain from intention to evidence.
+
+---
+
+# Example: engineering work
+
+Janus can also manage software-engineering work performed through Hermes.
+
+A typical workflow:
+
+```text
+Goal
+└── Improve Janus execution reliability
+        │
+        ▼
+Task
+└── Implement safe sync-and-integrate workflow
+        │
+        ▼
+Research
+└── Investigate existing repository state
+        │
+        ▼
+Decision
+└── ADR-004
+        │
+        ▼
+Execution
+└── Hermes implements the change
+        │
+        ▼
+Evidence
+├── changed source files
+├── tests
+├── verification output
+└── review
+        │
+        ▼
+Completion
+        │
+        ▼
+Strategic review
+```
+
+This is the pattern behind workflows such as:
+
+* ADR-003 — review topology
+* ADR-004 — safe sync-and-integrate workflow
+* ADR-005 — activity data ingestion
+
+The important part is not the ADR itself.
+
+The important part is that a decision becomes **executable work**, and the result becomes **evidence-backed state**.
+
+---
+
+# Research → decision → action
+
+Janus is also designed to prevent research from becoming an endpoint.
+
+The intended flow is:
+
+```text
+Question
+   │
+   ▼
+Research
+   │
+   ▼
+Findings
+   │
+   ▼
+Decision
+   │
+   ▼
+Action
+   │
+   ▼
+Evidence
+   │
+   ▼
+Updated state
+```
+
+For example:
+
+```text
+Question:
+How should Janus synchronize work with Hermes?
+
+        ↓
+
+Research:
+Inspect repository, existing implementation,
+tests and previous decisions.
+
+        ↓
+
+Finding:
+Existing synchronization logic is fragmented.
+
+        ↓
+
+Decision:
+Use the workflow described by ADR-004.
+
+        ↓
+
+Action:
+Implement and verify the integration.
+
+        ↓
+
+Evidence:
+Tests + repository state + verification results.
+
+        ↓
+
+State:
+Decision implemented.
+Follow-up work closed or generated explicitly.
+```
+
+This keeps research connected to execution.
+
+---
+
+# Workouts and activity
+
+Janus can also track structured training data.
+
+Add a strength workout:
+
+```bash
+uv run janus workout add \
+  --type strength \
+  --exercise "Back Squat" \
+  --sets "5x80kg@8,5x80kg@8.5"
+```
+
+Add a run:
+
+```bash
+uv run janus workout add \
+  --type running \
+  --distance 8.74 \
+  --duration 69.77 \
+  --hr 151 \
+  --elevation 69.4
+```
+
+View recent workouts:
+
+```bash
+uv run janus workout show
+```
+
+View a period:
+
+```bash
+uv run janus workout show \
+  --from 2026-09-01 \
+  --to 2026-09-30
+```
+
+View exercise progression:
+
+```bash
+uv run janus workout show --exercise "Back Squat"
+```
+
+Analytics:
+
+```bash
+uv run janus workout summary
+```
+
+or:
+
+```bash
+uv run janus workout summary --running
+```
+
+```bash
+uv run janus workout summary --exercise "Back Squat"
+```
+
+The purpose is not to create another fitness tracker.
+
+The purpose is to make activity another source of structured evidence for goals and reviews.
+
+---
+
+# Telegram
+
+Janus can deliver the same operational views to Telegram.
+
+Daily briefing:
+
+```bash
+uv run janus telegram
+```
+
+Weekly review:
+
+```bash
+uv run janus telegram-weekly
+```
+
+This makes Telegram a lightweight interface while Janus remains the persistent state layer.
+
+---
+
+# Google Calendar
+
+Calendar integration is read-only.
+
+Configure calendars in:
+
+```text
+config/config.toml
+```
+
+Example:
 
 ```toml
 [google_calendar]
+
 [[google_calendar.calendars]]
 id = "JOB_CALENDAR_ID"
 name = "Job"
@@ -64,293 +600,378 @@ id = "PERSONAL_CALENDAR_ID"
 name = "Personal"
 ```
 
-3. Run `uv run janus today` — OAuth token is generated automatically on first run and stored in `token.json`.
-
-### Telegram setup
-
-1. Create a bot with [@BotFather](https://t.me/BotFather) and obtain the bot token.
-2. Get your chat id (e.g. by messaging [@userinfobot](https://t.me/userinfobot)).
-3. Add a `[telegram]` section to `config/config.toml`:
-
-```toml
-[telegram]
-bot_token = "YOUR_BOT_TOKEN"
-chat_id = "YOUR_CHAT_ID"
-```
-
-## Usage
-
-### Today
+Then:
 
 ```bash
 uv run janus today
 ```
 
-Example output:
+On the first run, Janus performs the OAuth flow and stores the generated token locally.
 
-```
-JANUS — TODAY
+Calendar events become context for the daily briefing rather than another task database.
 
-SCHEDULE
-- 09:00 — Daily standup — Job
-- 18:00 — Gym session — Personal
+---
 
-REQUIRES ATTENTION
-1. Prepare training plan [FOCUS]
-   Metric progress: 0% — linked to goal
-and 1 more
+# Data model
 
-SUGGESTED FOCUS
-1. Prepare training plan
-   Metric progress: 0% — linked to goal
+Janus deliberately keeps its persistent state simple.
+
+```text
+data/
+├── tasks.md
+├── goals.md
+└── workouts.md
 ```
 
-### Telegram briefing
+The current core data files contain:
 
-```bash
-uv run janus telegram
-```
+| File               | Purpose                                    |
+| ------------------ | ------------------------------------------ |
+| `data/tasks.md`    | Open and completed tasks                   |
+| `data/goals.md`    | Long-term goals, metrics and related tasks |
+| `data/workouts.md` | Strength and running activity              |
 
-Sends the daily briefing to the configured Telegram chat.
+The data is human-readable and can be inspected directly without Janus.
 
-### Tasks
-
-```bash
-janus task list
-janus task add "Prepare training plan" --priority 3
-janus task add "Book dentist appointment" --due 2026-08-30 --priority 2
-janus task complete "Prepare training plan"
-janus task state "Prepare training plan" --state in_progress
-janus task progress "Prepare training plan" --pct 70
-```
-
-Task lines in `data/tasks.md` use the format:
+Example task:
 
 ```markdown
-- [ ] Title | due: 2026-08-30 | priority: 2 | state: in_progress | progress: 70
+- [ ] Review architecture proposal | due: 2026-09-20 | priority: 2 | state: in_progress | progress: 70
 ```
 
-Only `- [ ]` (open) and `- [x]` (completed) tasks are tracked. `state: done` is not accepted — completion is authoritative via the checkbox.
-
-### Goals
-
-```bash
-janus goal list
-janus goal show "Complete autumn endurance challenge"
-janus goal add "Lose 5 kg" --metric "Body fat" --unit "%" --start 22 --current 20 --target 17 --direction decrease
-janus goal update "Lose 5 kg" --current 19
-janus goal add "Run a marathon" --related-task "Prepare training plan" --deadline 2026-10-15
-janus goal complete "Run a marathon"
-```
-
-Pass `--help` (or `-h`) to any goal subcommand for usage and available options:
-
-```bash
-janus goal --help
-```
-
-Goals are stored in `data/goals.md` as structured blocks:
+Example goal:
 
 ```markdown
-## Goal: Lose 5 kg
+## Goal: Improve AI / agent engineering capability
 
-Description: Drop body fat before autumn.
+Description: Build measurable capability through projects and evidence.
 Status: active
-Deadline: 2026-10-15
-Metric: Body fat
-Unit: %
-Start: 22
-Current: 20
-Target: 17
-Direction: decrease
+Deadline: 2026-12-31
+Metric: Completed evidence-backed projects
+Unit: projects
+Start: 0
+Current: 1
+Target: 4
+Direction: increase
+
 Related tasks:
-- Prepare training plan
+- Prepare AI/agent engineering development plan
 ```
 
-### Goal milestones and projects
+This file-backed approach makes the system:
 
-Goals support a hierarchical Goal → Milestone → Project → Task decomposition:
+* inspectable
+* debuggable
+* portable
+* easy to version
+* resilient to changes in the CLI
+
+---
+
+# Verification
+
+Janus includes an implementation-contract verification pipeline.
 
 ```bash
-janus goal milestone add "Run a marathon" "Base building" --deadline 2026-09-15
-janus goal milestone list "Run a marathon"
-janus goal milestone start "Run a marathon" "Base building"
-janus goal milestone complete "Run a marathon" "Base building"
-
-janus goal project add "Run a marathon" "Base building" "Weekly long runs" --deadline 2026-09-30
-janus goal project add "Run a marathon" "Base building" "Strength training" --add-related-task "Prepare training plan"
-janus goal project list "Run a marathon"
-janus goal project start "Run a marathon" "Base building" "Weekly long runs"
+uv run janus verify-contract contract.yaml
 ```
 
-Milestones have statuses `open`, `in_progress`, `completed`, and `skipped`. Projects have statuses `open`, `active`, `blocked`, `completed`, and `skipped`. A task can belong to at most one project within a goal; tasks not assigned to a project are dynamically assigned to the earliest open milestone.
+A contract can verify things such as:
 
-### Next action
+* required files
+* immutable files
+* modified-file scope
+* untracked files
+* required/forbidden AST symbols
+* verification commands
+
+This is particularly useful when Janus delegates implementation work to an agent.
+
+Instead of trusting:
+
+```text
+"Implementation complete."
+```
+
+the system can verify repository state against an explicit contract.
+
+See:
+
+* `docs/verification.md`
+* `docs/examples/contract_phase1.yaml`
+
+---
+
+# Architecture
+
+At a high level:
+
+```text
+                    ┌───────────────────┐
+                    │      Telegram     │
+                    └─────────┬─────────┘
+                              │
+                              ▼
+┌──────────────┐       ┌───────────────┐
+│ Google       │──────►│     Janus     │
+│ Calendar     │       │               │
+└──────────────┘       │  State        │
+                       │  Goals        │
+                       │  Tasks        │
+                       │  Reviews       │
+                       │  Research      │
+                       │  Decisions     │
+                       │  Evidence      │
+                       └───────┬───────┘
+                               │
+                               │ execution
+                               ▼
+                       ┌───────────────┐
+                       │    Hermes     │
+                       │               │
+                       │ agent runtime │
+                       │ tools         │
+                       │ execution     │
+                       └───────┬───────┘
+                               │
+                               │ results / evidence
+                               ▼
+                       ┌───────────────┐
+                       │     Janus     │
+                       │ updated state │
+                       └───────────────┘
+```
+
+### Janus
+
+Owns:
+
+* persistent state
+* domain models
+* goals
+* tasks
+* planning
+* deterministic analysis
+* reviews
+* decisions
+* evidence
+* strategic state
+
+### Hermes
+
+Owns:
+
+* agent execution
+* tool use
+* repository interaction
+* external actions
+* long-running execution
+* execution feedback
+
+The boundary is intentional.
+
+**Janus decides what should happen and records what happened. Hermes performs the work.**
+
+---
+
+# Installation
+
+## Requirements
+
+* Python 3.11+
+* [`uv`](https://docs.astral.sh/uv/)
+
+Optional integrations:
+
+* Google Calendar OAuth credentials
+* Telegram bot token and chat ID
+
+Install dependencies:
 
 ```bash
-janus goal next "Run a marathon"
+uv sync
 ```
 
-Prints the deterministically derived next actionable step for a goal, with the rationale for why it was selected from the goal's milestones, projects, and related tasks.
-
-### Goal health
+Run Janus:
 
 ```bash
-janus goal health                  # list all active goals, ranked by severity
-janus goal health "Lose 5 kg"      # full health assessment for a single goal
+uv run janus --help
 ```
 
-Health states: `healthy` (on track), `watch` (at risk), `stalled` (not making meaningful progress), `completed`. Health is derived from automated signals such as deadline proximity, slow progress, overdue measurements, and recent activity. See [`docs/design/goal_health_progress_signals_stalled_detection_spec.md`](docs/design/goal_health_progress_signals_stalled_detection_spec.md) for the full design.
+---
 
-### Workouts
+# Development
 
-```bash
-janus workout add --type strength --exercise "Back Squat" --sets "5x80kg@8,5x80kg@8.5"
-janus workout add --type running --distance 5.0 --duration 30
-janus workout add --type running --distance 8.74 --duration 69.77 --hr 151 --elevation 69.4 --notes "Tempo 7'59\"/km"
-```
-
-Viewing workouts:
-
-```bash
-janus workout show                  # last 5
-janus workout show --last 10
-janus workout show --from 2026-09-01 --to 2026-09-30
-janus workout show --running
-janus workout show --exercise "Back Squat"
-```
-
-Analytics:
-
-```bash
-janus workout summary               # overall
-janus workout summary --running     # running-specific
-janus workout summary --exercise "Back Squat"  # per-exercise progression
-```
-
-### Weekly review
-
-```bash
-janus weekly
-```
-
-Renders completed tasks, open/needs-attention tasks, and goal progress with suggested next steps and related-task status.
-
-```bash
-janus telegram-weekly
-```
-
-Sends the weekly review to Telegram.
-
-### Inbox
-
-```bash
-janus inbox list
-janus inbox pending
-janus inbox triage ix-abc12345 --followup --note "Travel planning"
-janus inbox triage ix-abc12345 --discard --note "Not actionable"
-janus inbox triage ix-abc12345 --convert-to-task --title "New task title"
-```
-
-Captures incoming items and triages them. `list` shows all items optionally filtered by `--state` (`pending`, `discarded`, `converted`, `follow_up`). `pending` shows only untriaged items. `triage` moves an item into a follow-up, discards it, or converts it to a task.
-
-### Follow-ups
-
-```bash
-janus followup list
-janus followup add "Check Memmingen train times" --due 2026-09-18 --priority 2
-janus followup update fu-abc12345 --state scheduled --scheduled 2026-09-15
-janus followup complete fu-abc12345
-janus followup convert-to-task fu-abc12345 --title "Research Memmingen travel options"
-```
-
-Lightweight action items with states `pending`, `scheduled`, `in_progress`, `blocked`, `completed`, and `deferred`. Follow-ups can be converted to tasks via `convert-to-task`.
-
-### Verification pipeline
-
-```bash
-janus verify-contract contract.yaml
-```
-
-Runs an implementation contract against the repository. See [`docs/verification.md`](docs/verification.md) and [`docs/examples/contract_phase1.yaml`](docs/examples/contract_phase1.yaml) for the contract format and supported checks.
-
-## Data
-
-All structured personal data lives in `data/` as tracked markdown files:
-
-| File | Contents |
-|------|----------|
-| `data/tasks.md` | Open and completed tasks with metadata |
-| `data/goals.md` | Long-term goals with metrics, milestones, projects, and related tasks |
-| `data/workouts.md` | Strength and running workouts |
-| `data/inbox.md` | Captured inbox items awaiting triage |
-| `data/followups.md` | Lightweight follow-up action items |
-| `data/metric_history.md` | Goal metric measurement log (comment-line format) |
-| `data/measurements.jsonl` | Structured measurement log (read by services) |
-
-These files are gitignored by default (`data/*` in `.gitignore`) so task/goal/workout history is local-only; remove that entry from `.gitignore` if you want version-controlled history.
-
-### Model-driven writes (Hermes → Janus)
-
-The model (Hermes) never writes to `data/` files directly. All model-driven
-activity data flows through the **activity data ingestion layer** — a
-controlled write gateway that validates, normalizes, deduplicates, and
-atomically persists records as `ActivityRecord` values via
-`janus.services.activity_ingest.ingest_activities()`. Raw markdown is never
-emitted by the model; serialization is the gateway's responsibility. Manual
-full-file regeneration is gated and blocked above a change threshold
-(`src/janus/integrations/data_protection.py`).
-
-See [`docs/guides/activity_data_guide.md`](docs/guides/activity_data_guide.md) for the full
-usage guide — API surface, configuration, dedup/normalization policies, and
-troubleshooting. The design rationale lives in
-[ADR-005](docs/decisions/005-activity-data-ingestion-layer.md).
-
-## Security
-
-- `credentials.json` — not committed (Google OAuth client secrets)
-- `token.json` — not committed (generated OAuth token)
-- `config/config.toml` — not committed (per-user configuration; `config/config.example.toml` is the template)
-- Google Calendar access is read-only (`calendar.readonly` scope)
-- Telegram bot tokens are stored in `config/config.toml` (local only)
-
-## Tests
+Run the test suite:
 
 ```bash
 uv run pytest tests/ -v
 ```
 
-## Project layout
+The project uses `pytest` for automated testing.
+
+Source layout:
 
 ```text
 src/janus/
-├── __init__.py              # CLI entry point — dispatches commands
-├── _log.py                  # Telemetry event emission
-├── logging_config.py        # Logging setup
-├── today.py                 # Daily briefing renderer
-├── weekly.py                # Weekly review renderer
-├── tasks_cli.py             # janus task <add|complete|list|state|progress>
-├── workout_cli.py           # janus workout <add|show|summary>
-├── goals_cli.py             # janus goal <list|show|add|update|complete|milestone|project|next|health>
-├── inbox_cli.py             # janus inbox <list|pending|triage>
-├── followup_cli.py          # janus followup <list|add|show|update|complete|convert-to-task>
-├── telegram_weekly_cli.py   # Telegram weekly briefing delivery
-├── git_sync.py              # Git sync utilities for tracked data
-├── verification.py          # Implementation contract verification pipeline
-├── integrations/            # External integrations (Google Calendar, Telegram, markdown persistence)
-├── models/                  # Domain models (Task, Goal, Workout, Event, AttentionItem, DailyBriefing,
-│                             GoalSignal, GoalHealthAssessment, MetricSnapshot, Source, Finding,
-│                             ResearchArtifact, TopicBlock, KnowledgeSummary, Milestone, Project,
-│                             ProjectProgress, FollowUp, InboxItem, recent_activity)
-├── services/                # Business logic (briefing, goals, tasks, workouts, weekly review,
-│                             inbox, followups, milestones, projects, next-action, goal health,
-│                             knowledge pipeline, measurement collection)
-data/                        # Tracked markdown/JSON data files (gitignored — local)
-config/                      # Per-user configuration (gitignored)
-docs/                        # Design docs, decisions, roadmap, verification pipeline
-scripts/                     # Utility scripts (e.g. CI validation)
+├── __init__.py
+├── today.py
+├── weekly.py
+├── tasks_cli.py
+├── workout_cli.py
+├── goals_cli.py
+├── verification.py
+├── integrations/
+├── models/
+└── services/
+
+data/
+config/
+docs/
+scripts/
+tests/
 ```
 
-See [`docs/vision.md`](docs/vision.md) for the Hermes/Janus system model and [`docs/roadmap.md`](docs/roadmap.md) for strategic direction.
+The `models/` layer contains domain concepts such as:
 
-CI trigger: 2026-09-15T08:19:12Z
+* `Task`
+* `Goal`
+* `Workout`
+* `Event`
+* `AttentionItem`
+* `DailyBriefing`
+* `Source`
+* `Finding`
+* `ResearchArtifact`
+* `KnowledgeSummary`
+
+The `services/` layer contains domain logic for:
+
+* briefing
+* goals
+* tasks
+* workouts
+* weekly review
+* knowledge/research processing
+
+---
+
+# Security and local configuration
+
+The following files contain local credentials or configuration and should not be committed:
+
+```text
+credentials.json
+token.json
+config/config.toml
+```
+
+Google Calendar access uses the read-only calendar scope.
+
+Telegram credentials are stored locally in `config/config.toml`.
+
+---
+
+# Design principles
+
+## 1. State before automation
+
+Janus should know the current state before deciding what to do.
+
+## 2. Goals provide context
+
+A task without context is just work.
+
+A task connected to a meaningful goal can be evaluated in terms of progress.
+
+## 3. Execution must produce evidence
+
+"Done" should ideally be backed by something observable:
+
+```text
+code
+tests
+documents
+measurements
+decisions
+external results
+```
+
+## 4. Human-readable persistence
+
+The canonical state should remain understandable without the application.
+
+## 5. Deterministic analysis where possible
+
+If a result can be derived deterministically from stored state, Janus should not require an LLM to produce it.
+
+## 6. Separate planning from execution
+
+Janus and Hermes have different responsibilities.
+
+```text
+Janus  → What / Why / What next?
+Hermes → How / Execute
+Janus  → What happened?
+```
+
+## 7. Close the loop
+
+The system should not stop at:
+
+```text
+task created
+```
+
+or even:
+
+```text
+task executed
+```
+
+The useful endpoint is:
+
+```text
+goal
+ → task
+ → execution
+ → evidence
+ → completion
+ → review
+ → updated strategic state
+ → next action
+```
+
+---
+
+# Roadmap philosophy
+
+Janus started as a small CLI for personal goals and tasks.
+
+The system is evolving toward a **personal operating system with an agent execution layer**.
+
+The direction is:
+
+```text
+Task manager
+     ↓
+Goal manager
+     ↓
+Personal operating system
+     ↓
+Chief of Staff
+     ↓
+Goal-directed agent system
+```
+
+The defining property is not the number of commands.
+
+It is the closed feedback loop between:
+
+**intent → planning → execution → evidence → review → action.**
+
+---
+
+# License
+
+See the repository for the current license information.

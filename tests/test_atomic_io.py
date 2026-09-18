@@ -112,6 +112,54 @@ class TestAtomicWrite:
         assert fp.read_text() == content
 
 
+# ── atomic_write opt-in safety features ──────────────────────────────────────
+class TestAtomicWriteSafetyFeatures:
+    """The three opt-in kwargs (lock, verify, backup_rotation) default off
+    and must not change behavior when omitted."""
+
+    def test_defaults_match_existing_behavior(self, tmp_path):
+        """With all defaults, the write behaves exactly as before: content
+        lands correctly and a single .bak is created on overwrite."""
+        fp = tmp_path / "out.txt"
+        fp.write_text("old")
+        atomic_write(fp, "new")
+        assert fp.read_text() == "new"
+        assert (tmp_path / "out.txt.bak").exists()
+
+    def test_verify_true_passes_on_success(self, tmp_path):
+        fp = tmp_path / "out.txt"
+        atomic_write(fp, "verified content", verify=True)
+        assert fp.read_text() == "verified content"
+
+    def test_verify_raises_on_mismatch(self, tmp_path):
+        """A forced post-write mismatch raises AtomicWriteError."""
+        fp = tmp_path / "out.txt"
+        with patch(
+            "janus.integrations.atomic_io._post_write_verify",
+            return_value=False,
+        ):
+            with pytest.raises(AtomicWriteError, match="Post-write verification"):
+                atomic_write(fp, "content", verify=True)
+
+    def test_lock_true_serializes_write(self, tmp_path):
+        """lock=True writes correctly (lock is a no-op without contention)."""
+        fp = tmp_path / "out.txt"
+        atomic_write(fp, "locked write", lock=True)
+        assert fp.read_text() == "locked write"
+
+    def test_backup_rotation_keeps_max_backups(self, tmp_path):
+        """backup_rotation=True caps the number of .bak files at max_backups."""
+        fp = tmp_path / "rot.txt"
+        # Seed an initial file.
+        fp.write_text("v0")
+        for i in range(1, 7):
+            # Each write first copies the existing .bak up the chain.
+            atomic_write(fp, f"v{i}", backup=True, backup_rotation=True)
+        backups = sorted(tmp_path.glob("rot.txt.bak*"))
+        # _rotate_backups keeps at most max_backups (3).
+        assert len(backups) <= 3
+
+
 # ── atomic_read ──────────────────────────────────────────────────────────────
 
 class TestAtomicRead:
