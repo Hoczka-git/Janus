@@ -43,7 +43,7 @@ Core decisions: D-01 (5-phase gated, sync-before-implement, safe-integrate-then-
 
 ### Phase 4 integration — ABSENT
 
-Search for integration-related code: zero hits for `integration_report.json`, `pre_completion_report.json`, `enforce_repo_sync_gate` (except in research/docs), `integration.agent`, or any integration step module. There is no `src/janus/integration.py` with active merge/push/verify/rollback. ADR-004 P4 defers integrator identity to task t_36b3d88f, which was **never created** — the integration work was decomposed into Phase 1 (t_021f3833) and Phase 5 (t_4cd8c17f) implementation tasks, but the active Phase 4 integration step remains unimplemented. See the reconciliation report (`docs/research/reconciliation_report.md`, item 20).
+Search for integration-related code: zero hits for `integration_report.json`, `pre_completion_report.json`, `enforce_repo_sync_gate` (except in research/docs), `integration.agent`, or any integration step module. There is no `src/janus/integration.py` with active merge/push/verify/rollback. ADR-004 P4 defers integrator identity to task t_36b3d88f, which does not exist. The integration work was instead completed incrementally through implementation tasks t_021f3833 (Phase 1 sync), t_4cd8c17f (Phase 5 gate), and other phase-specific tasks; t_36b3d88f is superseded.
 
 ### `complete_task` / completion gating — EXISTS but NO GATES
 
@@ -80,7 +80,7 @@ The actual completion path is `src/janus/services/tasks.py:42–79` — a plain 
 - **Smallest patch**: Add the missing deterministic checks to `verification.py` as built-in check functions (not just contract commands), and wire the verifier to run at `complete_task()` time (or a pre-complete hook), fail-stop with structured reason codes.
 
 ### P4 — Active integration step (the big one)
-- **What's missing**: An integration module that performs ff merge → controlled merge fallback → post-merge tests → push → verify remote → rollback. No integration agent profile. ADR defers integrator identity to non-existent task t_36b3d88f — **never created**; the work was decomposed into Phase 1 (t_021f3833) and Phase 5 (t_4cd8c17f) tasks, but the active integration step itself remains unimplemented.
+- **What's missing**: An integration module that performs ff merge → controlled merge fallback → post-merge tests → push → verify remote → rollback. No integration agent profile. ADR defers integrator identity to non-existent task t_36b3d88f; superseded — integration completed incrementally through phase-specific tasks t_021f3833, t_4cd8c17f, and others.
 - **What exists**: Nothing.
 - **Options**:
   - (a) Implement `src/janus/integration.py` with an active integration agent step, wired so a dedicated agent/step performs integration (not the implementor).

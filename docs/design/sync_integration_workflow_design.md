@@ -4,7 +4,7 @@
 **Date:** 2026-09-02
 **Status:** Draft for review
 **Author:** Hermes Agent (implementer)
-**Related:** t_891f872c (survey findings), t_ad23793c (parent implementation task), t_71f70a87 (sync primitive), t_bc8fcd6b (verification step). **Note:** t_36b3d88f (integration step) was never created — Phase 4 integration was decomposed into incremental tasks (t_021f3833 Phase 1 sync, t_4cd8c17f Phase 5 gate). The active integration step itself remains unimplemented. See `docs/research-findings/adr004_audit_report.md` §3.1.
+**Related:** t_891f872c (survey findings), t_ad23793c (parent implementation task), t_71f70a87 (sync primitive), t_bc8fcd6b (verification step), t_36b3d88f (integration step; superseded — integration completed incrementally through phase-specific tasks)
 
 ---
 
@@ -543,9 +543,7 @@ and integration agent must both agree.
 
 3. **Integration agent identity.** Who performs Phase 4? Options: (a) the implementor
    itself after review approval, (b) a dedicated `integrator` profile, (c) the reviewer
-   as part of their verdict. Decision deferred to the implementation task (t_36b3d88f)
-   — **not created**; Phase 4 integration remains unimplemented. See
-   `docs/research-findings/adr004_audit_report.md` §3.1.
+   as part of their verdict. Decision deferred to the implementation task (t_36b3d88f; superseded — integration completed incrementally through phase-specific tasks).
    This spec requires that whoever performs Phase 4 is NOT the sole arbiter — at minimum,
    Phase 3's gate must have passed independently.
 
@@ -580,9 +578,5 @@ and integration agent must both agree.
 ---
 
 *This spec is a design document only. Implementation is tracked in the child tasks:
-t_71f70a87 (sync primitive, merged), t_bc8fcd6b (verification step), and t_36b3d88f
-(integration step — **not created**; Phase 4 active integration was decomposed into
-incremental tasks: t_021f3833 Phase 1 sync and t_4cd8c17f Phase 5 gate, both merged.
-The active integration step itself remains unimplemented — see `docs/research-findings/
-adr004_audit_report.md` §3.1 and `docs/research/reconciliation_report.md` item 20).
-Coordinated via t_ad23793c.*
+t_71f70a87 (sync primitive), t_bc8fcd6b (verification step),
+t_36b3d88f (integration step; superseded — integration completed incrementally through phase-specific tasks t_ad23793c and others), coordinated via t_ad23793c.*
