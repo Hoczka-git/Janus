@@ -370,6 +370,8 @@ class TestPhase3_5PassScenario:
             "symbols_forbidden",
             "os_replace",
             "git_diff_check",
+            "data_write_path",
+            "data_file_write_gates",
         }
         assert executed == expected, f"expected {expected}, got {executed}"
 
