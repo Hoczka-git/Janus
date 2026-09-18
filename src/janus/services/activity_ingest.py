@@ -42,7 +42,16 @@ from janus._log import emit
 from janus.integrations.atomic_io import (
     ConcurrentWriteError,
     AtomicWriteError,
+    atomic_write,
+    atomic_read,
+    compute_content_hash,
+    compute_file_hash,
     read_modify_write_with_retry,
+)
+from janus.integrations.data_integrity import (
+    RegenerationBlockedError,
+    RegenerationPolicy,
+    gate_regeneration,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -647,6 +656,8 @@ def ingest_activities(
     records: list[ActivityRecord],
     *,
     dedup_policy: str | None = None,
+    gate_regeneration: bool = False,
+    allowed_regenerators: set[str] | None = None,
 ) -> list[IngestResult]:
     """Ingest a batch of normalized activity records.
 
@@ -674,8 +685,17 @@ def ingest_activities(
 
     results: list[IngestResult] = []
 
+    # Resolve the effective set of trusted writers for regeneration gating.
+    _allowed = set(allowed_regenerators) if allowed_regenerators else None
+
     for record in records:
-        result = _ingest_one(record, cfg, policy)
+        result = _ingest_one(
+            record,
+            cfg,
+            policy,
+            gate_regeneration=gate_regeneration,
+            allowed_regenerators=_allowed,
+        )
         results.append(result)
 
     return results
@@ -685,8 +705,18 @@ def _ingest_one(
     record: ActivityRecord,
     cfg: IngestConfig,
     policy: str,
+    *,
+    gate_regeneration: bool = False,
+    allowed_regenerators: set[str] | None = None,
 ) -> IngestResult:
-    """Process a single record: validate → normalize → dedup → dispatch → write."""
+    """Process a single record: validate -> normalize -> dedup -> dispatch -> write.
+
+    When ``gate_regeneration`` is True, a pre-dispatch regeneration check is
+    applied: the target file's current content is compared (via SHA-256 +
+    difflib change fraction) against the projected new content.  Full-file
+    rewrites that exceed the change threshold by an untrusted writer are
+    refused and reported as a rejected ``IngestResult``.
+    """
     # Step 1: Validate
     try:
         _validate_record(record)
@@ -747,8 +777,16 @@ def _ingest_one(
                  message=f"Duplicate replaced (policy=replace)")
 
     # Step 4: Route to the appropriate service function / persistence path
+    written_by = f"activity_ingest.{record.type.value}"
     try:
-        action = _dispatch_record(record, file_path, cfg)
+        action = _dispatch_record(
+            record,
+            file_path,
+            cfg,
+            gate_regeneration=gate_regeneration,
+            allowed_regenerators=allowed_regenerators,
+            written_by=written_by,
+        )
     except AtomicWriteError as e:
         err_obj = {"type": type(e).__name__, "message": str(e)}
         emit(logger, "service.activity_ingest.write_failed",
@@ -814,6 +852,10 @@ def _dispatch_record(
     record: ActivityRecord,
     file_path: Path,
     cfg: IngestConfig,
+    *,
+    gate_regeneration: bool = False,
+    allowed_regenerators: set[str] | None = None,
+    written_by: str = "activity_ingest",
 ) -> str:
     """Route a validated+normalized record to the appropriate persistence path.
 
@@ -825,6 +867,28 @@ def _dispatch_record(
     t = record.type
     retry_count = cfg.write_retries
     backoff = cfg.write_retry_backoff_base
+
+    # Pre-dispatch regeneration gate (ADR-005 Amendment 01): project the
+    # new file content and refuse the write if it exceeds the change
+    # threshold for an untrusted writer.  The projection is exact for the
+    # direct-write types and a conservative append for service-delegated
+    # types.
+    if gate_regeneration:
+        projected = _project_new_content(record, file_path, cfg)
+        if projected is not None:
+            old_content = atomic_read(file_path)
+            if not _gate_ingest_write(
+                file_path,
+                old_content,
+                projected,
+                written_by,
+                allowed_regenerators,
+            ):
+                raise RegenerationBlockedError(
+                    file_path,
+                    _compute_change_fraction(old_content, projected),
+                    written_by,
+                )
 
     if t == ActivityType.TASK_COMPLETED:
         return _dispatch_task(record, file_path, retry_count, backoff)
@@ -856,6 +920,209 @@ def _dispatch_record(
 
     # Unrecognized type — shouldn't reach here since _validate_record catches it
     return "rejected"
+
+
+    # ── Regeneration-gating helpers (ADR-005 Amendment 01, surface on ingest) ──────
+
+def _compute_change_fraction(
+    old_content: str, new_content: str
+) -> float:
+    """Fraction of content changed between old and new (0.0-1.0)."""
+    from janus.integrations.data_integrity import (
+        _compute_change_fraction as _impl,
+    )
+    return _impl(old_content, new_content)
+
+
+def _gate_ingest_write(
+    path: Path,
+    old_content: str,
+    new_content: str,
+    written_by: str,
+    allowed_regenerators: set[str] | None,
+) -> bool:
+    """Apply the regeneration policy to a projected ingest write.
+
+    Returns True if the write is allowed.  ``allowed_regenerators`` overrides
+    the canonical whitelist when provided; otherwise the model-driven ingest
+    writer is *not* whitelisted, so a near-total rewrite is blocked unless
+    ``confirm`` is set (which ingest never does — model regeneration must be
+    reviewed explicitly).
+    """
+    effective_allowed = (
+        set(allowed_regenerators) if allowed_regenerators is not None else set()
+    )
+    if written_by in effective_allowed:
+        return True
+    return gate_regeneration(path, old_content, new_content, written_by, confirm=False)
+
+
+def _project_new_content(
+    record: ActivityRecord,
+    file_path: Path,
+    cfg: IngestConfig,
+) -> str | None:
+    """Project the full new content that *record* would write to *file_path*.
+
+    Returns ``None`` when a reliable projection is not possible (in which
+    case the gate is skipped for that record rather than guessed).  For the
+    direct-write types the projection is exact; for service-delegated types
+    it is a conservative append of the record's serialized line.
+    """
+    try:
+        current = atomic_read(file_path)
+    except Exception:
+        return None
+    t = record.type
+    if t == ActivityType.WORKOUT_ADDED:
+        try:
+            from janus.models.workout import WorkoutType
+            from janus.integrations.workout_md import (
+                _HEADER as _W_HEADER,
+                _workout_to_markdown_lines,
+            )
+        except Exception:
+            return None
+        wt = record.workout_type
+        if wt is None:
+            return None
+        now = record.timestamp
+        if WorkoutType(wt) == WorkoutType.RUNNING:
+            from janus.models.workout import RunningWorkout
+            workout = RunningWorkout(
+                id=record.workout_id or _gen_uuid("w"),
+                date=now,
+                workout_type=WorkoutType.RUNNING,
+                source=record.source,
+                created_at=now,
+                updated_at=now,
+                distance_km=float(record.distance_km or 0.0),
+                duration_minutes=float(record.duration_minutes or 0.0),
+                avg_hr_bpm=record.avg_hr_bpm,
+                elevation_m=record.elevation_m,
+            )
+        else:
+            from janus.models.workout import StrengthWorkout
+            workout = StrengthWorkout(
+                id=record.workout_id or _gen_uuid("w"),
+                date=now,
+                workout_type=WorkoutType.STRENGTH,
+                source=record.source,
+                created_at=now,
+                updated_at=now,
+                exercises=(
+                    record.evidence.get("exercises", [])
+                    if isinstance(record.evidence.get("exercises"), list)
+                    else []
+                ),
+            )
+        lines = _workout_to_markdown_lines(workout)
+        new_line = "\n".join(lines) + "\n\n"
+        if not current.strip():
+            return _W_HEADER + new_line
+        base = current if current.endswith("\n") else current + "\n"
+        return base + new_line
+    if t == ActivityType.FOLLOWUP_ADDED:
+        try:
+            from janus.models.follow_up import FollowUp
+            from janus.integrations.markdown_followups import _format_followup_line
+        except Exception:
+            return None
+        fu = FollowUp(
+            id=record.followup_id or _gen_uuid("fu"),
+            title=record.captured_text or record.task_title or "Untitled",
+            note=record.evidence.get("note", "") if record.evidence else "",
+        )
+        line = _format_followup_line(fu) + "\n"
+        if not current.strip():
+            return line
+        base = current if current.endswith("\n") else current + "\n"
+        return base + line
+    if t == ActivityType.INBOX_CAPTURED:
+        try:
+            from janus.models.inbox import InboxItem
+            from janus.integrations.markdown_inbox import _format_inbox_line
+        except Exception:
+            return None
+        item = InboxItem(
+            id=record.inbox_id or _gen_uuid("ix"),
+            captured_text=record.captured_text or "",
+            source=record.source,
+            context=record.evidence.get("context", "") if record.evidence else "",
+        )
+        line = _format_inbox_line(item) + "\n"
+        if not current.strip():
+            return line
+        base = current if current.endswith("\n") else current + "\n"
+        return base + line
+    if t == ActivityType.MEASUREMENT:
+        try:
+            from janus.integrations.metric_history import _HEADER_LINES
+        except Exception:
+            return None
+        from janus.models.metric_snapshot import MetricSnapshot
+        snap = MetricSnapshot(
+            timestamp=record.timestamp,
+            goal_title=record.goal_title or "",
+            metric_name=record.metric or "",
+            value=float(record.value or 0.0),
+            source=record.source,
+        )
+        line = (
+            f"# {snap.timestamp.isoformat()} | "
+            f"{snap.goal_title} | "
+            f"{snap.metric_name} | "
+            f"{snap.value} | "
+            f"{snap.source}"
+        )
+        if not current.strip():
+            header = "\n".join(_HEADER_LINES) + "\n"
+            return header + line + "\n"
+        base = current if current.endswith("\n") else current + "\n"
+        return base + line + "\n"
+    # Service-delegated types (task/goal/milestone): the service functions
+    # perform surgical edits, so a conservative append of the record's
+    # serialized line is a reasonable upper-bound projection for the gate.
+    line = _serialize_record_line(record, t)
+    if line is None:
+        return None
+    if not current.strip():
+        return line + "\n"
+    base = current if current.endswith("\n") else current + "\n"
+    return base + line + "\n"
+
+
+def _serialize_record_line(
+    record: ActivityRecord, t: ActivityType
+) -> str | None:
+    """Best-effort single-line serialization of *record* for projection."""
+    try:
+        if t in (ActivityType.TASK_COMPLETED, ActivityType.TASK_UPDATED):
+            title = record.task_title or record.task_id or ""
+            evidence = record.evidence or {}
+            eid = evidence.get("task_id", "")
+            return (
+                f"- [x] {title} "
+                f"| janus_evidence_task_id: {eid} "
+                f"| {record.timestamp.isoformat()}"
+            )
+        if t in (
+            ActivityType.GOAL_PROGRESS,
+            ActivityType.GOAL_UPDATED,
+            ActivityType.GOAL_COMPLETED,
+        ):
+            title = record.goal_title or ""
+            val = record.current_value if record.current_value is not None else ""
+            return (
+                f"- {title} | progress | value={val} | "
+                f"{record.timestamp.isoformat()}"
+            )
+        if t == ActivityType.MILESTONE_COMPLETED:
+            title = record.task_title or record.goal_title or ""
+            return f"- [x] {title} | milestone | {record.timestamp.isoformat()}"
+    except Exception:
+        return None
+    return None
 
 
 # ── Per-type dispatch helpers ─────────────────────────────────────────────────

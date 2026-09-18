@@ -254,6 +254,7 @@ def atomic_write(
     verify: bool = False,
     backup_rotation: bool = False,
     expected_hash: str | None = None,
+    written_by: str | None = None,
 ) -> None:
     """Write *content* to *path* atomically.
 
@@ -361,6 +362,7 @@ def atomic_write(
         lock=lock,
         verify=verify,
         backup_rotation=backup_rotation,
+        written_by=written_by,
         message="Atomic write complete",
     )
 

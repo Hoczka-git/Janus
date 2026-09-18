@@ -11,7 +11,7 @@ from json import dumps as json_dumps, loads as json_loads, JSONDecodeError
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from janus.integrations.data_protection import protected_write, compute_content_hash
+from janus.integrations.atomic_io import atomic_write, compute_content_hash
 
 from janus.models.workout import (
     Exercise,
@@ -91,7 +91,7 @@ def _write_workouts(workouts: list[Workout]) -> None:
     expected_hash = None
     if path.exists():
         expected_hash = compute_content_hash(path.read_text(encoding="utf-8"))
-    protected_write(
+    atomic_write(
         path,
         content,
         expected_hash=expected_hash,

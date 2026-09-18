@@ -153,9 +153,9 @@ class WriteResult:
 
 @dataclass
 class ProtectionConfig:
-    """Configuration for the data protection layer.
+    """Configuration for the data integrity / protection layer.
 
-    Values can be overridden via config/config.toml under [data_protection].
+    Values can be overridden via config/config.toml under [data_ingestion].
     """
 
     enabled: bool = True
@@ -208,7 +208,12 @@ def get_data_dir() -> Path:
 
 
 def _load_config() -> ProtectionConfig:
-    """Load data protection config from config/config.toml, with defaults."""
+    """Load data integrity config from config/config.toml, with defaults.
+
+    Reads from the ``[data_ingestion]`` section (the merged section from
+    ADR-005 Amendment 01).  Falls back to defaults when the section or
+    file is absent.
+    """
     try:
         import tomllib
 
@@ -217,7 +222,7 @@ def _load_config() -> ProtectionConfig:
             return ProtectionConfig()
         with config_path.open("rb") as f:
             toml_data = tomllib.load(f)
-        section = toml_data.get("data_protection", {})
+        section = toml_data.get("data_ingestion", {})
         config = ProtectionConfig()
         if "enabled" in section:
             config.enabled = bool(section["enabled"])
@@ -242,7 +247,7 @@ def _load_config() -> ProtectionConfig:
         return config
     except Exception as e:
         logger.warning(
-            "Failed to load data_protection config, using defaults: %s", e
+            "Failed to load data_ingestion config, using defaults: %s", e
         )
         return ProtectionConfig()
 

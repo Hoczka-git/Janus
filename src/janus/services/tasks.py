@@ -22,9 +22,7 @@ from janus.integrations.markdown_tasks import (
     _parse_task_line,
     _format_task_line,
 )
-from janus.integrations.atomic_io import read_modify_write
-from janus.integrations.data_protection import compute_content_hash
-from janus.integrations.data_protection import protected_write, protected_append, compute_content_hash
+from janus.integrations.atomic_io import read_modify_write, compute_content_hash
 from janus.verification import (
     VerificationReport,
     run_default_checks,

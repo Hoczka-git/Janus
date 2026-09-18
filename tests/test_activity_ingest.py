@@ -1816,3 +1816,82 @@ class TestIngestActions:
         results = ingest_activities([rec])
         assert results[0].action == "appended"
 
+
+# ── Regeneration gating on ingest_activities ────────────────────────────────
+#
+# ADR-005 Amendment 01 AC2: regeneration gating (gate_regeneration +
+# allowed_regenerators) is exposed as arguments to ingest_activities (not the
+# primitive).  When gate_regeneration is enabled, a full-file rewrite by an
+# untrusted (model-driven) writer that exceeds the change threshold is blocked
+# and reported as a rejected IngestResult.
+
+class TestIngestRegenerationGating:
+    """Tests for gate_regeneration / allowed_regenerators on ingest_activities."""
+
+    def test_gate_disabled_allows_large_append(self, isolated_data_dir, isolated_config):
+        """With gate_regeneration=False (default), a large append succeeds."""
+        inbox_file = isolated_data_dir["inbox"]
+        inbox_file.write_text("- [ ] Old item\n")
+        rec = ActivityRecord(
+            type=ActivityType.INBOX_CAPTURED,
+            source="cli",
+            timestamp=datetime(2026, 9, 12, tzinfo=timezone.utc),
+            captured_text="A " * 300,
+            inbox_id="ix_1",
+        )
+        results = ingest_activities([rec], gate_regeneration=False)
+        assert results[0].accepted is True
+        assert results[0].wrote is True
+
+    def test_gate_blocks_untrusted_large_write(self, isolated_data_dir, isolated_config):
+        """With gate_regeneration=True, a projected write that exceeds the
+        change threshold by an untrusted (model-driven) writer is blocked."""
+        inbox_file = isolated_data_dir["inbox"]
+        old = "- [ ] Small existing item\n"
+        inbox_file.write_text(old)
+        rec = ActivityRecord(
+            type=ActivityType.INBOX_CAPTURED,
+            source="cli",
+            timestamp=datetime(2026, 9, 12, tzinfo=timezone.utc),
+            captured_text="A " * 300,
+            inbox_id="ix_1",
+        )
+        results = ingest_activities([rec], gate_regeneration=True)
+        assert results[0].accepted is True
+        assert results[0].wrote is False
+        assert results[0].action == "rejected"
+        assert "regeneration" in results[0].error.lower()
+        assert inbox_file.read_text() == old
+
+    def test_allowed_regenerators_bypasses_gate(self, isolated_data_dir, isolated_config):
+        """If the writer is in allowed_regenerators, the gate is bypassed."""
+        inbox_file = isolated_data_dir["inbox"]
+        inbox_file.write_text("- [ ] Old item\n")
+        rec = ActivityRecord(
+            type=ActivityType.INBOX_CAPTURED,
+            source="cli",
+            timestamp=datetime(2026, 9, 12, tzinfo=timezone.utc),
+            captured_text="A " * 300,
+            inbox_id="ix_1",
+        )
+        results = ingest_activities(
+            [rec], gate_regeneration=True,
+            allowed_regenerators={"activity_ingest.inbox_captured"},
+        )
+        assert results[0].accepted is True
+        assert results[0].wrote is True
+
+    def test_default_gate_off_does_not_block(self, isolated_data_dir, isolated_config):
+        """gate_regeneration defaults to False -- no gating occurs."""
+        inbox_file = isolated_data_dir["inbox"]
+        inbox_file.write_text("- [ ] Old item\n")
+        rec = ActivityRecord(
+            type=ActivityType.INBOX_CAPTURED,
+            source="cli",
+            timestamp=datetime(2026, 9, 12, tzinfo=timezone.utc),
+            captured_text="A " * 300,
+            inbox_id="ix_1",
+        )
+        results = ingest_activities([rec])
+        assert results[0].accepted is True
+        assert results[0].wrote is True
