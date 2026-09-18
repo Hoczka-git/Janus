@@ -284,7 +284,7 @@ class TestSetTaskState:
         from janus.services.tasks import set_task_state, TASKS_PATH
         tasks_file = self._setup_file(tmp_path, "- [ ] Test task\n- [ ] Test task\n")
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
-        with pytest.raises(ValueError, match="Found 2 open tasks matching title"):
+        with pytest.raises(ValueError, match="Multiple open tasks found with title"):
             set_task_state("Test task", "blocked")
 
     def test_set_state_empty_title_rejected(self, tmp_path, monkeypatch):
