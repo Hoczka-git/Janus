@@ -51,3 +51,8 @@ class GoalHealthAssessment:
     days_since_last_activity: int | None = None
     measurement_overdue_count: int = 0
     evaluated_at: datetime | None = None
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-friendly dict (spec §73)."""
+        from dataclasses import asdict
+        return asdict(self)

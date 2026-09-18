@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from janus._log import emit
-from janus.integrations.data_protection import protected_write, compute_content_hash
+from janus.integrations.atomic_io import atomic_write, compute_content_hash
 from janus.models.research_artifact import (
     ARTIFACT_TYPES,
     CONFIDENCE_LEVELS,
@@ -77,7 +77,7 @@ def save_artifact(artifact: ResearchArtifact) -> Path:
     if path.exists():
         raise ValueError(f"Research artifact already exists at slug {slug!r}")
     content = _serialize_artifact(artifact)
-    protected_write(
+    atomic_write(
         path,
         content,
         expected_hash=None,  # new file, no conflict possible
@@ -102,7 +102,7 @@ def update_artifact(artifact: ResearchArtifact, slug: str | None = None) -> Path
     if path is None:
         raise ValueError(f"Research artifact not found: {slug!r}")
     content = _serialize_artifact(artifact)
-    protected_write(
+    atomic_write(
         path,
         content,
         expected_hash=compute_content_hash(path.read_text(encoding="utf-8")) if path.exists() else None,

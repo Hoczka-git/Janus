@@ -30,6 +30,34 @@ dedup_tolerance_seconds = 0
 write_retry_count = 3
 # Write-attempt retry backoff base (seconds).
 write_retry_backoff_base = 0.1
+# Data integrity / protection layer (ADR-005 Amendment 01).
+# These control backup rotation, advisory locking, post-write verification,
+# and regeneration gating for legacy full-rewrite paths that delegate to
+# atomic_io via data_integrity.protected_write / protected_append.
+# Model-driven writes go through activity_ingest → atomic_io directly.
+enabled = true              # toggle the integrity layer (backups + locking)
+max_backups = 3             # rotating .bak snapshots kept per file
+backup_dir = ".backups"     # relative dir for timestamped backups
+lock_timeout = 5.0          # fcntl.flock acquire timeout (seconds)
+verify_after_write = true   # re-read after write to confirm content
+regeneration_threshold = 0.5  # change fraction above which a full rewrite is gated
+allowed_regenerators = [
+    "workout_md._write_workouts",
+    "services.tasks.complete_task",
+    "services.tasks.complete_janus_task",
+    "services.tasks.set_task_state",
+    "services.tasks.set_task_progress",
+    "markdown_goals.update_goal",
+    "markdown_followups.update_followup",
+    "markdown_inbox.update_inbox_item",
+    "markdown_research.save_artifact",
+    "markdown_research.update_artifact",
+    "services.decisions.update_decision_status",
+    "services.decisions.link_decision_to_goal",
+    "services.decisions.link_finding_to_decision",
+    "services.decisions.create_decision",
+]
+backup_max_age_days = 30    # prune backups older than this
 
 [data_ingestion.normalization]
 # Canonical units per metric. Model-provided values are converted.
