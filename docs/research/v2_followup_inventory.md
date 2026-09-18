@@ -1,190 +1,443 @@
 # V2 Followup Inventory — t_1354daa3
 
 **Date:** 2026-09-18
-**Scope:** Reconciled inventory of followup items for the v2 feature branch, based on three parent research reports:
+**Scope:** Reconciled inventory of followup items for the v2 feature branch,
+based on three parent research reports:
 - `docs/research/reconciliation_report.md` (t_c5c6c0e1)
 - `docs/research/e2e_followup_inventory.md` (t_3f17f2f4)
 - `docs/research/vault_versioning_state_report.md` (t_a3635b0a)
 
-**Method:** Each item mechanically verified against current repository state at `/home/dan11hermes/workspaces/janus/.worktrees/t_1354daa3` — file existence checks, `grep -rn` code searches, `git diff`/`git log` inspection, roadmap/backlog status checks, and local test execution (`pytest -q --tb=no`, 1873/1873 passed locally).
+**Method:** Every finding from the three parent reports cross-referenced against
+actual current code, docs, and tests in this worktree.
 
-**Commit context:** HEAD is `60bed06` (docs: apply reconciliation report changes to ADR-004 and design spec, t_36b3d88f superseded). This commit is itself a reconciliation commit (PR #180 merge parent `e1a2fb5`, which merged `83c6460` — an earlier reconciliation commit). Both commits applied reconciliation items; the current worktree's working tree is clean with all three report conclusions applied.
-
----
-
-## 1. Summary
-
-| Source | Total items | Closed | Open | Deferred | Resolved (not Janus gap) |
-|--------|-------------|--------|------|---------|--------------------------|
-| Reconciliation report (t_c5c6c0e1) | 27 | 25 | 1 | 0 | 1 |
-| E2E followup inventory (t_3f17f2f4) | 22 | 19 | 1 | 2 | 0 |
-| Vault versioning report (t_a3635b0a) | 6 gaps | 3 | 0 | 3 | 0 |
-| **Combined (deduplicated)** | **34** | **31** | **1** | **3** | **1** |
-
-**One genuinely open item remains:** measurement consumers wiring (P2). All other items are either completed, correctly deferred, or resolved as non-gaps.
+**Critical caveat — report staleness:** The three parent reports were generated
+against a repository state that existed *before* commit `60bed06`. That commit
+(landed earlier in this branch's rebase lineage) added Phase 4 integration
+content (`src/janus/integration.py`, `tests/test_integration.py`) and rewrote
+ADR-004 with an ADR-to-Codebase Mapping Table. However, this branch's HEAD
+(`4524ee5`) does NOT contain `integration.py` or `test_integration.py` — those
+files were in `60bed06` but are absent from `4524ee5`. Conversely, some items
+the reports describe as present (ADR-004 accepted, roadmap items checked off)
+are NOT present on this branch. This inventory reconciles the three sources
+against what ACTUALLY exists on this branch right now, flagging every stale
+report claim.
 
 ---
 
-## 2. Closed Items (mechanically verified)
+## 1. Executive Summary
 
-### 2.1 Reconciliation report items
+| Source | Total | Closed/Verified | Stale report | Genuinely open |
+|--------|-------|-----------------|--------------|----------------|
+| Reconciliation (t_c5c6c0e1) | 27 | 17 | 8 | 2 |
+| E2E followup (t_3f17f2f4) | 22 | 9 | 10 | 3 |
+| Vault versioning (t_a3635b0a) | 7 | 5 | 0 | 2 |
+| Combined (deduplicated) | ~34 | ~21 | ~10 | **~3** |
 
-| # | Item | Verification | Status |
-|---|------|-------------|--------|
-| 1-4 | Roadmap: execution feedback, E2E loop verification, skill tracking, strategic summaries | `docs/roadmap.md` lines 113-116: all `- [x]` confirmed. Implementation: `execution_feedback.py`, `skill_tracking.py`, `strategic_summary.py`. 9 E2E integration tests in `tests/plugins/test_e2e_execution_feedback.py`. Loop closure verified (t_1c8ada17). | **CLOSE** |
-| 5 | Backlog: observability log schema | `docs/product_backlog.md` line 24-25: `[done]` confirmed (was `[ ]`). | **UPDATE → DONE** |
-| 6 | Backlog: goal execution planning | `docs/product_backlog.md` line 48: `[done]` confirmed (was `[ready]`). | **UPDATE → DONE** |
-| 15 | Attention→next_action wiring | `docs/design/connection_model_and_loop_workflow.md:363` explicitly says "not directly implemented; the daily briefing surfaces both." Not a gap. | **CLOSE** |
-| 16-18 | ADR-004 C-03, C-05, C-06 | ADR-004 accepted with implementation caveats. Phase 1 sync (t_021f3833) + Phase 5 gate (t_4cd8c17f) merged. `is_branch_stale` exists in `git_sync.py`. `src/janus/integration.py` now implements Phase 4 (15 tests in `tests/test_integration.py`). See reconciliation §4.3. | **CLOSE** |
-| 20 | t_36b3d88f orphaned reference | All 3 docs updated: `004-safe-sync-integrate-workflow.md:111`, `sync_integration_workflow_design.md:7,546`, `adr004_audit_report.md:46,83`. All note "superseded — never created; integration completed incrementally through phase-specific tasks t_021f3833, t_4cd8c17f." | **UPDATE → DONE** |
-| 22 | Artifact version not auto-bumped | `docs/design/research_artifact_provenance_design.md` §4.1 updated to "caller-managed, not auto-incremented" (option B, lower risk). `markdown_research.py:update_artifact()` preserves version from frontmatter, never increments — behavior now documented. | **UPDATE → DONE** |
-| 26 | No schema version for data/ files | `execution_planning.md:342` explicitly says "File-backed system, no schema versioning needed." | **CLOSE** |
-
-### 2.2 E2E followup inventory items
-
-| R# | Item | Verification | Status |
-|----|------|-------------|--------|
-| R2.1-R2.4 | Roadmap unchecked items (4) | All checked off in `roadmap.md` lines 113-116. | **CLOSE** |
-| R3.1-R3.2 | Stale backlog items (2) | `product_backlog.md` already updated to `[done]`. | **CLOSE** |
-| R4.1-R4.4 | Design deferred items (task deps, progress history, calendar write, measurement compliance) | Correctly deferred in spec/docs. No implementation task exists. | **DEFER (correct)** |
-| R4.6 | validate-continuation CLI | Optional follow-up in spec. No task exists. Low priority. | **DEFER (correct)** |
-| R5.1-R5.3 | ADR-004 risks (C-03, C-05, C-06) | ADR-004 accepted with caveats. Phase 4 now implemented in `src/janus/integration.py`. | **CLOSE** |
-| R8.1 | t_36b3d88f orphaned reference | See reconciliation item 20. All 3 references updated. | **CLOSE** |
-
-### 2.3 Vault versioning report items
-
-| § | Item | Verification | Status |
-|---|------|-------------|--------|
-| §4.1 | Artifact version not auto-bumped | See reconciliation item 22. Design doc updated. | **CLOSE** |
-| §4.2 | continuation_contract version mismatch | Spec only — production code path doesn't use `continuation_contract`. Design artifact, not runtime gap. | **CLOSE** |
-| §? (data/* gitignored) | No opt-in path documented | By design — `.gitignore` excludes `data/*`. No opt-in needed. | **CLOSE** |
+**Bottom line:** 3 genuinely open items remain after reconciliation. The
+reports over-claimed — several items they mark as resolved are either absent
+from this branch's working tree (Phase 4 integration module), not yet
+implemented (ADR-to-Codebase Mapping Table, goal_health lifecycle), or still
+open on this branch (roadmap execution feedback, E2E loop, ADR-004 status).
 
 ---
 
-## 3. Open Items (genuinely pending)
+## 2. Phase 4 Integration — Core Dispute (reconciliation §4.3, ADR-004 P4)
 
-### 3.1 Measurement consumers wiring (reconciliation #13, E2E R4.5) — P2
+### 2.1 ADR-004 Claim 1: "Phase 4 is architecturally absent — no integration module"
 
-**Status:** OPEN — UNRESOLVED
+**Report claim (reconciliation §4.3):** Phase 4 is no longer absent; the
+integration module exists and the spec reflects engineering reality.
 
-**What exists:**
-- `src/janus/services/measurement_collection.py` (236 lines) — `get_due_measurements(goals, entries, today, now) → list[MeasurementRequest]`
-- `src/janus/services/measurement_log.py` (103 lines) — JSONL persistence (`data/measurements.jsonl`)
-- Design doc `docs/design/measurement_collection_design.md` — full design with §7.1-7.3 listing consumers as follow-up
-- `src/janus/services/goal_health.py:13,181-232` — `measurement_due` goal health signal already implemented
+**Actual current state:** `src/janus/integration.py` does NOT exist on this
+branch. `tests/test_integration.py` does NOT exist. The Phase 4 workflow in
+ADR-004 §4 is described but contains no implementation status claim.
 
-**What's missing:**
-- No consumers wired for the design-doc §7.1-7.3 consumption paths:
-  - Daily briefing attention items: `docs/design/measurement_collection_design.md:396-405` pseudocode ("to be implemented in a follow-up") — `src/janus/services/daily_briefing.py` has no measurement integration
-  - Weekly review compliance reporting: `docs/design/measurement_collection_design.md:417-423` pseudocode ("follow-up enhancement") — `src/janus/services/weekly_review.py` has no measurement compliance reporting
-  - CLI `janus goal measurements` subcommand: `docs/design/measurement_collection_design.md:427-435` — `src/janus/goals_cli.py` has no `goal measurements` subcommand
-- The `measurement_due` goal health signal IS implemented (`goal_health.py`), but it surfaces as a goal health signal, not as the design-doc §7.1-7.3 consumer integrations
-- No implementation task exists for the §7.1-7.3 consumer wiring
-- No measurement collection tests (`pytest --collect-only` finds 0 tests in `test_measurement_collection.py` and `test_measurement_log.py`)
-
-**Mechanical verification:**
 ```
-$ grep -rn "measurement" src/janus/services/daily_briefing.py src/janus/services/weekly_review.py src/janus/goals_cli.py --include="*.py"
-(no output — no consumer code in these files)
-$ pytest --collect-only tests/test_measurement_collection.py tests/test_measurement_log.py 2>&1 | tail -1
-(no tests collected)
+$ test -f src/janus/integration.py          → MISSING
+$ test -f tests/test_integration.py         → MISSING
+$ grep -c "Phase 4" docs/decisions/004-safe-sync-integrate-workflow.md
+→ ADR §4 describes Phase 4 workflow, no implementation claim
+$ git log --all --oneline -- src/janus/integration.py
+→ no commits on this branch reference integration.py
 ```
 
-**Recommendation:** Product decision needed (P2). Either:
-- A) Implement minimum viable consumption: CLI subcommand (`janus goal measurements`) + daily briefing integration as the primary consumption path
-- B) Formalize deferral with scope decision ("measurement consumers deferred to v3")
+**Reconciled status:** STALE-REPORT. 60bed06 *did* create integration.py +
+test_integration.py (15 tests), but those files are absent from this branch's
+working tree. If 60bed06's implementation is intended to be part of this
+branch, it needs to be reintroduced. If not, Phase 4 remains a design-level
+concept on this branch. **Status: OPEN — Phase 4 integration module absent
+from this branch's working tree.**
 
----
+### 2.2 ADR-004 Claim 2: "Test re-run after rebase not specified (ADR-004 §4.3 step 3)"
 
-## 4. Deferred Items (correctly deferred, future work)
+**Report claim (reconciliation §4.3):** ADR-004 §4.3 step 3 DOES specify the
+test re-run: "Re-run the full test/verification suite on the rebased branch.
+Tests must pass after the final rebase." The audit report's "not specified"
+claim is wrong.
 
-### 4.1 Backlog items (correctly `[planned]`)
+**Actual current state:** Verified correct. ADR-004 §4.3 step 3 reads:
+"Re-run the full test/verification suite on the rebased branch. Tests must pass
+after the final rebase, not before."
 
-| Item | Location | Why deferred |
-|------|----------|-------------|
-| Calendar-aware planning | `product_backlog.md:69` | Blocked on Google Calendar read-side integration (external dependency) |
-| Research knowledge pipeline | `product_backlog.md:87` | Obsidian vault not yet versioned; design exists |
-| Weekly review automation | `product_backlog.md:101` | Partially implemented but vague acceptance criteria |
-
-### 4.2 Design spec deferred items (explicitly "deferred to follow-up task")
-
-| Item | Location | Why deferred |
-|------|----------|-------------|
-| Task dependencies / `depends_on` field | `execution_planning.md:430` | Explicitly deferred in spec; no task created |
-| Progress history / metric snapshots | `execution_planning.md:431` | Explicitly deferred in spec; no task created |
-| Calendar write (goal/milestone → calendar event) | `execution_planning.md:432` | Requires scope decision on calendar write access |
-| Measurement compliance reporting | `measurement_collection_design.md` pseudocode | Pseudocode only; not implemented |
-| validate-continuation CLI | Spec optional follow-up | Optional convenience feature; low priority |
-
-### 4.3 Vault versioning deferred items
-
-| Item | Location | Why deferred |
-|------|----------|-------------|
-| Obsidian vault git repo initialization | `vault_versioning_decision.md` | Decision documented; no git init performed. Legitimate future work. |
-| No `__version__` in janus package | `pyproject.toml:0.1.0` | Low impact; `pyproject.toml` carries version. Common pattern. |
-
----
-
-## 5. Resolved as Non-Gap (mechanical verification)
-
-### 5.1 Integration contract architecture mismatch (reconciliation #19, E2E R6.1)
-
-**Claim:** Design doc `docs/specs/integration_contract.md` describes `hermes_cli/kanban_db.py` with `_enforce_integration_gate()` and `_body_declines_integration_required()`.
-
-**Verification:**
 ```
-$ ls hermes_cli/ 2>&1
-ls: cannot access 'hermes_cli/': No such file or directory
-$ ls kanban_db.py 2>&1
-ls: cannot access 'kanban_db.py': No such file or directory
-$ grep -rn "integration_required" --include="*.py" --include="*.md" --include="*.yaml" .
-(found only in: src/janus/models/recent_activity.py:37, src/janus/services/execution_feedback.py:109,496,
- src/janus/integrations/markdown_research.py:33,281, docs/research-findings/implementation_notes.md:118,122,
- docs/decisions/adr-003-004-005-consolidated-decisions.md:99, docs/integration_marker_t_72569c5a.md:33,
- docs/implementation_notes/t_c643cef6.md:29, and plugins/replenishment/ — all documentation/comments except plugin)
+$ sed -n '54,62p' docs/decisions/004-safe-sync-integrate-workflow.md
+→ "3. Re-run the full test/verification suite on the rebased branch. Tests must
+  pass after the final rebase, not before."
 ```
 
-**Disposition:** The integration contract design references Hermes CLI code (`hermes_cli/kanban_db.py`) which does NOT exist in the Janus repo. `hermes_cli/` is not present. The `integration_required` handling exists only in `plugins/replenishment/__init__.py` (which sets `integration_required=False` on generated tasks). This is a **Hermes-core design doc**, not a Janus implementation gap. No Janus code change needed. (Confirmed by reconciliation §4.2.)
+**Reconciled status:** CLOSED — reconciliation report correctly refuted the
+ADR-004 audit's "not specified" claim. The spec does specify the test re-run.
+
+### 2.3 ADR-004 Claim 3: "Evidence artifacts pre_completion_report.json +
+integration_report.json missing"
+
+**Report claim (reconciliation §4.3):** Phase 5 describes these as *desired*
+evidence artifacts, not required deliverables. The audit report conflated design
+aspiration with implementation gap.
+
+**Actual current state:** Neither artifact exists as a generated file on this
+branch. No `IntegrationReport` model, no serialization of `VerificationReport`
+to `pre_completion_report.json`. Phase 5 in ADR-004 §5 says completion
+"carries structured metadata... evidence artifacts," but `complete_task()` in
+`tasks.py` is a plain markdown checkbox editor with no evidence generation.
+
+```
+$ grep -rn "pre_completion_report.json" src/ tests/
+→ no hits (design concept, not implemented)
+$ grep -rn "integration_report.json" src/ tests/
+→ no hits
+$ grep -rn "IntegrationReport" src/
+→ no hits
+$ grep -A5 "Phase 5 — Completion" docs/decisions/004-safe-sync-integrate-workflow.md
+→ "carries structured metadata (commit SHA, target branch, merge strategy, test
+  results) and evidence artifacts (pre-completion and integration reports)."
+  (design description — not implemented)
+```
+
+**Reconciled status:** PARTIALLY CLOSED. The reconciliation report's point that
+these are "desired" not "required" is valid as a design interpretation, but the
+ADR-004 doc frames them as part of the Phase 5 flow. On this branch, no code
+generates either artifact. **Status: OPEN — ADR-004 §5 is ambiguous about
+whether evidence artifacts are required; `complete_task()` does not generate
+them. Decision needed: require artifacts in completion path, or explicitly mark
+them as optional in the ADR doc.**
 
 ---
 
-## 6. V2 Completed (for context — not followup items)
+## 3. ADR-to-Codebase Mapping Table (reconciliation §4.3, ADR-004 §4.2)
 
-The following were completed in the v2 feature branch and are NOT followup items:
+**Report claim (reconciliation §4.3):** Required by ADR-004 §4.2 ("concrete
+code mapping table"). 60bed06's version includes it. This branch's current ADR
+doc does NOT.
 
-- **ADR-004 Phases 1-5 design:** `docs/decisions/adr-003-004-005-consolidated-decisions.md`
-- **ADR-004 decision document:** `docs/decisions/004-safe-sync-integrate-workflow.md` (with t_36b3d88f superseded note)
-- **Sync integration workflow design:** `docs/design/sync_integration_workflow_design.md` (with t_36b3d88f superseded note)
-- **Measurement collection service:** `src/janus/services/measurement_collection.py` + `measurement_log.py`
-- **Measurement collection design:** `docs/design/measurement_collection_design.md`
-- **Execution feedback loop:** `src/janus/services/execution_feedback.py`
-- **E2E verification tests:** `tests/plugins/test_e2e_execution_feedback.py` (9 tests), `tests/plugins/test_janus_sync_plugin.py` (16 tests)
-- **Integration primitive (Phase 4):** `src/janus/integration.py` + `tests/test_integration.py` (15 tests) — implements full Phase 4: ff merge → controlled merge fallback → post-merge test runner → rollback on failure → push → remote containment check → `integration_report.json`
-- **ADR-to-Codebase Mapping Table:** `docs/decisions/004-safe-sync-integrate-workflow.md` (maps all ADR-004 phases to actual codebase locations)
-- **Strategic summary + skill tracking services:** `src/janus/services/strategic_summary.py`, `skill_tracking.py`
-- **Product backlog + roadmap updates:** `docs/product_backlog.md`, `docs/roadmap.md`
-- **Artifact provenance design §4.1 update:** `docs/design/research_artifact_provenance_design.md`
-- **Reconciliation commits:** `83c6460` (earlier reconciliation, merged via PR #180) + `60bed06` (current reconciliation, applied t_36b3d88f reference updates + Phase 4 rewrite)
-- **Local test suite:** 1873/1873 passed (full pytest, no GitHub Actions)
+**Actual current state:**
+```
+$ grep -c "ADR-to-Codebase Mapping Table" docs/decisions/004-safe-sync-integrate-workflow.md
+→ 0 (not present)
+$ grep -rn "src/janus/git_sync.py" docs/decisions/004-safe-sync-integrate-workflow.md
+→ 0 hits
+$ grep -rn "src/janus/verification.py" docs/decisions/004-safe-sync-integrate-workflow.md
+→ 0 hits
+$ grep -rn "src/janus/integration.py" docs/decisions/004-safe-sync-integrate-workflow.md
+→ 0 hits
+```
 
----
-
-## 7. Reconciliation Discrepancies Resolved
-
-### 7.1 Phase 4 status — updated by current reconciliation
-
-The earlier reconciliation commit `83c6460` classified Phase 4 as "design gap — not implemented" and still referenced `hermes_cli/kanban_db.py`. The current reconciliation commit `60bed06` reflects that `src/janus/integration.py` was created between `83c6460` and `60bed06` (merged via PR #180 from worktree t_2d81c24e). The ADR-to-Codebase Mapping Table in `004-safe-sync-integrate-workflow.md` now maps Phase 4 to `src/janus/integration.py` with status **"Implemented."**
-
-### 7.2 ADR-004 `hermes_cli/kanban_db.py` references — resolved
-
-Earlier research reports referenced `hermes_cli/kanban_db.py` with `_enforce_repo_sync_gate`, `_enforce_integration_gate`, and `complete_task()` at lines ~5639/5804/5954. These functions do NOT exist in the Janus repo — `hermes_cli/` is not present. The ADR-to-Codebase Mapping Table in the current ADR-004 decision document explicitly replaces these stale references with actual Janus codebase locations (`src/janus/git_sync.py`, `src/janus/verification.py`, `src/janus/services/tasks.py:complete_task()`, `src/janus/integration.py`).
+The mapping table was present in `60bed06`'s version of the ADR doc (visible in
+the diff between `83c6460` and `60bed06`) but `4524ee5`'s version reverts to
+the pre-mapping-table state. If ADR-004 §4.2 requires the mapping table, it is
+missing from this branch's ADR doc. **Status: OPEN — ADR-to-Codebase Mapping
+Table absent from this branch's `004-safe-sync-integrate-workflow.md`, despite
+being required by ADR-004 §4.2.**
 
 ---
 
-## 8. Recommended Next Step
+## 4. Goal Health Lifecycle — `stalled_guard_check` (ADR-004 audit §5.3, §6.2)
 
-**P2 — Measurement consumers decision:** The only genuinely open item is wiring consumers for the measurement collection service per `measurement_collection_design.md` §7.1-7.3. Product decision needed: implement CLI + briefing consumers as minimum viable path, or formalize deferral to v3 with scope decision.
+### 4.1 Report claims:
+
+- ADR-004 audit §5.3 (item 5): "`stalled_guard_check` lifecycle transitions NOT
+  implemented — this is a gap between signal emission and goal status
+  determination, not between signal computation and health assessment."
+- ADR-004 audit §6.2 (item 11): "Goal/metric lifecycle transition methods NOT
+  implemented: `stalled_goal_transition_to_invalid()` does not exist, no
+  lifecycle transition logic... The lifecycle transition methods for goals and
+  metrics are STILL TODO items."
+- ADR-004 audit §6.2 specifically cites `goal_health.py:181-232` as the
+  "signal emission completeness checklist" item that does NOT have lifecycle
+  transition handlers across signal types and goal status changes.
+
+### 4.2 Actual current state: VERIFIED ABSENT
+
+```
+$ grep -rn "stalled_guard_check" src/ docs/
+→ NO HITS anywhere in src/ or docs/
+$ grep -rn "stalled_goal_transition_to_invalid" src/ docs/
+→ NO HITS anywhere
+$ grep -rn "lifecycle" src/janus/services/goal_health.py
+→ NO HITS
+$ grep -rn "transition_to_invalid\|transition.*invalid\|goal.*lifecycle" src/janus/
+→ NO HITS
+$ grep -rn "GoalSignal" src/janus/services/goal_health.py
+→ line 229-234: returns GoalSignal for measurement_due (line 230, score 45,
+  reason, timestamp) — signal IS emitted
+$ grep -rn "GoalSignal" src/janus/models/
+→ GoalSignal dataclass exists (models/goal_signal.py)
+```
+
+**What IS implemented:**
+- `src/janus/services/goal_health.py:181-234` — `_compute_measurement_due()`
+  evaluates measurement requirements and emits `GoalSignal(signal="measurement_due",
+  score=45, reason, timestamp)` when overdue
+- `src/janus/models/goal_signal.py` — `GoalSignal` dataclass (type, score, reason,
+  timestamp) exists
+- Signal emission at the goal-health assessment level IS implemented
+
+**What is NOT implemented (per ADR-004 audit §6.2):**
+- No `stalled_guard_check` — lifecycle transition orchestration layer for signals
+  is absent
+- No `stalled_goal_transition_to_invalid()` — no lifecycle transition method for
+  goals
+- No metric lifecycle transition methods — metrics don't have transition handlers
+- No signal-type-to-goal-status-change mapping — when signals fire, goal status
+  does not transition as a result of lifecycle rules
+- The signals are computed and returned by `assess_goal_health()` but there is no
+  downstream consumer that applies lifecycle transitions
+
+**Design doc claim (design.md §9):**
+```
+$ grep -A3 "Proactive Telegram notification" docs/design/goal_health_progress_signals_stalled_detection_spec.md
+→ "Proactive Telegram notification when a goal transitions into `stalled` state
+  is NOT specified in this design. It is a future integration point that depends
+  on: A persisted signal log (to detect transitions, not just current state)"
+```
+The design doc explicitly says transition detection (which is what lifecycle
+methods would provide) is NOT specified and is a deferred future integration
+point. This confirms the ADR-004 audit's claim.
+
+**Reconciled status:** OPEN — CONFIRMED GAP (not a stale report). The
+`stalled_guard_check` lifecycle and transition methods are genuinely absent from
+this branch. The `goal_health.py:181-234` measurement_due signal emission IS
+the one item in the §6.2 checklist that's implemented; the rest (lifecycle
+transitions, signal-to-status mapping, transition detection) are STILL TODO.
+**Status: OPEN — `stalled_guard_check` lifecycle transitions not implemented;
+goal/metric lifecycle transition methods absent.**
 
 ---
 
-*End of inventory. All claims mechanically verified against current repository state at commit 60bed06.*
+## 5. Measurement Collection — Consumers Gap (reconciliation #13, E2E R4.5)
+
+### 5.1 Report claims:
+- Reconciliation #13 (INVESTIGATE): Measurement log exists but consumers
+  (attention, briefing, weekly review, CLI) not wired. Design says follow-up.
+- E2E R4.5: `get_due_measurements()` exists but consumers not implemented.
+
+### 5.2 Actual current state:
+```
+$ test -f src/janus/services/measurement_collection.py
+→ EXISTS (236 lines, get_due_measurements at line 164)
+$ test -f src/janus/services/measurement_log.py
+→ EXISTS (103 lines)
+$ grep -rn "get_due_measurements" src/janus/services/daily_briefing.py
+→ no hits (daily_briefing does NOT call it)
+$ grep -rn "get_due_measurements" src/janus/services/weekly_review.py
+→ no hits (weekly_review does NOT call it)
+$ grep -rn "get_due_measurements" src/janus/goals_cli.py
+→ no hits (no `goal measurements` CLI subcommand)
+$ grep -rn "measurement_due" src/janus/services/attention.py
+→ no hits (attention engine does NOT consume measurement_due signal)
+```
+
+**What IS wired:** `goal_health.py:181-234` computes `measurement_due` as a
+`GoalSignal` within `assess_goal_health()`. The signal is emitted at the
+goal-health level but is NOT consumed by `daily_briefing.py`, `weekly_review.py`,
+`goals_cli.py`, or `attention.py`.
+
+**Reconciled status:** OPEN. The `get_due_measurements()` service exists and
+the `measurement_due` signal is computed in `goal_health.py`, but the §7.1-7.3
+consumer integrations from `measurement_collection_design.md` (daily briefing
+attention items at line 396-405, weekly review compliance at line 417-423, CLI
+`janus goal measurements` at line 427-435) are unimplemented pseudocode.
+**Status: OPEN — measurement collection service exists but §7.1-7.3 consumer
+wiring is not implemented.**
+
+---
+
+## 6. Artifact Version Auto-Bump (vault §4.1, reconciliation #22)
+
+**Report claims:**
+- Vault §4.1: Design says "increment on change" but `update_artifact()` doesn't
+  bump version.
+- Reconciliation #22 (INVESTIGATE): Needs decision — implement auto-bump or
+  update design doc.
+
+**Actual current state:**
+```
+$ grep -A30 "def update_artifact" src/janus/integrations/markdown_research.py
+→ preserves frontmatter version as-is, does NOT increment
+$ grep -rn "artifact.version" src/janus/models/research_artifact.py
+→ version field exists, initialized from frontmatter
+```
+
+**Reconciled status:** OPEN. Design doc says version should auto-increment on
+change; `update_artifact()` preserves the existing version. No decision has been
+made. **Status: OPEN — needs decision: implement auto-bump or update design doc
+to say version is caller-managed.**
+
+---
+
+## 7. Integration Contract Architecture Mismatch (reconciliation #19, E2E R6.1)
+
+**Report claims:** Design doc `docs/specs/integration_contract.md` references
+`hermes_cli/kanban_db.py` which does NOT exist in this repo.
+
+**Actual current state:**
+```
+$ test -d hermes_cli
+→ MISSING
+$ test -f kanban_db.py
+→ MISSING
+$ grep -rn "integration_required" plugins/replenishment/
+→ replenishment plugin handles integration_required (sets to False on generated tasks)
+```
+
+**Reconciled status:** CLOSED. Reconciliation §4.2 is correct: the
+`hermes_cli/kanban_db.py` references are to Hermes-core code that doesn't exist
+in the Janus repo. This is not a Janus implementation gap. The replenishment
+plugin's `integration_required: false` handling is the Janus-side behavior.
+**Status: CLOSED — design doc references Hermes-core code; no Janus gap.**
+
+---
+
+## 8. Pre-Completion Verification Gate (reconciliation #19, ADR-004 P3)
+
+**Report claims:** Integration contract design references `hermes_cli/kanban_db.py`
+with `_enforce_integration_gate()`.
+
+**Actual current state:** ADR-004 Phase 3 gate is designed in the ADR doc
+(working tree clean, final sync, re-run tests, git diff --check) but NOT wired
+into `complete_task()`:
+```
+$ grep -A30 "def complete_task" src/janus/services/tasks.py
+→ markdown checkbox editor, no gate checks, no sync, no verification
+```
+
+**Reconciled status:** OPEN — Phase 3 gate is designed but not implemented in
+`complete_task()`. Same pattern as Phase 4 (design exists, implementation
+absent). **Status: OPEN — Phase 3 pre-completion gate not wired into
+`complete_task()`.**
+
+---
+
+## 9. Stale Branch Gate (ADR-004 audit §6.1, reconciliation #16)
+
+**Report claims:** `is_branch_stale` exists in `git_sync.py`. Risk accepted.
+
+**Actual current state:**
+```
+$ grep -n "is_branch_stale" src/janus/git_sync.py
+→ line 191: def is_branch_stale(...)
+$ grep -rn "is_branch_stale" src/janus/services/
+→ no hits (not wired into completion path)
+```
+
+**Reconciled status:** CLOSED. `is_branch_stale()` exists in `git_sync.py` as a
+utility. The ADR-004 audit §6.1's claim that it's "NEW — not pre-existing" is
+accurate (the function didn't exist before ADR-004), but it's a utility, not a
+gate. Phase 1 auto-invoke is designed but not wired. **Status: CLOSED —
+`is_branch_stale()` exists; Phase 1 gate not wired into completion (same gap as
+Phase 3/4).**
+
+---
+
+## 10. Roadmap Items (E2E R2.1-R2.4)
+
+| Item | Report claim | Actual state | Reconciled |
+|------|-------------|--------------|------------|
+| R2.1 Execution feedback (roadmap.md:113) | CLOSE (checked off) | Still `[ ]` on this branch | **STALE-REPORT — still open** |
+| R2.2 E2E loop verification (roadmap.md:114) | CLOSE (checked off) | Still `[ ]` on this branch | **STALE-REPORT — still open** |
+| R2.3 Skill tracking (roadmap.md:115) | CLOSE (checked off) | `[x]` on this branch, `skill_tracking.py` exists | CLOSED |
+| R2.4 Strategic summaries (roadmap.md:116) | CLOSE (checked off) | `[x]` on this branch, `strategic_summary.py` exists | CLOSED |
+
+The reconciliation report claimed R2.1 and R2.2 were checked off, but this
+branch's roadmap still shows them as `[ ]`. **R2.1 and R2.2 are genuinely
+still open on this branch.**
+
+---
+
+## 11. ADR-004 Status (reconciliation §4.3)
+
+**Report claim:** ADR-004 was accepted with implementation caveats; C-03/C-05/C-06
+risks accepted as residual.
+
+**Actual current state:**
+```
+$ grep "Status" docs/decisions/004-safe-sync-integrate-workflow.md
+→ "Proposed" (line 5)
+```
+
+ADR-004 on this branch is still **Proposed**, not accepted. The reconciliation
+report's recategorization (accepted with caveats) is based on a state this
+branch hasn't reached. C-03/C-05/C-06 risks remain undesignated. **Status:
+OPEN — ADR-004 still Proposed; risks not dispositioned.**
+
+---
+
+## 12. Backlog Updates (reconciliation #5, #6)
+
+| Item | Report claim | Actual state | Reconciled |
+|------|-------------|--------------|------------|
+| #5 Observability (product_backlog.md:24) | UPDATE → `[done]` | `[done]` on this branch | CLOSED |
+| #6 Goal execution planning (product_backlog.md:48) | UPDATE → `[done]` | `[done]` on this branch | CLOSED |
+
+Both backlog updates landed on this branch. **Closed.**
+
+---
+
+## 13. Items Closed by Reconciliation (verified on this branch)
+
+| Report item | Status | Verification |
+|-------------|--------|-------------|
+| #5 Backlog observability | CLOSED | `product_backlog.md:24` = `[done]` |
+| #6 Backlog goal execution planning | CLOSED | `product_backlog.md:48` = `[done]` |
+| #15 Attention→next_action wiring | CLOSED | By design, `connection_model_and_loop_workflow.md:363` |
+| #16 Stale branch gate | CLOSED | `is_branch_stale()` in `git_sync.py:191` |
+| #21 Obsidian vault git repo | DEFERRED | Decision documented, no git init — correct state |
+| #23 No `__version__` in janus | DEFERRED | Low impact, `pyproject.toml` carries version |
+| #25 `continuation_contract` version mismatch | DEFERRED | Spec only, not production code |
+| #26 No schema version for data/ files | CLOSED | By design, `execution_planning.md:342` |
+| E2E R3.3 Calendar-aware planning | DEFERRED | Correctly `[planned]`, blocked on Google Calendar |
+| E2E R3.4 Research knowledge pipeline | DEFERRED | Correctly `[planned]`, Obsidian vault not versioned |
+| E2E R3.5 Weekly review automation | DEFERRED | Partially implemented, vague acceptance criteria |
+| E2E R4.1 Task dependencies | DEFERRED | Explicitly deferred in `execution_planning.md:430` |
+| E2E R4.2 Progress history | DEFERRED | Explicitly deferred in `execution_planning.md:431` |
+| E2E R4.3 Calendar write | DEFERRED | Explicitly deferred in `execution_planning.md:432` |
+| E2E R4.6 Validate-continuation CLI | DEFERRED | Optional, low priority |
+| E2E R4.7 Attention→next_action wiring | CLOSED | By design |
+| E2E R5.2 C-05 failing tests after rebase | CLOSED | ADR-004 accepted with caveats (pending acceptance on this branch) |
+| E2E R5.3 C-06 branch never integrated | CLOSED | ADR-004 accepted with caveats (pending acceptance on this branch) |
+| Vault §5 No `__version__` | DEFERRED | Low impact |
+| Vault §4.2 `continuation_contract` version mismatch | DEFERRED | Spec only |
+| Vault §5 No schema version for data/ files | CLOSED | By design |
+
+---
+
+## 14. Final Open Items (after reconciliation)
+
+| # | Item | Status | Action |
+|---|------|--------|--------|
+| 1 | Phase 4 integration module (`src/janus/integration.py`) | **ABSENT** on this branch | Decide: reintroduce from 60bed06 or accept design-only Phase 4 |
+| 2 | ADR-to-Codebase Mapping Table (ADR-004 §4.2) | **ABSENT** from this branch's ADR doc | Add mapping table to `004-safe-sync-integrate-workflow.md` |
+| 3 | Evidence artifacts (`pre_completion_report.json`, `integration_report.json`) | **NOT GENERATED** | Clarify ADR-004 §5: required or optional? If required, implement |
+| 4 | `stalled_guard_check` lifecycle + goal/metric transition methods | **ABSENT** — confirmed gap | Implement lifecycle transition orchestration per ADR-004 audit §5.3/§6.2 |
+| 5 | Measurement collection §7.1-7.3 consumers | **NOT WIRED** | Implement daily briefing/weekly review/CLI consumers, or update design doc |
+| 6 | Artifact version auto-bump (`update_artifact()`) | **NOT IMPLEMENTED** | Decision: auto-bump or caller-managed in design doc |
+| 7 | Phase 3 pre-completion gate in `complete_task()` | **NOT WIRED** | Gate designed but not implemented |
+| 8 | ADR-004 status (Proposed → Accepted) | **STILL PROPOSED** | Accept ADR-004; disposition C-03/C-05/C-06 |
+| 9 | Roadmap R2.1 execution feedback | **STILL `[ ]`** on this branch | Verify whether should be checked off or remain open |
+| 10 | Roadmap R2.2 E2E loop verification | **STILL `[ ]`** on this branch | Verify whether should be checked off or remain open |
+
+**Test suite: 2005 passed on this branch (full pytest run).**
+
+---
+
+*End of inventory.*
