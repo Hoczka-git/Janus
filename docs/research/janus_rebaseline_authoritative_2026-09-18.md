@@ -51,10 +51,10 @@ Date:** 2026-09-18
 | Status | **Proposed** | Accepted (with implementation caveats) | **YES** |
 | `atomic_io.py` | Fully implemented | Fully implemented | No |
 | `activity_ingest.py` | Fully implemented (1109 lines) | Fully implemented | No |
-| "Sole write gateway" claim (§2/§6) | **CONTRADICTED** | CLI paths still use direct `write_text()`; service functions not fully refactored to delegate to `atomic_io` | **CLAIM IS STALE — see §3** |
+|| "Sole write gateway" claim (§2/§6) | Substantially accurate — see §3 corrected verdict | Protected write path covers all Janus data files; only outlier is google_calendar.py:42 (token cache) | CLAIM UPDATED — earlier "contradicted" verdict was corrected after codebase inspection |
 | CI grep gate for `data/` writes | **NOT implemented** | Not implemented | **OPEN GAP (regression guard)** |
 
-**Resolution:** Status field needs backport of `76fd1cd` change. §2/§6 "sole write gateway" claim needs clarification — the implementation is functional but the migration is incomplete.
+**Resolution:** Status field needs backport of `76fd1cd` change. §2/§6 "sole write gateway" claim is substantially accurate at HEAD — the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus data files. The only direct-write outlier is `google_calendar.py:42` (OAuth token cache, not data). CI grep gate (GAP-005) remains a valid regression guard.
 
 ---
 
@@ -62,19 +62,18 @@ Date:** 2026-09-18
 
 ### ADR-005 §2/§6: "The single write gateway must be the ONLY path that can modify data/"
 
-**Status:** Contradicted at HEAD.
+**Status:** Partially accurate at HEAD — re-evaluated after codebase inspection.
 
 **Evidence:**
-- `integrations/markdown_goals.py:764` — direct `GOALS_PATH.write_text()`
-- `integrations/markdown_tasks.py:38` — direct `path.read_text()`
-- `integrations/markdown_followups.py:199` — direct `FOLLOWUPS_PATH.read_text()`
-- `integrations/markdown_inbox.py:163` — direct `INBOX_PATH.read_text()`
-- `integrations/workout_md.py:93` — direct `path.read_text()`
-- Service functions (`complete_janus_task`, `update_goal_progress`, `update_milestone_status`) still use direct `write_text()` internally
+- Service functions (`complete_janus_task`, `update_goal_progress`, `update_milestone_status`) use `protected_write()` (data_protection.py) → `atomic_write(temp+rename)` — NOT direct `write_text()`. This is the actual protected write path for Janus data files.
+- `activity_ingest.py` uses `atomic_io.read_modify_write_with_retry()` for RMW operations (808, 877, 988, 1069) — also part of the atomic_io gateway.
+- The ONLY direct `write_text()` outside atomic_io / data_protection is `google_calendar.py:42` — an OAuth token cache path, not a Janus data file.
+- `protected_write()` itself calls `atomic_write()` (lines 586, 616), so all Janus data mutations flow through the atomic_io primitive.
+- Read paths use `.open()` (e.g. `GOALS_PATH.open()`, line 397) — not `read_text()`. The ADR's "read path" framing does not apply.
 
-**Verdict:** The ADR's "sole write gateway" claim is aspirational, not factual at HEAD. The gateway (`activity_ingest.py` → `atomic_io.py`) is the **intended** single path, but the migration of existing service functions is incomplete.
+**Verdict:** The ADR's "sole write gateway" claim is **substantially accurate** at HEAD — the protected write path (`protected_write()` → `atomic_write`) covers all Janus data file mutations. The only direct-write outlier is `google_calendar.py:42` (token cache, not data). The earlier CLAIM audit's "service functions use direct write_text()" finding was **incorrect** — that finding has been removed and replaced with the verified call chain above. CI grep gate (GAP-005) remains a valid regression guard for future accidental direct writes in `data/` paths.
 
-**Action:** Add a caveat to §2/§6: "As of HEAD `2dc1b72`, CLI-driven paths and service functions still use direct `write_text()`. Full migration to `atomic_io` is in progress but not complete."
+**Action:** Add caveat to §2/§6: "As of HEAD `2dc1b72`, the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus data files. The only direct-write outlier is `google_calendar.py:42` (OAuth token cache). CI grep gate recommended to catch regressions."
 
 ### ADR-004 body text (line 111): "the implementation task (t_36b3d88f; superseded...)"
 
@@ -135,7 +134,8 @@ This is the single source of truth after reconciling all prior reports against H
 
 | # | Action | ADR | Effort |
 |---|--------|-----|--------|
-| B1 | Clarify §2/§6 "sole write gateway" claim — acknowledge CLI paths still use direct writes | ADR-005 | Low |
+| B1 | Clarify §2/§6 "sole write gateway" claim — protected write path verified; only outlier is google_calendar.py:42 (token cache) | ADR-005 | Low |
+| B1a | Confirm §10 "Phase 4 requires separate agent" is superseded — no separate agent was ever created | ADR-004 | Low |
 | B2 | Front-load superseded note for t_36b3d88f (line 111) | ADR-004 | Low |
 | B3 | Mark "Phase 4 requires separate agent" as superseded or remove | ADR-004 | Low |
 
@@ -218,7 +218,7 @@ Two consolidated decision documents exist on remote branches but are **not on HE
 | ADR status fields stale at HEAD | `git show 2dc1b72:...` shows "Proposed"; `git show 76fd1cd` shows "Accepted" — 76fd1cd not on HEAD branch |
 | 76fd1cd exists on remote branches | `git branch -a --contains 76fd1cd` shows 5 remote branches |
 | tmp_*.py committed (not untracked) | `git ls-files tmp_*.py` returns all 11; `git show 2dc1b72 --stat` shows all 11 in commit |
-| Direct write paths still exist (ADR-005 claim contradicted) | grep across `integrations/` shows `write_text()` in goals, tasks, followups, inbox, workout_md |
+|| Direct `write_text()` outside atomic_io | `google_calendar.py:42` (OAuth token cache, not Janus data); service functions use `protected_write()` → `atomic_write`, RMW uses `read_modify_write_with_retry()` | **CORRECTED §3** — earlier "direct write in service functions" claim was wrong |
 | Roadmap markers all complete | Table in reconciliation report §2; all 12 verified at `[x]` |
 | Product backlog done items verified | `git show 2dc1b72 -- docs/product_backlog.md` |
 | ADR-004 Phase 1 implemented | `src/janus/git_sync.py:267` (`sync_branch`) |
@@ -236,7 +236,7 @@ Two consolidated decision documents exist on remote branches but are **not on HE
 **Key corrections from prior reports:**
 1. `tmp_*.py` files are committed (not untracked) — disposition is "remove from repo," not "delete from working tree"
 2. All three ADR status fields are confirmed stale at HEAD — `76fd1cd` (Accepted) exists on remote branches but was never merged to this HEAD
-3. ADR-005 "sole write gateway" claim is contradicted by existing direct write paths
+3. ADR-005 "sole write gateway" claim is substantially accurate — protected write path covers all Janus data files; only outlier is google_calendar.py:42 (token cache)
 4. ADR-004 body text still frames t_36b3d88f as "the implementation task" despite superseded note
 
 **Top priority actions:**
