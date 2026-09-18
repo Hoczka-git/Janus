@@ -368,6 +368,7 @@ class TestPhase3_5PassScenario:
             "untracked",
             "symbols_required",
             "symbols_forbidden",
+            "os_replace",
             "git_diff_check",
         }
         assert executed == expected, f"expected {expected}, got {executed}"

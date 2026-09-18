@@ -17,6 +17,7 @@ from pathlib import Path
 
 from janus._log import emit
 from janus.models.goal import Goal
+from janus.integrations.atomic_io import read_modify_write
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GOALS_PATH = PROJECT_ROOT / "data" / "goals.md"
@@ -743,10 +744,12 @@ def save_goal(goal: Goal) -> None:
     if not goal.title:
         raise ValueError("Goal title must not be empty")
     block = _format_goal_block(goal)
-    with GOALS_PATH.open("a") as f:
-        f.write("\n")
-        for line in block:
-            f.write(line + "\n")
+    content_to_append = "\n" + "\n".join(block) + "\n"
+    read_modify_write(
+        GOALS_PATH,
+        lambda cur: cur + content_to_append,
+        backup=True,
+    )
 
 
 def update_goal(goal: Goal) -> None:
@@ -784,15 +787,11 @@ def update_goal(goal: Goal) -> None:
     if not found:
         raise ValueError(f"Goal not found: {goal.title}")
 
-    from janus.integrations.data_protection import (
-        protected_write,
-        compute_content_hash,
-    )
+    from janus.integrations.atomic_io import read_modify_write
 
     content = "\n".join(output) + "\n"
-    protected_write(
+    read_modify_write(
         GOALS_PATH,
-        content,
-        expected_hash=compute_content_hash(raw_content),
-        written_by="markdown_goals.update_goal",
+        lambda cur: content if cur == raw_content else cur,
+        backup=True,
     )

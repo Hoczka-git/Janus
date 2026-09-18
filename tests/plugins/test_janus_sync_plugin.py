@@ -437,9 +437,13 @@ class TestPluginRegistration:
                 calls.append((hook_name, callback))
 
         plugin_module.register(FakeCtx())
-        assert len(calls) == 1
-        assert calls[0][0] == "kanban_task_completed"
-        assert calls[0][1] is plugin_module.on_task_completed
+        assert len(calls) == 2
+        assert (
+            calls[0] == ("kanban_task_claimed", plugin_module.on_task_claimed)
+        )
+        assert (
+            calls[1] == ("kanban_task_completed", plugin_module.on_task_completed)
+        )
 
     def test_register_is_present(self, plugin_module):
         """The module must expose a top-level register() for the plugin loader."""
@@ -825,5 +829,205 @@ _JANUS_DOMAIN_RESEARCH_CLEAN = (
     "  object: research\n"
     "  title: \"Test Research\"\n"
     "---\n"
-    "Task body, but janus_body metadata should be used instead."
+    "Task body, but janus_body metadata should be used instead.\""
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Auto-invoke sync_branch() at task start (on_task_claimed)
+# ---------------------------------------------------------------------------
+# These tests cover the ADR-004 Phase 1 auto-invoke path: when a worker task is
+# claimed, ``on_task_claimed`` runs ``sync_branch()`` against the task worktree
+# and routes the outcome per the design (sync → proceed, conflict → block +
+# route to merge-reconciler, skip for non-worktree/absent workspace).
+class TestAutoInvokeOnClaim:
+    """on_task_claimed auto-invokes sync_branch for worktree tasks."""
+
+    def test_non_worktree_task_is_skipped(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """Scratch-dir tasks have no branch to sync — auto-sync is a no-op."""
+        tid = _create_task(
+            conn, title="Scratch task", body="no linkage needed",
+            workspace_kind="scratch",
+        )
+        result = plugin_module.on_task_claimed(tid, board="default")
+        assert result is not None
+        assert result["status"] == "skipped"
+        assert result["reason"] == "not_a_worktree"
+
+    def test_missing_workspace_path_is_skipped(
+        self, conn, plugin_module, monkeypatch,
+    ):
+        """A worktree task whose workspace_path is absent is skipped
+        (worktree not yet materialized by the dispatcher)."""
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=None,
+        )
+        result = plugin_module.on_task_claimed(tid, board="default")
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_workspace_path"
+
+    def test_absent_workspace_dir_is_skipped(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A worktree path that doesn't exist on disk is skipped."""
+        missing = tmp_path / "does-not-exist"
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(missing),
+        )
+        result = plugin_module.on_task_claimed(tid, board="default")
+        assert result["status"] == "skipped"
+        assert result["reason"] == "workspace_absent"
+
+    def test_already_up_to_date_proceeds(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A clean branch (already up to date) returns status 'synced' and
+        does not block the task."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        _init_git_repo(ws)
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(ws),
+        )
+
+        from janus.git_sync import SyncResult, ALREADY_UP_TO_DATE
+
+        fake = SyncResult(
+            success=True, reason=ALREADY_UP_TO_DATE,
+            target_branch="main", task_branch="feature",
+        )
+        with mock.patch("janus.git_sync.sync_branch", return_value=fake):
+            result = plugin_module.on_task_claimed(tid, board="default")
+
+        assert result is not None
+        assert result["status"] == "already_up_to_date"
+        assert result["target_branch"] == "main"
+        assert result["task_branch"] == "feature"
+        # Task must NOT be blocked.
+        task = kb.get_task(conn, tid)
+        assert task.status != "blocked"
+
+    def test_synced_branch_proceeds(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A successful rebase+push returns status 'synced' and proceeds."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        _init_git_repo(ws)
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(ws),
+        )
+
+        from janus.git_sync import SyncResult
+
+        fake = SyncResult(
+            success=True, reason=None,
+            target_branch="main", task_branch="feature",
+        )
+        with mock.patch("janus.git_sync.sync_branch", return_value=fake):
+            result = plugin_module.on_task_claimed(tid, board="default")
+
+        assert result["status"] == "synced"
+        task = kb.get_task(conn, tid)
+        assert task.status != "blocked"
+
+    def test_sync_conflict_blocks_and_routes(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A SYNC_CONFLICT result blocks the task and routes to merge-reconciler."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        _init_git_repo(ws)
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(ws),
+        )
+
+        from janus.git_sync import SyncResult, SYNC_CONFLICT
+
+        fake = SyncResult(
+            success=False, reason=SYNC_CONFLICT,
+            target_branch="main", task_branch="feature",
+            conflicts=["src/a.py", "src/b.py"],
+            error="CONFLICT (rebase)",
+        )
+        with mock.patch("janus.git_sync.sync_branch", return_value=fake):
+            result = plugin_module.on_task_claimed(tid, board="default")
+
+        assert result["status"] == "blocked"
+        assert result["reason"] == "sync_conflict"
+        assert result["conflicts"] == ["src/a.py", "src/b.py"]
+        # The task must actually be blocked in the board.
+        task = kb.get_task(conn, tid)
+        assert task.status == "blocked"
+        # And an audit comment recording the conflict must exist.
+        comments = kb.list_comments(conn, tid)
+        audit = [c for c in comments if "sync conflict" in c.body.lower()]
+        assert len(audit) == 1
+        assert "merge-reconciler" in audit[0].body
+
+    def test_non_blocking_failure_is_audited_not_blocked(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """TARGET_BRANCH_MISSING / SYNC_PUSH_FAILED record an audit comment
+        but do NOT block the task (environmental, not author conflicts)."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        _init_git_repo(ws)
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(ws),
+        )
+
+        from janus.git_sync import SyncResult, TARGET_BRANCH_MISSING
+
+        fake = SyncResult(
+            success=False, reason=TARGET_BRANCH_MISSING,
+            error="no target branch",
+        )
+        with mock.patch("janus.git_sync.sync_branch", return_value=fake):
+            result = plugin_module.on_task_claimed(tid, board="default")
+
+        assert result["status"] == "failed"
+        assert result["reason"] == TARGET_BRANCH_MISSING
+        task = kb.get_task(conn, tid)
+        assert task.status != "blocked"
+        comments = kb.list_comments(conn, tid)
+        assert any("TARGET_BRANCH_MISSING" in c.body or
+                    "auto_sync_failed" in c.body for c in comments)
+
+    def test_on_task_claimed_never_raises(
+        self, conn, plugin_module, tmp_path, monkeypatch,
+    ):
+        """A sync_branch exception is caught and recorded; the claim hook must
+        never propagate — a failing observer must not break task start."""
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        _init_git_repo(ws)
+        tid = _create_task(
+            conn, title="Worktree task",
+            workspace_kind="worktree", workspace_path=str(ws),
+        )
+
+        with mock.patch(
+            "janus.git_sync.sync_branch", side_effect=RuntimeError("boom")
+        ):
+            # Should not raise.
+            result = plugin_module.on_task_claimed(tid, board="default")
+        assert result is None
+        comments = kb.list_comments(conn, tid)
+        assert any("boom" in c.body for c in comments)
+
+    def test_existing_task_does_not_raise(
+        self, plugin_module, conn, monkeypatch,
+    ):
+        """An unknown task id is a safe no-op for on_task_claimed."""
+        assert plugin_module.on_task_claimed(
+            "t_ghost", board="default"
+        ) is None

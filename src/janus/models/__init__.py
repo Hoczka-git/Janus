@@ -15,6 +15,8 @@ Exports:
     Decision
     GoalSignal
     GoalHealthAssessment
+    StrategicSummary
+    PortfolioHealthCounts
     StrategicStateSnapshot
     GoalStateSnapshot
     MeaningfulChange
@@ -38,7 +40,9 @@ from janus.models.goal_health_assessment import GoalHealthAssessment
 from janus.models.strategic_summary import (
     GoalStateSnapshot,
     MeaningfulChange,
+    PortfolioHealthCounts,
     StrategicStateSnapshot,
+    StrategicSummary,
 )
 from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
@@ -62,6 +66,8 @@ __all__ = [
     "Decision",
     "GoalSignal",
     "GoalHealthAssessment",
+    "StrategicSummary",
+    "PortfolioHealthCounts",
     "StrategicStateSnapshot",
     "GoalStateSnapshot",
     "MeaningfulChange",

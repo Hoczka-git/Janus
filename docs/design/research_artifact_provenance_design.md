@@ -107,9 +107,14 @@ Artifacts are versioned at two levels:
 ### 4.1 Artifact-Level Versioning
 
 - Each `ResearchArtifact` has a monotonic `version` field (starts at 1).
-- When content changes (new findings, corrected data), `version` increments by 1.
-- `updated_at` is set to the current timestamp.
-- Previous versions are preserved as `companies/<TICKER>/reports/YYYY-MM-DD-v<N>.md` or via git history.
+- The `version` field is **caller-managed**: the caller sets it explicitly when
+  creating or updating an artifact. `update_artifact()` in `markdown_research.py`
+  serializes the `version` value as-is and does **not** auto-increment it.
+  Callers that need versioning semantics (e.g., new findings, corrected data)
+  must increment `version` themselves before calling `update_artifact()`.
+- `updated_at` is set to the current timestamp by the caller at update time.
+- Previous versions are preserved via git history; the `version` field acts
+  as a human-readable changelog index rather than a git snapshot tag.
 
 **Persistence:** The canonical storage is git-tracked markdown. Each version is either:
 - A new dated report file (snapshot model, current GLUE pattern).

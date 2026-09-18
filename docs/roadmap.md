@@ -110,7 +110,6 @@ existing design and planning artifacts in this repository.
 - [x] Implement a unified inbox and follow-up model for capturing and
   tracking actionable items that do not yet belong to an active task
 - [x] Close the research → finding → decision → action loop by connecting research artifacts with decisions, goals, projects, and follow-up tasks
-- [ ] Implement Janus ↔ Hermes execution feedback, including task handoff, execution results, evidence, and resulting state updates
 - [ ] Verify the complete Goal → Task → Execution → Completion → Review loop end-to-end, including execution evidence and resulting goal/task state updates
 - [x] Add evidence-based skill tracking linking completed work and project outcomes to career-development goals
 - [x] Add strategic state summaries that surface meaningful changes, neglected goals, stalled work, and recommended next actions

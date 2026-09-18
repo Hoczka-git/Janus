@@ -5,6 +5,7 @@ It implements crash-safe, atomic persistence:
 
 - ``atomic_write``       — write-to-temp + ``os.replace`` (POSIX atomic),
                            optionally preserving a ``.bak`` snapshot first.
+                           Opt-in: ``lock``, ``verify``, ``backup_rotation``.
 - ``atomic_read``        — thin wrapper so all read/modify/write paths start
                            from the same primitive.
 - ``read_modify_write``  — load → mutate → atomically persist.
@@ -24,13 +25,15 @@ replace; if the on-disk file changed between the read and the write,
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import shutil
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator, Optional
 
 from janus._log import emit
 
@@ -84,7 +87,118 @@ class _FileSnapshot:
         )
 
 
-def atomic_write(path: Path, content: str, *, backup: bool = True) -> None:
+@contextlib.contextmanager
+def _no_lock() -> Iterator[None]:
+    """A no-op context manager used when locking is disabled."""
+    yield
+
+
+def _file_lock(path: Path, *, timeout: float = 5.0):
+    """Acquire an exclusive advisory lock on *path*.
+
+    Uses ``fcntl.flock`` (POSIX advisory locking) to prevent concurrent writes
+    to the same file.  This guards against CLI + Hermes sync running
+    simultaneously.
+
+    Returns a context manager that releases the lock on exit.
+    """
+
+    @contextlib.contextmanager
+    def _ctx():
+        try:
+            import fcntl
+        except ImportError:
+            # Not on a POSIX platform — lock is a no-op
+            yield
+            return
+
+        lock_fd = open(path, "a")
+        try:
+            start = time.monotonic()
+            while True:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except (IOError, OSError):
+                    if time.monotonic() - start >= timeout:
+                        raise TimeoutError(
+                            f"Could not acquire lock on {path} within {timeout}s"
+                        )
+                    time.sleep(0.05)
+            yield
+        finally:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except (IOError, OSError):
+                pass
+            lock_fd.close()
+
+    return _ctx()
+
+
+def _post_write_verify(path: Path, expected_content: str) -> bool:
+    """Re-read *path* after a write and compare to *expected_content*.
+
+    Returns True on match, False on mismatch or if the file is missing.
+    """
+    if not path.exists():
+        return False
+    actual = path.read_text(encoding="utf-8")
+    return actual == expected_content
+
+
+def _rotate_backups(path: Path, *, max_backups: int = 3) -> None:
+    """Keep at most *max_backups* rotating ``.bak`` files for *path*.
+
+    Existing backups are renumbered so the newest is ``.bak`` and older ones
+    gain a numeric suffix (`.bak.1`, `.bak.2`, ...).  Backups beyond
+    *max_backups* are removed.
+    """
+    backup_path = path.parent / (path.name + ".bak")
+    # Gather all .bak / .bak.N variants, newest first
+    backups = sorted(
+        path.parent.glob(path.name + ".bak*"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if backup_path.exists():
+        # If a current .bak exists, promote it to .bak.1 (and shift the rest up)
+        numbered = path.parent / (path.name + ".bak.1")
+        # Find the next free slot by shifting existing numbered backups
+        for existing in list(backups):
+            if existing == backup_path:
+                dest = numbered
+            else:
+                parts = existing.name.split(".bak")
+                if len(parts) < 2 or not parts[-1].isdigit():
+                    continue
+                idx = int(parts[-1]) + 1
+                dest = path.parent / (path.name + f".bak.{idx}")
+            try:
+                existing.rename(dest)
+            except OSError:
+                pass
+    # Prune excess (keep newest max_backups)
+    all_backups = sorted(
+        path.parent.glob(path.name + ".bak*"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for old in all_backups[max_backups:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def atomic_write(
+    path: Path,
+    content: str,
+    *,
+    backup: bool = True,
+    lock: bool = False,
+    verify: bool = False,
+    backup_rotation: bool = False,
+) -> None:
     """Write *content* to *path* atomically.
 
     Writes to a temp file in the same directory, then ``os.replace``
@@ -95,10 +209,24 @@ def atomic_write(path: Path, content: str, *, backup: bool = True) -> None:
     copied to ``path.bak`` before the replace, so a crash mid-write
     leaves the last-known-good file intact.
 
+    Opt-in safety features (all default to False — no behavior change to
+    existing callers):
+
+    - ``lock``:  acquire an exclusive ``fcntl.flock`` advisory lock for the
+      duration of the write, preventing concurrent processes from writing
+      simultaneously.
+    - ``verify``: re-read the file after the replace and compare to
+      *content*; raises ``AtomicWriteError`` on mismatch.
+    - ``backup_rotation``: when creating a ``.bak``, rotate existing
+      backups so at most ``max_backups`` (default 3) are retained.
+
     Raises:
-        AtomicWriteError: on disk-full, permission, or OS-level failure.
+        AtomicWriteError: on disk-full, permission, OS-level failure,
+            or post-write verification mismatch.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_cm = _file_lock(path) if lock else _no_lock()
 
     fd, tmp_path = tempfile.mkstemp(
         dir=str(path.parent),
@@ -107,21 +235,33 @@ def atomic_write(path: Path, content: str, *, backup: bool = True) -> None:
     )
     tmp = Path(tmp_path)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
+        with lock_cm:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
 
-        if backup and path.exists():
-            _backup_path = path.parent / (path.name + ".bak")
-            try:
-                import shutil
-                shutil.copy2(path, _backup_path)
-            except OSError:
-                # Backup is best-effort — never block the atomic write
-                pass
+            if backup and path.exists():
+                _backup_path = path.parent / (path.name + ".bak")
+                if backup_rotation:
+                    _rotate_backups(path, max_backups=3)
+                try:
+                    shutil.copy2(path, _backup_path)
+                except OSError:
+                    # Backup is best-effort — never block the atomic write
+                    pass
 
-        os.replace(tmp, path)
+            os.replace(tmp, path)
+
+            # Post-write verification: re-read and compare
+            if verify:
+                if not _post_write_verify(path, content):
+                    raise AtomicWriteError(
+                        f"Post-write verification failed for {path}: "
+                        f"content mismatch after os.replace"
+                    )
+    except AtomicWriteError:
+        raise
     except Exception:
         # Clean up the temp file on any failure so it doesn't linger
         try:
@@ -130,7 +270,7 @@ def atomic_write(path: Path, content: str, *, backup: bool = True) -> None:
             pass
         raise AtomicWriteError(
             f"Failed to atomically write {path}"
-        )
+        ) from None
 
     emit(
         logger,
@@ -139,6 +279,9 @@ def atomic_write(path: Path, content: str, *, backup: bool = True) -> None:
         path=str(path),
         bytes_written=len(content),
         backup=backup,
+        lock=lock,
+        verify=verify,
+        backup_rotation=backup_rotation,
         message="Atomic write complete",
     )
 
