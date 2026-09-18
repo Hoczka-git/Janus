@@ -249,7 +249,7 @@ class TestE2ELoopComplete:
         err, out = captured.err, captured.out
         assert exc_info.value.code == 1
         assert "Warning:" in err
-        assert "Multiple open tasks found with title: Duplicate task" in err
+        assert "Found 2 open tasks matching title: Duplicate task" in err
         assert "janus task list" in err
         assert "Completed task:" not in out
         # Neither duplicate was completed — file untouched
@@ -265,7 +265,7 @@ class TestE2ELoopComplete:
         )
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tf)
         with pytest.raises(ValueError,
-                           match="Multiple open tasks found with title"):
+                           match="Found 2 open tasks matching title"):
             complete_task("Duplicate task")
 
     def test_complete_one_of_two_distinct_tasks(self, tasks_file, capsys):
