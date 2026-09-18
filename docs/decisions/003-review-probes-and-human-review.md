@@ -31,7 +31,7 @@ Review probes are **read-only investigators**. They do not decide the final verd
 | Aspect | Review probe (`delegate_task`) | Model B child (`kanban_create`) |
 |---|---|---|
 | **Lifecycle** | Same process/session as the parent; spawned and reaped within one run. No persistent task record. | Own task card with a unique ID, own body, own run history. Persists across dispatcher ticks. |
-|| **Board mutations** | **Blocked.** `delegate_task` children cannot call any kanban lifecycle tool (`kanban_complete`, `kanban_request_changes`, `kanban_block`, `kanban_comment`, `kanban_create`, `kanban_heartbeat`). See `_reject_delegated_child_mutation()` at `tools/kanban_tools.py:85`. | Not applicable — Model B was rejected, but by design it *would* have board mutations. |
+| **Board mutations** | **Blocked.** `delegate_task` children cannot call any kanban lifecycle tool (`kanban_complete`, `kanban_request_changes`, `kanban_block`, `kanban_comment`, `kanban_create`, `kanban_heartbeat`). See `_reject_delegated_child_mutation()` at `tools/kanban_tools.py:85`. | Not applicable — Model B was rejected, but by design it *would* have board mutations. |
 | **Verdict authority** | None. The probe returns a summary; the parent acts on it. | Would have had its own verdict authority (this is the path Model B takes and which ADR-003 rejected). |
 | **Provenance chain** | The probe is not itself a reviewer on the task card. The formal `review_requested` / `changes_requested` events always record the **parent agent's** identity as the implementer or reviewer. The probe's findings enter the provenance only if the parent cites them in a handoff. | Would have fragmented provenance (own assignee, own events), which is why Model B was rejected. |
 | **Concurrency** | Bounded by `delegation.max_concurrent_children` (default: 10) and `delegation.max_spawn_depth` (default: 1, so probe children cannot spawn their own probes). | Bounded by the board's `max_in_progress` setting. |
@@ -89,8 +89,8 @@ When an implementer calls `kanban_request_review`, the task enters the `review` 
 | Trigger | Dispatcher behavior | Human behavior |
 |---|---|---|
 | `kanban.review_dispatch` is `True` (default) | If the task's `assignee` is a real profile, the dispatcher calls `claim_review_task()` (`kanban_db.py:4831`) → `_spawn()` (`kanban_db.py:11045`) force-loads the `sdlc-review` skill (`kanban_db.py:11048-11056`) → spawns a reviewer worker. | N/A — auto-review path. |
-| `kanban.review_dispatch` is `False` (human-only board) | The dispatcher **does not enumerate `review_rows`** at all — it guards enumeration behind `review_dispatch_enabled()` (`kanban_db.py:10715`). Review tasks sit in `review` unclaimed until a human pulls them. | Human claims via dashboard or CLI, then acts as reviewer. |
-||| `assignee` is not a real profile (e.g., set to a human handle with no profile) | The dispatcher skips the task in the review loop (`skipped_nonspawnable`, `kanban_db.py:11002-11005`), after the `profile_exists` check. | Human pulls and reviews. |
+| `kanban.review_dispatch` is `False` (human-only board) | The dispatcher **does not enumerate `review_rows`** at all — it guards enumeration behind `review_dispatch_enabled()` (`kanban_db.py:10715). Review tasks sit in `review` unclaimed until a human pulls them. | Human claims via dashboard or CLI, then acts as reviewer. |
+| `assignee` is not a real profile (e.g., set to a human handle with no profile) | The dispatcher skips the task in the review loop (`skipped_nonspawnable`, `kanban_db.py:11002-11005`), after the `profile_exists` check. | Human pulls and reviews. |
 | Human intervenes even when auto-dispatch is enabled | The dispatcher's `claim_review_task` uses a CAS guard (`WHERE status = 'review' AND claim_lock IS NULL`); if the human claims first, the dispatcher's atomic claim returns `None` and it skips the task. | Human claims via CLI/dash, reviewer worker spawn is skipped. |
 
 ### 2.3 How a human claims a review task
@@ -127,7 +127,7 @@ The human-in-the-loop path provides the **same** provenance guarantees as the au
 
 Set `kanban.review_dispatch: false` in `config.yaml` (default `True`, defined in `hermes_cli/config_defaults.py:2908`) or via the `HERMES_KANBAN_REVIEW_DISPATCH` environment variable. When disabled:
 
-| The dispatcher's `_dispatch_once_locked` skips enumeration of `review_rows` entirely — enumeration is guarded by `review_dispatch_enabled()` (`kanban_db.py:10676`); when disabled, `review_rows` stays `[]` and no review budget reservation is applied (`kanban_db.py:11118-11135`). |
+- The dispatcher's `_dispatch_once_locked` skips enumeration of `review_rows` entirely — enumeration is guarded by `review_dispatch_enabled()` (`kanban_db.py:10676`); when disabled, `review_rows` stays `[]` and no review budget reservation is applied (`kanban_db.py:11118-11135`).
 - No review budget reservation is applied.
 - All `review` tasks require a human to manually claim and act.
 
@@ -149,25 +149,3 @@ The skill is loaded automatically by the review dispatcher for autonomous review
 
 ```bash
 hermes skills load sdlc-review
-```
-
----
-
-## 4. Decision
-
-**Both remaining uncertainties from ADR-003 are resolved as follows:**
-
-1. **Parallel review fan-out** is handled via `delegate_task` review probes (short-lived, same-run, read-only parallelism) for evidence gathering. The **formal verdict** always goes through the native review lane (`kanban_request_review` → `review` → `claim_review_task` → reviewer worker → `kanban_complete`/`kanban_request_changes`). This is structurally distinct from Model B: probes cannot mutate the board, cannot emit review events, and have no persistent task identity. The provenance chain is preserved because only the task's own reviewer worker can call verdict tools.
-
-2. **Human-in-the-loop review** is a first-class path: when a human claims a `review` task (either because `kanban.review_dispatch` is disabled, or because the human claimed it before the dispatcher), the human acts as the reviewer with the full `sdlc-review` skill verdict surface. No separate tool surface is needed — the human uses the same `kanban_complete`, `kanban_request_changes`, and `kanban_block` tools. The dispatcher's CAS guard ensures no double-claim when a human and auto-dispatch race for the same task.
-
----
-
-## 5. Related Documents
-
-- `docs/decisions/003-canonical-review-topology.md` — Parent ADR (Model A vs Model B decision)
-- `skills/devops/sdlc-review/SKILL.md` — Reviewer workflow, lens variation, verdict routing
-- `docs/research/findings-review-topology.md` — Research findings on review topology and identified gaps
-- `docs/research/review-loop-policy-spec.md` — Review-cycle limits and warning policy
-- `docs/research/rejected-review-semantics-synthesis.md` — `request_changes` semantics and parent re-gating
-- `docs/research/kanban-request-changes-trace.md` — Full call chain for `request_changes`
