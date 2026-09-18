@@ -108,7 +108,7 @@ class TestCompleteTaskService:
         )
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
 
-        with pytest.raises(ValueError, match="Found 2 open tasks matching title: Duplicate task"):
+        with pytest.raises(ValueError, match="Multiple open tasks found with title: Duplicate task"):
             complete_task("Duplicate task")
 
     def test_only_matching_task_modified(self, tmp_path, monkeypatch):
@@ -164,7 +164,7 @@ class TestCompleteTaskCLIDuplicateSafeguard:
         assert exc_info.value.code == 1
         assert "Warning:" in err
         # The warning states the exact number of matches found
-        assert "Found 2 open tasks matching title: Duplicate task" in err
+        assert "Multiple open tasks found with title" in err
         # Actionable guidance is included
         assert "janus task list" in err
         assert "more specific task ID or line reference" in err

@@ -433,7 +433,7 @@ def complete_task(title: str) -> Task:
     if not matches:
         raise ValueError(f"Task not found: {title}")
     if len(matches) > 1:
-        raise ValueError(f"Found {len(matches)} open tasks matching title: {title}")
+        raise ValueError(f"Multiple open tasks found with title: {title}")
 
     idx = matches[0]
     line = lines[idx]
@@ -704,7 +704,7 @@ def set_task_state(title: str, state: str) -> Task:
     if not matches:
         raise ValueError(f"Task not found: {title}")
     if len(matches) > 1:
-        raise ValueError(f"Found {len(matches)} open tasks matching title: {title}")
+        raise ValueError(f"Multiple open tasks found with title: {title}")
 
     idx = matches[0]
     task = _parse_task_line(lines[idx], idx + 1)
@@ -775,7 +775,7 @@ def set_task_progress(title: str, progress: int) -> Task:
     if not matches:
         raise ValueError(f"Task not found: {title}")
     if len(matches) > 1:
-        raise ValueError(f"Found {len(matches)} open tasks matching title: {title}")
+        raise ValueError(f"Multiple open tasks found with title: {title}")
 
     idx = matches[0]
     task = _parse_task_line(lines[idx], idx + 1)

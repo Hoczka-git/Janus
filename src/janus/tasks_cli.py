@@ -188,7 +188,7 @@ def handle_task_complete(args: list[str]) -> None:
         complete_task(title)
     except ValueError as e:
         msg = str(e)
-        if "open tasks matching title" in msg:
+        if "Multiple open tasks found with title" in msg or "open tasks matching title" in msg:
             print(
                 f"Warning: {msg} Refusing to complete to avoid ambiguity. "
                 f"Use a more specific task ID or line reference, "
