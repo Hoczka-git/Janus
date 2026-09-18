@@ -71,7 +71,7 @@ class TestCheckNoOsReplaceOnRealRepo:
         # atomic_io.py is the sole allowed call site — NOT listed as forbidden.
         # Listing it as forbidden would FAIL the gate (proving the gate works).
         atomic_io = REPO_ROOT / "src/janus/integrations/atomic_io.py"
-        assert _find_os_replace_calls(atomic_io) == [254]
+        assert _find_os_replace_calls(atomic_io) == [333]
 
     def test_forbidden_atomic_io_would_fail(self) -> None:
         contract = _contract_with(["src/janus/integrations/atomic_io.py"])
