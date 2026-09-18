@@ -12,34 +12,15 @@ This module provides :func:`detect_meaningful_changes`, which compares a
 previous ``StrategicStateSnapshot`` against a current one and returns the
 list of ``MeaningfulChange`` events that occurred.
 
-The strategic summary service implements the aggregation logic from §2,
-§3, and §5, while the change detector implements every criterion from §1:
-
-1. Health-state transition (healthy ↔ watch ↔ stalled) or dominant signal
-   score change >= 15 points.
-2. Progress delta over the 14-day lookback crosses
-   ``progress_slow_threshold`` (default 5%) in either direction.
-3. A stalled-work signal activates or clears (goal_stalled, goal_overdue,
-   milestone_slipped, no_recent_activity).
-4. A measurement requirement becomes overdue or is satisfied.
-5. Cross-domain link changes (new research artifact ↔ goal link, decision
-   updated by a finding, follow-up linked to a goal milestone/project).
-6. Goal status transition (active → completed/inactive).
-
-Non-meaningful changes (excluded per spec):
-- Individual task completion that does not affect progress delta.
-- Attention-item score fluctuations under 15 points without state change.
-- Metric snapshot append without health impact.
-
-This module reuses existing signal computation from
-``assess_goal_health()`` and aggregates its results into the strategic
-summary models.
+The strategic summary service reuses existing signal computation and
+recommendation services rather than duplicating their domain logic.
 """
 
 import logging
+from dataclasses import asdict
 from datetime import date, datetime
+from pathlib import Path
 
-from janus._log import emit
 from janus.models.goal import Goal
 from janus.models.goal_health_assessment import GoalHealthAssessment
 from janus.models.metric_snapshot import MetricSnapshot
@@ -70,15 +51,21 @@ from janus.services.goal_health import (
     PROGRESS_SLOW_THRESHOLD,
     assess_goal_health,
 )
-from janus.services.weekly_review import create_weekly_review, _read_completed_task_titles
+from janus.services.recommended_actions import (
+    create_recommended_actions,
+    identify_neglected_goals,
+)
+from janus.services.weekly_review import create_weekly_review
 
 logger = logging.getLogger(__name__)
 
-# Dominant-signal score delta that counts as meaningful (spec §1 criterion 1).
+# Project root for data-file access.
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+# Dominant-signal score delta that counts as meaningful.
 _DOMINANT_SIGNAL_SCORE_THRESHOLD = 15
 
-# The number of days since a strategic action was surfaced after which a
-# goal is considered "not recently attended to" (design §2).
+# Number of days after which a strategic action is considered stale.
 STRATEGIC_ATTENTION_WINDOW_DAYS = 7
 
 
@@ -86,28 +73,44 @@ STRATEGIC_ATTENTION_WINDOW_DAYS = 7
 
 
 def _milestone_status_snapshot(goal: Goal) -> dict[str, str]:
-    """Extract a {milestone_title: status} mapping from a Goal's milestones.
+    """Extract a {milestone_title: status} mapping from a Goal."""
 
-    Milestones are stored as list[dict] on the Goal model. This helper
-    reads the ``title`` and ``status`` keys, defaulting status to "open"
-    when absent. Used for milestone status change detection (§1.6).
-    """
     result: dict[str, str] = {}
-    for m in goal.milestones or []:
-        title = m.get("title") if isinstance(m, dict) else getattr(m, "title", None)
-        if title:
-            status = (
-                m.get("status", "open")
-                if isinstance(m, dict)
-                else getattr(m, "status", "open")
-            )
-            result[title] = status
+
+    for milestone in goal.milestones or []:
+        title = (
+            milestone.get("title")
+            if isinstance(milestone, dict)
+            else getattr(milestone, "title", None)
+        )
+
+        if not title:
+            continue
+
+        status = (
+            milestone.get("status", "open")
+            if isinstance(milestone, dict)
+            else getattr(milestone, "status", "open")
+        )
+
+        result[title] = status
+
     return result
+
+
+def _goal_cross_domain_links(goal: Goal) -> tuple[list[str], list[str], list[str]]:
+    """Extract cross-domain identifiers from a Goal."""
+
+    research = sorted(goal.research_artifact_titles or [])
+    decisions = sorted(goal.decision_numbers or [])
+    followups = sorted(goal.followup_ids or [])
+
+    return research, decisions, followups
 
 
 def build_goal_state_snapshot(
     goal: Goal,
-    today,
+    today: date,
     open_task_titles: set[str],
     all_task_titles: set[str],
     metric_snapshots: list[MetricSnapshot] | None = None,
@@ -115,21 +118,21 @@ def build_goal_state_snapshot(
 ) -> GoalStateSnapshot:
     """Construct a ``GoalStateSnapshot`` from a Goal and its health assessment.
 
-    Delegates all health computation to the existing
-    ``assess_goal_health()`` function. The snapshot captures exactly the
-    strategic-relevant fields needed for change detection.
+    Health computation is delegated to ``assess_goal_health()``.
     """
+
     assessment = assess_goal_health(
         goal,
         today,
-        open_task_titles,
-        all_task_titles,
+        open_task_titles=open_task_titles,
+        all_task_titles=all_task_titles,
         metric_snapshots=metric_snapshots,
         completed_task_dates=completed_task_dates,
     )
 
+    research, decisions, followups = _goal_cross_domain_links(goal)
+
     if assessment is None:
-        # Inactive goal — excluded from health assessment entirely.
         return GoalStateSnapshot(
             goal_title=goal.title,
             health_state=None,
@@ -141,27 +144,31 @@ def build_goal_state_snapshot(
             signals=frozenset(),
             goal_status=goal.status,
             milestone_statuses=_milestone_status_snapshot(goal),
-            linked_research_artifacts=sorted(
-                goal.research_artifact_titles or []
-            ),
-            linked_decision_numbers=sorted(
-                goal.decision_numbers or []
-            ),
-            linked_followup_ids=sorted(
-                goal.followup_ids or []
-            ),
+            linked_research_artifacts=research,
+            linked_decision_numbers=decisions,
+            linked_followup_ids=followups,
         )
 
-    signals = frozenset(s.signal for s in assessment.signals)
+    signals = frozenset(
+        signal.signal
+        for signal in assessment.signals
+    )
+
     dominant = assessment.dominant_signal
-    dominant_score = dominant.score if dominant is not None else 0
-    dominant_name = dominant.signal if dominant is not None else None
 
     return GoalStateSnapshot(
         goal_title=goal.title,
         health_state=assessment.health_state,
-        dominant_signal=dominant_name,
-        dominant_signal_score=dominant_score,
+        dominant_signal=(
+            dominant.signal
+            if dominant is not None
+            else None
+        ),
+        dominant_signal_score=(
+            dominant.score
+            if dominant is not None
+            else 0
+        ),
         progress=assessment.progress,
         progress_delta=assessment.progress_delta,
         measurement_overdue_count=(
@@ -172,36 +179,27 @@ def build_goal_state_snapshot(
         signals=signals,
         goal_status=goal.status,
         milestone_statuses=_milestone_status_snapshot(goal),
-        linked_research_artifacts=sorted(
-            goal.research_artifact_titles or []
-        ),
-        linked_decision_numbers=sorted(
-            goal.decision_numbers or []
-        ),
-        linked_followup_ids=sorted(
-            goal.followup_ids or []
-        ),
+        linked_research_artifacts=research,
+        linked_decision_numbers=decisions,
+        linked_followup_ids=followups,
     )
 
 
 def build_strategic_snapshot(
     goals: list[Goal],
-    today,
+    today: date,
     open_task_titles: set[str],
     all_task_titles: set[str],
+    completed_task_dates: dict[str, date] | None = None,
 ) -> StrategicStateSnapshot:
-    """Build a full ``StrategicStateSnapshot`` for all goals.
+    """Build a full ``StrategicStateSnapshot`` for all goals."""
 
-    Loads metric snapshots per-goal and delegates to
-    :func:`build_goal_state_snapshot` for each goal.
-    """
     from janus.integrations.metric_history import get_metric_snapshots
 
-    now = datetime.now().astimezone()
     goal_snapshots: list[GoalStateSnapshot] = []
 
     for goal in goals:
-        metric_snaps = (
+        metric_snapshots = (
             get_metric_snapshots(goal.title)
             if (
                 goal.metric_name
@@ -210,78 +208,78 @@ def build_strategic_snapshot(
             else []
         )
 
-        snap = build_goal_state_snapshot(
-            goal,
-            today,
-            open_task_titles,
-            all_task_titles,
-            metric_snapshots=metric_snaps,
-            completed_task_dates=None,
+        goal_snapshots.append(
+            build_goal_state_snapshot(
+                goal=goal,
+                today=today,
+                open_task_titles=open_task_titles,
+                all_task_titles=all_task_titles,
+                metric_snapshots=metric_snapshots,
+                completed_task_dates=completed_task_dates,
+            )
         )
-        goal_snapshots.append(snap)
 
     return StrategicStateSnapshot(
-        generated_at=now,
+        generated_at=datetime.now().astimezone(),
         goals=goal_snapshots,
     )
 
 
-# ── Meaningful change detection ───────────────────────────────────────────────
+# ── Meaningful change detection ──────────────────────────────────────────────
 
 
 def detect_meaningful_changes(
     previous: StrategicStateSnapshot,
     current: StrategicStateSnapshot,
 ) -> list[MeaningfulChange]:
-    """Detect meaningful changes between two strategic state snapshots.
+    """Detect meaningful changes between two strategic state snapshots."""
 
-    Implements the criteria from design spec §1.
-
-    Changes are returned sorted by severity (descending), then by goal
-    title for deterministic ordering.
-    """
     now = datetime.now().astimezone()
     changes: list[MeaningfulChange] = []
 
-    prev_by_title = {
-        g.goal_title: g
-        for g in previous.goals
+    previous_by_title = {
+        goal.goal_title: goal
+        for goal in previous.goals
     }
 
     current_titles = {
-        g.goal_title
-        for g in current.goals
+        goal.goal_title
+        for goal in current.goals
     }
 
-    for cur_goal in current.goals:
-        title = cur_goal.goal_title
-        prev_goal = prev_by_title.get(title)
+    for current_goal in current.goals:
+        previous_goal = previous_by_title.get(
+            current_goal.goal_title
+        )
 
-        if prev_goal is None:
-            _detect_new_goal_changes(cur_goal, now, changes)
+        if previous_goal is None:
+            _detect_new_goal_changes(
+                current_goal,
+                now,
+                changes,
+            )
             continue
 
         _detect_goal_changes(
-            prev_goal,
-            cur_goal,
+            previous_goal,
+            current_goal,
             now,
             changes,
         )
 
-    # Detect goals that disappeared from the current snapshot.
-    for prev_goal in previous.goals:
-        if prev_goal.goal_title not in current_titles:
+    for previous_goal in previous.goals:
+        if previous_goal.goal_title not in current_titles:
             changes.append(
                 MeaningfulChange(
                     change_type=CHANGE_GOAL_STATUS,
-                    goal_title=prev_goal.goal_title,
+                    goal_title=previous_goal.goal_title,
                     description=(
-                        f"Goal '{prev_goal.goal_title}' was removed from the "
-                        f"strategic portfolio"
+                        f"Goal '{previous_goal.goal_title}' was removed "
+                        "from the strategic portfolio"
                     ),
                     severity=10,
                     details={
-                        "previous_status": prev_goal.goal_status,
+                        "previous_status": previous_goal.goal_status,
                         "current_status": "removed",
                     },
                     timestamp=now,
@@ -289,183 +287,195 @@ def detect_meaningful_changes(
             )
 
     changes.sort(
-        key=lambda c: (-c.severity, c.goal_title)
+        key=lambda change: (
+            -change.severity,
+            change.goal_title,
+        )
     )
+
     return changes
 
 
 def _detect_goal_changes(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
     """Detect all meaningful changes for a single goal."""
 
-    # §1.1: Health-state transition.
-    if prev.health_state != cur.health_state:
+    # §1.1 — health-state transition.
+    if previous.health_state != current.health_state:
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_HEALTH_STATE,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' health state changed: "
-                    f"{prev.health_state or 'none'} → "
-                    f"{cur.health_state or 'none'}"
+                    f"Goal '{current.goal_title}' health state changed: "
+                    f"{previous.health_state or 'none'} → "
+                    f"{current.health_state or 'none'}"
                 ),
-                severity=_health_severity(cur.health_state),
+                severity=_health_severity(
+                    current.health_state
+                ),
                 details={
-                    "previous_health_state": prev.health_state,
-                    "current_health_state": cur.health_state,
+                    "previous_health_state": previous.health_state,
+                    "current_health_state": current.health_state,
                 },
                 timestamp=now,
             )
         )
 
-    # §1.1: Dominant signal score change >= 15 points.
+    # §1.1 — dominant signal score change.
     score_delta = (
-        cur.dominant_signal_score
-        - prev.dominant_signal_score
+        current.dominant_signal_score
+        - previous.dominant_signal_score
     )
-    prev_sig = prev.dominant_signal
-    cur_sig = cur.dominant_signal
+
+    previous_signal = previous.dominant_signal
+    current_signal = current.dominant_signal
 
     if abs(score_delta) >= _DOMINANT_SIGNAL_SCORE_THRESHOLD:
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_DOMINANT_SIGNAL_SCORE,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' dominant signal score changed "
-                    f"by {score_delta:+d} points "
-                    f"({prev_sig or 'none'}:{prev.dominant_signal_score} → "
-                    f"{cur_sig or 'none'}:{cur.dominant_signal_score})"
+                    f"Goal '{current.goal_title}' dominant signal score "
+                    f"changed by {score_delta:+d} points "
+                    f"({previous_signal or 'none'}:"
+                    f"{previous.dominant_signal_score} → "
+                    f"{current_signal or 'none'}:"
+                    f"{current.dominant_signal_score})"
                 ),
                 severity=5 + abs(score_delta) // 10,
                 details={
-                    "previous_signal": prev_sig,
-                    "current_signal": cur_sig,
-                    "previous_score": prev.dominant_signal_score,
-                    "current_score": cur.dominant_signal_score,
+                    "previous_signal": previous_signal,
+                    "current_signal": current_signal,
+                    "previous_score": previous.dominant_signal_score,
+                    "current_score": current.dominant_signal_score,
                     "delta": score_delta,
                 },
                 timestamp=now,
             )
         )
     elif (
-        prev_sig != cur_sig
-        and prev_sig is not None
-        and cur_sig is not None
+        previous_signal != current_signal
+        and previous_signal is not None
+        and current_signal is not None
     ):
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_DOMINANT_SIGNAL_SCORE,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' dominant signal changed: "
-                    f"{prev_sig} → {cur_sig}"
+                    f"Goal '{current.goal_title}' dominant signal changed: "
+                    f"{previous_signal} → {current_signal}"
                 ),
                 severity=5,
                 details={
-                    "previous_signal": prev_sig,
-                    "current_signal": cur_sig,
-                    "previous_score": prev.dominant_signal_score,
-                    "current_score": cur.dominant_signal_score,
+                    "previous_signal": previous_signal,
+                    "current_signal": current_signal,
+                    "previous_score": previous.dominant_signal_score,
+                    "current_score": current.dominant_signal_score,
                     "delta": score_delta,
                 },
                 timestamp=now,
             )
         )
 
-    # §1.2: Progress delta threshold crossing.
     _detect_progress_delta_change(
-        prev,
-        cur,
+        previous,
+        current,
         now,
         changes,
     )
 
-    # §1.3: Stalled-work signal activation / clearing.
     _detect_stalled_signal_change(
-        prev,
-        cur,
+        previous,
+        current,
         now,
         changes,
     )
 
-    # §1.4: Measurement requirement overdue / satisfied.
     _detect_measurement_change(
-        prev,
-        cur,
+        previous,
+        current,
         now,
         changes,
     )
 
-    # §1.5: Cross-domain link changes.
     _detect_cross_domain_link_change(
-        prev,
-        cur,
+        previous,
+        current,
         now,
         changes,
     )
 
-    # §1.6: Goal status transition.
-    if prev.goal_status != cur.goal_status:
+    # §1.6 — goal status transition.
+    if previous.goal_status != current.goal_status:
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_GOAL_STATUS,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' status changed: "
-                    f"{prev.goal_status} → {cur.goal_status}"
+                    f"Goal '{current.goal_title}' status changed: "
+                    f"{previous.goal_status} → "
+                    f"{current.goal_status}"
                 ),
-                severity=_goal_status_severity(cur.goal_status),
+                severity=_goal_status_severity(
+                    current.goal_status
+                ),
                 details={
-                    "previous_status": prev.goal_status,
-                    "current_status": cur.goal_status,
+                    "previous_status": previous.goal_status,
+                    "current_status": current.goal_status,
                 },
                 timestamp=now,
             )
         )
 
-    # §1.6: Milestone status changes.
+    # §1.6 — milestone status changes.
     _detect_milestone_status_change(
-        prev,
-        cur,
+        previous,
+        current,
         now,
         changes,
     )
 
 
 def _detect_new_goal_changes(
-    cur: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect changes for a goal that is new in the current snapshot."""
+    """Detect meaningful state for a newly active goal."""
 
-    if cur.goal_status != "active":
+    if current.goal_status != "active":
         return
 
-    if cur.health_state is None or cur.health_state == "healthy":
-        if not cur.signals:
-            return
+    if (
+        current.health_state is None
+        or current.health_state == "healthy"
+    ) and not current.signals:
+        return
 
     changes.append(
         MeaningfulChange(
             change_type=CHANGE_GOAL_STATUS,
-            goal_title=cur.goal_title,
+            goal_title=current.goal_title,
             description=(
-                f"Goal '{cur.goal_title}' is newly active "
-                f"(health: {cur.health_state or 'unknown'}, "
-                f"signals: {sorted(cur.signals) or 'none'})"
+                f"Goal '{current.goal_title}' is newly active "
+                f"(health: {current.health_state or 'unknown'}, "
+                f"signals: {sorted(current.signals) or 'none'})"
             ),
-            severity=_health_severity(cur.health_state) + 5,
+            severity=_health_severity(
+                current.health_state
+            ) + 5,
             details={
                 "previous_status": "new",
-                "current_status": cur.goal_status,
-                "current_health_state": cur.health_state,
-                "current_signals": sorted(cur.signals),
+                "current_status": current.goal_status,
+                "current_health_state": current.health_state,
+                "current_signals": sorted(current.signals),
             },
             timestamp=now,
         )
@@ -473,35 +483,36 @@ def _detect_new_goal_changes(
 
 
 def _detect_progress_delta_change(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect §1.2: progress delta crossing the slow threshold."""
+    """Detect progress-delta threshold crossing."""
 
-    prev_delta = prev.progress_delta
-    cur_delta = cur.progress_delta
+    previous_delta = previous.progress_delta
+    current_delta = current.progress_delta
 
-    if prev_delta is None or cur_delta is None:
+    if previous_delta is None or current_delta is None:
         if (
-            cur_delta is not None
-            and abs(cur_delta) >= PROGRESS_SLOW_THRESHOLD
+            current_delta is not None
+            and abs(current_delta) >= PROGRESS_SLOW_THRESHOLD
         ):
             changes.append(
                 MeaningfulChange(
                     change_type=CHANGE_PROGRESS_DELTA,
-                    goal_title=cur.goal_title,
+                    goal_title=current.goal_title,
                     description=(
-                        f"Goal '{cur.goal_title}' progress delta now "
-                        f"measurable: {cur_delta:+.1f}% over "
+                        f"Goal '{current.goal_title}' progress delta now "
+                        f"measurable: {current_delta:+.1f}% over "
                         f"{PROGRESS_LOOKBACK_DAYS} days "
-                        f"(threshold: {PROGRESS_SLOW_THRESHOLD:.0f}%)"
+                        f"(threshold: "
+                        f"{PROGRESS_SLOW_THRESHOLD:.0f}%)"
                     ),
                     severity=3,
                     details={
-                        "previous_delta": prev_delta,
-                        "current_delta": cur_delta,
+                        "previous_delta": previous_delta,
+                        "current_delta": current_delta,
                         "threshold": PROGRESS_SLOW_THRESHOLD,
                     },
                     timestamp=now,
@@ -509,34 +520,35 @@ def _detect_progress_delta_change(
             )
         return
 
-    prev_crossed = (
-        prev_delta < PROGRESS_SLOW_THRESHOLD
+    previous_slow = (
+        previous_delta < PROGRESS_SLOW_THRESHOLD
     )
-    cur_crossed = (
-        cur_delta < PROGRESS_SLOW_THRESHOLD
+    current_slow = (
+        current_delta < PROGRESS_SLOW_THRESHOLD
     )
 
-    if prev_crossed != cur_crossed:
+    if previous_slow != current_slow:
         direction = (
             "now exceeds"
-            if not cur_crossed
+            if not current_slow
             else "now below"
         )
 
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_PROGRESS_DELTA,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' progress delta {direction} "
-                    f"the slow-progress threshold: {cur_delta:+.1f}% "
-                    f"(was {prev_delta:+.1f}%, threshold: "
-                    f"{PROGRESS_SLOW_THRESHOLD:.0f}%)"
+                    f"Goal '{current.goal_title}' progress delta "
+                    f"{direction} the slow-progress threshold: "
+                    f"{current_delta:+.1f}% "
+                    f"(was {previous_delta:+.1f}%, "
+                    f"threshold: {PROGRESS_SLOW_THRESHOLD:.0f}%)"
                 ),
                 severity=3,
                 details={
-                    "previous_delta": prev_delta,
-                    "current_delta": cur_delta,
+                    "previous_delta": previous_delta,
+                    "current_delta": current_delta,
                     "threshold": PROGRESS_SLOW_THRESHOLD,
                 },
                 timestamp=now,
@@ -545,58 +557,58 @@ def _detect_progress_delta_change(
 
 
 def _detect_stalled_signal_change(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect §1.3: stalled-work signal activation or clearing."""
+    """Detect stalled-work signal activation or clearing."""
 
-    prev_stalled = (
-        prev.signals & _STALLED_SIGNALS
+    previous_stalled = (
+        previous.signals & _STALLED_SIGNALS
     )
-    cur_stalled = (
-        cur.signals & _STALLED_SIGNALS
+    current_stalled = (
+        current.signals & _STALLED_SIGNALS
     )
 
-    activated = cur_stalled - prev_stalled
-    cleared = prev_stalled - cur_stalled
+    activated = current_stalled - previous_stalled
+    cleared = previous_stalled - current_stalled
 
-    for sig in sorted(activated):
+    for signal in sorted(activated):
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_STALLED_SIGNAL,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' stalled-work signal "
-                    f"activated: {sig}"
+                    f"Goal '{current.goal_title}' stalled-work signal "
+                    f"activated: {signal}"
                 ),
                 severity=8,
                 details={
-                    "signal": sig,
+                    "signal": signal,
                     "action": "activated",
-                    "previous_signals": sorted(prev_stalled),
-                    "current_signals": sorted(cur_stalled),
+                    "previous_signals": sorted(previous_stalled),
+                    "current_signals": sorted(current_stalled),
                 },
                 timestamp=now,
             )
         )
 
-    for sig in sorted(cleared):
+    for signal in sorted(cleared):
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_STALLED_SIGNAL,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' stalled-work signal "
-                    f"cleared: {sig}"
+                    f"Goal '{current.goal_title}' stalled-work signal "
+                    f"cleared: {signal}"
                 ),
                 severity=4,
                 details={
-                    "signal": sig,
+                    "signal": signal,
                     "action": "cleared",
-                    "previous_signals": sorted(prev_stalled),
-                    "current_signals": sorted(cur_stalled),
+                    "previous_signals": sorted(previous_stalled),
+                    "current_signals": sorted(current_stalled),
                 },
                 timestamp=now,
             )
@@ -604,47 +616,50 @@ def _detect_stalled_signal_change(
 
 
 def _detect_measurement_change(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect §1.4: measurement requirement overdue / satisfied."""
+    """Detect measurement requirement overdue/satisfied transitions."""
 
-    prev_count = prev.measurement_overdue_count
-    cur_count = cur.measurement_overdue_count
+    previous_count = previous.measurement_overdue_count
+    current_count = current.measurement_overdue_count
 
-    if prev_count == 0 and cur_count > 0:
+    if previous_count == 0 and current_count > 0:
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_MEASUREMENT_DUE,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' measurement requirements "
-                    f"became overdue ({cur_count} now due)"
+                    f"Goal '{current.goal_title}' measurement "
+                    f"requirements became overdue "
+                    f"({current_count} now due)"
                 ),
                 severity=6,
                 details={
-                    "previous_overdue_count": prev_count,
-                    "current_overdue_count": cur_count,
+                    "previous_overdue_count": previous_count,
+                    "current_overdue_count": current_count,
                     "action": "fired",
                 },
                 timestamp=now,
             )
         )
-    elif prev_count > 0 and cur_count == 0:
+
+    elif previous_count > 0 and current_count == 0:
         changes.append(
             MeaningfulChange(
                 change_type=CHANGE_MEASUREMENT_DUE,
-                goal_title=cur.goal_title,
+                goal_title=current.goal_title,
                 description=(
-                    f"Goal '{cur.goal_title}' measurement requirements "
-                    f"satisfied (were {prev_count} overdue, now none)"
+                    f"Goal '{current.goal_title}' measurement "
+                    f"requirements satisfied "
+                    f"(were {previous_count} overdue, now none)"
                 ),
                 severity=4,
                 details={
-                    "previous_overdue_count": prev_count,
-                    "current_overdue_count": cur_count,
+                    "previous_overdue_count": previous_count,
+                    "current_overdue_count": current_count,
                     "action": "satisfied",
                 },
                 timestamp=now,
@@ -653,154 +668,136 @@ def _detect_measurement_change(
 
 
 def _detect_cross_domain_link_change(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect §1.5: cross-domain link changes."""
+    """Detect cross-domain link additions/removals."""
 
-    prev_artifacts = set(
-        prev.linked_research_artifacts
-    )
-    cur_artifacts = set(
-        cur.linked_research_artifacts
-    )
-
-    new_artifacts = (
-        cur_artifacts - prev_artifacts
+    _detect_link_set_change(
+        previous.linked_research_artifacts,
+        current.linked_research_artifacts,
+        current.goal_title,
+        "research_artifact",
+        now,
+        changes,
     )
 
-    if new_artifacts:
-        changes.append(
-            MeaningfulChange(
-                change_type=CHANGE_CROSS_DOMAIN_LINK,
-                goal_title=cur.goal_title,
-                description=(
-                    f"Goal '{cur.goal_title}' gained new cross-domain "
-                    f"links: research artifacts added — "
-                    f"{', '.join(sorted(new_artifacts))}"
-                ),
-                severity=3,
-                details={
-                    "link_type": "research_artifact",
-                    "added": sorted(new_artifacts),
-                    "removed": sorted(
-                        prev_artifacts - cur_artifacts
-                    ),
-                },
-                timestamp=now,
-            )
+    _detect_link_set_change(
+        previous.linked_decision_numbers,
+        current.linked_decision_numbers,
+        current.goal_title,
+        "decision",
+        now,
+        changes,
+    )
+
+    _detect_link_set_change(
+        previous.linked_followup_ids,
+        current.linked_followup_ids,
+        current.goal_title,
+        "followup",
+        now,
+        changes,
+    )
+
+
+def _detect_link_set_change(
+    previous_links: list[str],
+    current_links: list[str],
+    goal_title: str,
+    link_type: str,
+    now: datetime,
+    changes: list[MeaningfulChange],
+) -> None:
+    """Detect additions/removals for one cross-domain link type."""
+
+    previous_set = set(previous_links)
+    current_set = set(current_links)
+
+    added = current_set - previous_set
+    removed = previous_set - current_set
+
+    if not added and not removed:
+        return
+
+    details = {
+        "link_type": link_type,
+        "added": sorted(added),
+        "removed": sorted(removed),
+    }
+
+    if added:
+        description = (
+            f"Goal '{goal_title}' gained new cross-domain links: "
+            f"{link_type} added — {', '.join(sorted(added))}"
+        )
+    else:
+        description = (
+            f"Goal '{goal_title}' lost cross-domain links: "
+            f"{link_type} removed — {', '.join(sorted(removed))}"
         )
 
-    prev_decisions = set(
-        prev.linked_decision_numbers
-    )
-    cur_decisions = set(
-        cur.linked_decision_numbers
-    )
-
-    new_decisions = (
-        cur_decisions - prev_decisions
-    )
-
-    if new_decisions:
-        changes.append(
-            MeaningfulChange(
-                change_type=CHANGE_CROSS_DOMAIN_LINK,
-                goal_title=cur.goal_title,
-                description=(
-                    f"Goal '{cur.goal_title}' gained new cross-domain "
-                    f"links: decisions added — "
-                    f"{', '.join(sorted(new_decisions))}"
-                ),
-                severity=3,
-                details={
-                    "link_type": "decision",
-                    "added": sorted(new_decisions),
-                    "removed": sorted(
-                        prev_decisions - cur_decisions
-                    ),
-                },
-                timestamp=now,
-            )
+    changes.append(
+        MeaningfulChange(
+            change_type=CHANGE_CROSS_DOMAIN_LINK,
+            goal_title=goal_title,
+            description=description,
+            severity=3,
+            details=details,
+            timestamp=now,
         )
-
-    prev_fups = set(
-        prev.linked_followup_ids
     )
-    cur_fups = set(
-        cur.linked_followup_ids
-    )
-
-    new_fups = cur_fups - prev_fups
-
-    if new_fups:
-        changes.append(
-            MeaningfulChange(
-                change_type=CHANGE_CROSS_DOMAIN_LINK,
-                goal_title=cur.goal_title,
-                description=(
-                    f"Goal '{cur.goal_title}' gained new cross-domain "
-                    f"links: follow-ups added — "
-                    f"{', '.join(sorted(new_fups))}"
-                ),
-                severity=3,
-                details={
-                    "link_type": "followup",
-                    "added": sorted(new_fups),
-                    "removed": sorted(
-                        prev_fups - cur_fups
-                    ),
-                },
-                timestamp=now,
-            )
-        )
 
 
 def _detect_milestone_status_change(
-    prev: GoalStateSnapshot,
-    cur: GoalStateSnapshot,
+    previous: GoalStateSnapshot,
+    current: GoalStateSnapshot,
     now: datetime,
     changes: list[MeaningfulChange],
 ) -> None:
-    """Detect §1.6: milestone status changes."""
-
-    prev_ms = prev.milestone_statuses
-    cur_ms = cur.milestone_statuses
+    """Detect milestone status changes."""
 
     all_milestones = (
-        set(prev_ms.keys()) | set(cur_ms.keys())
+        set(previous.milestone_statuses)
+        | set(current.milestone_statuses)
     )
 
-    for ms_title in sorted(all_milestones):
-        prev_status = prev_ms.get(ms_title)
-        cur_status = cur_ms.get(ms_title)
+    for milestone_title in sorted(all_milestones):
+        previous_status = previous.milestone_statuses.get(
+            milestone_title
+        )
+        current_status = current.milestone_statuses.get(
+            milestone_title
+        )
 
-        if prev_status != cur_status:
-            changes.append(
-                MeaningfulChange(
-                    change_type=CHANGE_MILESTONE_STATUS,
-                    goal_title=cur.goal_title,
-                    description=(
-                        f"Goal '{cur.goal_title}' milestone "
-                        f"'{ms_title}' status changed: "
-                        f"{prev_status or 'none'} → "
-                        f"{cur_status or 'removed'}"
+        if previous_status == current_status:
+            continue
+
+        changes.append(
+            MeaningfulChange(
+                change_type=CHANGE_MILESTONE_STATUS,
+                goal_title=current.goal_title,
+                description=(
+                    f"Goal '{current.goal_title}' milestone "
+                    f"'{milestone_title}' status changed: "
+                    f"{previous_status or 'none'} → "
+                    f"{current_status or 'removed'}"
+                ),
+                severity=5,
+                details={
+                    "milestone_title": milestone_title,
+                    "previous_status": previous_status,
+                    "current_status": (
+                        current_status
+                        if current_status is not None
+                        else "removed"
                     ),
-                    severity=5,
-                    details={
-                        "milestone_title": ms_title,
-                        "previous_status": prev_status,
-                        "current_status": (
-                            cur_status
-                            if cur_status is not None
-                            else "removed"
-                        ),
-                    },
-                    timestamp=now,
-                )
+                },
+                timestamp=now,
             )
+        )
 
 
 # ── Severity helpers ─────────────────────────────────────────────────────────
@@ -819,6 +816,7 @@ def _health_severity(
     health_state: str | None,
 ) -> int:
     """Map a health state to a base severity score."""
+
     return _HEALTH_SEVERITY.get(
         health_state,
         5,
@@ -836,6 +834,7 @@ def _goal_status_severity(
     status: str,
 ) -> int:
     """Map a goal status to a severity score."""
+
     return _GOAL_STATUS_SEVERITY.get(
         status,
         5,
@@ -845,15 +844,14 @@ def _goal_status_severity(
 # ── Strategic summary helpers ────────────────────────────────────────────────
 
 
-def _parse_deadline(raw):
-    """Parse an ISO date string into a date, or None."""
+def _parse_deadline(raw) -> date | None:
+    """Parse an ISO date string into a date."""
+
     if raw is None:
         return None
 
-    from datetime import date as _date
-
     try:
-        return _date.fromisoformat(raw)
+        return date.fromisoformat(raw)
     except (ValueError, TypeError):
         return None
 
@@ -864,25 +862,41 @@ def _has_upcoming_milestone_or_deadline(
 ) -> bool:
     """Return True if the goal has an upcoming milestone or deadline."""
 
-    goal_dl = _parse_deadline(goal.deadline)
+    goal_deadline = _parse_deadline(
+        goal.deadline
+    )
 
-    if goal_dl is not None and goal_dl > today:
+    if (
+        goal_deadline is not None
+        and goal_deadline > today
+    ):
         return True
 
     from janus.services.attention import _milestone_objs
 
-    for m in _milestone_objs(goal):
-        if m.status in ("completed", "skipped"):
+    for milestone in _milestone_objs(goal):
+        if milestone.status in (
+            "completed",
+            "skipped",
+        ):
             continue
 
-        m_dl = _parse_deadline(m.deadline)
+        milestone_deadline = _parse_deadline(
+            milestone.deadline
+        )
 
-        if m_dl is not None and m_dl > today:
+        if (
+            milestone_deadline is not None
+            and milestone_deadline > today
+        ):
             return True
 
         if (
-            m.status in ("open", "in_progress")
-            and m_dl is None
+            milestone.status in (
+                "open",
+                "in_progress",
+            )
+            and milestone_deadline is None
         ):
             return True
 
@@ -895,11 +909,11 @@ def _collect_cross_domain_links(
     decisions=None,
     followups=None,
 ) -> list[CrossDomainLink]:
-    """Collect all cross-domain links for the given goal titles."""
+    """Collect cross-domain links for the given goals."""
 
-    from janus.services.research_artifacts import load_all_artifacts
-    from janus.services.decisions import load_decisions
     from janus.integrations.markdown_followups import load_followups
+    from janus.services.decisions import load_decisions
+    from janus.services.research_artifacts import load_all_artifacts
 
     if research_artifacts is None:
         research_artifacts = load_all_artifacts()
@@ -913,64 +927,78 @@ def _collect_cross_domain_links(
     links: list[CrossDomainLink] = []
     seen: set[tuple[str, str, str]] = set()
 
-    for art in research_artifacts:
-        for gt in art.linked_goal_titles:
-            if gt in goal_titles:
-                key = (
-                    gt,
-                    "research_artifact",
-                    art.title,
-                )
+    for artifact in research_artifacts:
+        for goal_title in artifact.linked_goal_titles:
+            if goal_title not in goal_titles:
+                continue
 
-                if key not in seen:
-                    seen.add(key)
-                    links.append(
-                        CrossDomainLink(
-                            goal_title=gt,
-                            category="research_artifact",
-                            title=art.title,
-                        )
-                    )
-
-    for dec in decisions:
-        for gt in dec.goal_titles:
-            if gt in goal_titles:
-                key = (
-                    gt,
-                    "decision",
-                    dec.title,
-                )
-
-                if key not in seen:
-                    seen.add(key)
-                    links.append(
-                        CrossDomainLink(
-                            goal_title=gt,
-                            category="decision",
-                            title=dec.title,
-                        )
-                    )
-
-    for fu in followups:
-        if (
-            fu.linked_goal_title
-            and fu.linked_goal_title in goal_titles
-        ):
             key = (
-                fu.linked_goal_title,
-                "follow_up",
-                fu.title,
+                goal_title,
+                "research_artifact",
+                artifact.title,
             )
 
-            if key not in seen:
-                seen.add(key)
-                links.append(
-                    CrossDomainLink(
-                        goal_title=fu.linked_goal_title,
-                        category="follow_up",
-                        title=fu.title,
-                    )
+            if key in seen:
+                continue
+
+            seen.add(key)
+            links.append(
+                CrossDomainLink(
+                    goal_title=goal_title,
+                    category="research_artifact",
+                    title=artifact.title,
                 )
+            )
+
+    for decision in decisions:
+        for goal_title in decision.goal_titles:
+            if goal_title not in goal_titles:
+                continue
+
+            key = (
+                goal_title,
+                "decision",
+                decision.title,
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            links.append(
+                CrossDomainLink(
+                    goal_title=goal_title,
+                    category="decision",
+                    title=decision.title,
+                )
+            )
+
+    for followup in followups:
+        goal_title = followup.linked_goal_title
+
+        if (
+            not goal_title
+            or goal_title not in goal_titles
+        ):
+            continue
+
+        key = (
+            goal_title,
+            "follow_up",
+            followup.title,
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        links.append(
+            CrossDomainLink(
+                goal_title=goal_title,
+                category="follow_up",
+                title=followup.title,
+            )
+        )
 
     return links
 
@@ -979,7 +1007,8 @@ def _links_for_goal(
     goal_title: str,
     all_links: list[CrossDomainLink],
 ) -> list[CrossDomainLink]:
-    """Return cross-domain links for a specific goal."""
+    """Return cross-domain links for one goal."""
+
     return [
         link
         for link in all_links
@@ -988,10 +1017,11 @@ def _links_for_goal(
 
 
 def _build_portfolio_counts(
-    assessments,
-    goals,
-):
-    """Build PortfolioHealthCounts from assessments and goals."""
+    assessments: list[GoalHealthAssessment],
+    goals: list[Goal],
+) -> PortfolioHealthCounts:
+    """Build portfolio health counts."""
+
     counts = PortfolioHealthCounts()
 
     counts.total_active = sum(
@@ -1000,15 +1030,11 @@ def _build_portfolio_counts(
         if goal.status == "active"
     )
 
-    for assessment in assessments:
-        if assessment.health_state == "healthy":
-            counts.healthy += 1
-        elif assessment.health_state == "watch":
-            counts.watch += 1
-        elif assessment.health_state == "stalled":
-            counts.stalled += 1
-        elif assessment.health_state == "completed":
-            counts.completed += 1
+    counts.completed = sum(
+        1
+        for goal in goals
+        if goal.status == "completed"
+    )
 
     counts.inactive = sum(
         1
@@ -1016,118 +1042,91 @@ def _build_portfolio_counts(
         if goal.status == "inactive"
     )
 
+    active_titles = {
+        goal.title
+        for goal in goals
+        if goal.status == "active"
+    }
+
+    for assessment in assessments:
+        if assessment.goal_title not in active_titles:
+            continue
+
+        if assessment.health_state == "healthy":
+            counts.healthy += 1
+        elif assessment.health_state == "watch":
+            counts.watch += 1
+        elif assessment.health_state == "stalled":
+            counts.stalled += 1
+
     return counts
 
 
-# ── Public API ───────────────────────────────────────────────────────────────
+def _compute_portfolio_health_counts(
+    goals: list[Goal],
+    assessments: list[GoalHealthAssessment],
+) -> PortfolioHealthCounts:
+    """Compatibility wrapper for the original helper name."""
 
-
-def create_strategic_summary(
-    goals: list[Goal] | None = None,
-    today: date | None = None,
-    now: datetime | None = None,
-    open_task_titles: set[str] | None = None,
-    all_task_titles: set[str] | None = None,
-    completed_task_dates: dict | None = None,
-    metric_snapshots_by_goal: dict | None = None,
-    followups: list | None = None,
-    research_artifacts: list | None = None,
-    decisions: list | None = None,
-    attention_items=None,
-    recommendations=None,
-    portfolio_health_counts: PortfolioHealthCounts | None = None,
-    goal_reviews=None,
-) -> StrategicSummary:
-    """Create a strategic summary by aggregating existing signal services."""
-
-    if now is None:
-        now = datetime.now().astimezone()
-
-    if today is None:
-        today = now.date()
-
-    # Load goals if not provided.
-    if goals is None:
-        from janus.integrations.markdown_goals import load_goals
-
-        goals = load_goals()
-
-    # Load task data if not provided.
-    if (
-        open_task_titles is None
-        or all_task_titles is None
-    ):
-        from janus.integrations.markdown_tasks import load_tasks
-
-        tasks = load_tasks()
-
-        if open_task_titles is None:
-            open_task_titles = {
-                task.title
-                for task in tasks
-            }
-
-        if all_task_titles is None:
-            completed = _read_completed_task_titles()
-            all_task_titles = (
-                {task.title for task in tasks}
-                | set(completed)
-            )
-
-    # Build attention items if not provided.
-    if attention_items is None:
-        from janus.services.attention import get_attention_items
-        from janus.integrations.markdown_tasks import load_tasks
-
-        _followups = (
-            followups
-            if followups is not None
-            else None
-        )
-
-        attention_items = get_attention_items(
-            events=[],
-            tasks=load_tasks(),
-            goals=goals,
-            today=today,
-            now=now,
-            followups=_followups,
-        )
-
-    # Build recommendations if not provided.
-    if recommendations is None:
-        from janus.services.recommendations import recommend_tasks
-        from janus.integrations.markdown_tasks import load_tasks
-
-        _completed = _read_completed_task_titles()
-
-        recommendations = recommend_tasks(
-            goals=goals,
-            tasks=load_tasks(),
-            completed_task_titles=set(_completed),
-            today=today,
-        )
-
-    # Build goal reviews if not provided.
-    if goal_reviews is None:
-        goal_reviews = create_weekly_review().goals
-
-    # Collect cross-domain links.
-    all_links = _collect_cross_domain_links(
-        {goal.title for goal in goals},
-        research_artifacts,
-        decisions,
-        followups,
+    return _build_portfolio_counts(
+        assessments,
+        goals,
     )
 
-    # Assess each goal's health.
+
+def _compute_assessments(
+    goals: list[Goal],
+    today: date,
+    open_task_titles: set[str],
+    all_task_titles: set[str] | None = None,
+    completed_task_dates: dict[str, date] | None = None,
+    metric_snapshots_by_goal: dict[str, list[MetricSnapshot]] | None = None,
+) -> list[GoalHealthAssessment]:
+    """Compute health assessments for all active goals."""
+
+    if all_task_titles is None:
+        all_task_titles = set()
+
+    if not all_task_titles:
+        try:
+            from janus.integrations.markdown_tasks import load_tasks
+
+            tasks = load_tasks()
+
+            open_task_titles.update(
+                task.title
+                for task in tasks
+            )
+
+            all_task_titles.update(
+                task.title
+                for task in tasks
+            )
+
+            try:
+                from janus.services.weekly_review import (
+                    _read_completed_task_titles,
+                )
+
+                all_task_titles.update(
+                    _read_completed_task_titles()
+                )
+            except FileNotFoundError:
+                pass
+
+        except FileNotFoundError:
+            pass
+
     assessments: list[GoalHealthAssessment] = []
 
     for goal in goals:
-        snaps = None
+        if goal.status != "active":
+            continue
+
+        metric_snapshots = None
 
         if metric_snapshots_by_goal is not None:
-            snaps = metric_snapshots_by_goal.get(
+            metric_snapshots = metric_snapshots_by_goal.get(
                 goal.title
             )
 
@@ -1136,257 +1135,332 @@ def create_strategic_summary(
             today,
             open_task_titles=open_task_titles,
             all_task_titles=all_task_titles,
-            metric_snapshots=snaps,
+            metric_snapshots=metric_snapshots,
             completed_task_dates=completed_task_dates,
         )
 
         if assessment is not None:
             assessments.append(assessment)
 
-    # Build portfolio health counts.
-    if portfolio_health_counts is None:
-        portfolio_health_counts = _build_portfolio_counts(
-            assessments,
-            goals,
+    return assessments
+
+
+def _load_goal_reviews():
+    """Load weekly reviews, returning [] when data is unavailable."""
+
+    try:
+        return create_weekly_review().goals
+    except FileNotFoundError:
+        return []
+
+
+def _load_attention_items(
+    goals,
+    today,
+    now,
+    trace_id,
+):
+    """Load attention items."""
+
+    try:
+        from janus.integrations.markdown_tasks import load_tasks
+        from janus.services.attention import get_attention_items
+
+        return get_attention_items(
+            events=[],
+            tasks=load_tasks(trace_id=trace_id),
+            goals=goals,
+            today=today,
+            now=now,
+            trace_id=trace_id,
+        )
+    except FileNotFoundError:
+        return []
+
+
+def _load_task_recommendations(
+    goals,
+    today,
+):
+    """Load task-level recommendations."""
+
+    try:
+        from janus.integrations.markdown_tasks import load_tasks
+        from janus.services.recommendations import recommend_tasks
+
+        tasks = load_tasks()
+        completed = set(
+            _read_completed_task_titles()
         )
 
-    # Lookup: goal title → GoalReview.
-    review_by_goal: dict[str, GoalReview] = {}
+        return recommend_tasks(
+            goals=goals,
+            tasks=tasks,
+            completed_task_titles=completed,
+            today=today,
+        )
+    except FileNotFoundError:
+        return []
 
-    for goal_review in goal_reviews:
-        review_by_goal[goal_review.goal.title] = goal_review
 
-    # Lookup: attention items by title.
-    attention_by_title: dict[str, str] = {}
+# ── Public summary API ────────────────────────────────────────────────────────
 
-    for item in attention_items:
-        attention_by_title[item.title] = item.reason
 
-    # ── Stalled goals ────────────────────────────────────────────────────────
+def create_strategic_summary(
+    goals: list[Goal] | None = None,
+    assessments: list[GoalHealthAssessment] | None = None,
+    goal_reviews=None,
+    attention_items=None,
+    task_recommendations=None,
+    cross_links: list[CrossDomainLink] | None = None,
+    open_task_titles: set[str] | None = None,
+    *,
+    today: date | None = None,
+    now: datetime | None = None,
+    trace_id: str | None = None,
+    all_task_titles: set[str] | None = None,
+    completed_task_dates: dict[str, date] | None = None,
+    metric_snapshots_by_goal: dict[
+        str,
+        list[MetricSnapshot],
+    ] | None = None,
+    followups: list | None = None,
+    research_artifacts: list | None = None,
+    decisions: list | None = None,
+    recommendations=None,
+    portfolio_health_counts: PortfolioHealthCounts | None = None,
+) -> StrategicSummary:
+    """Create a structured strategic summary.
 
-    stalled: list[StalledGoal] = []
+    The signature intentionally supports both the original summary-service
+    API and the newer snapshot/change-detection API. Pre-computed values can
+    be injected by callers and tests; otherwise existing Janus services are
+    used to load and derive the required data.
+    """
 
-    for assessment in assessments:
-        if assessment.health_state != "stalled":
-            continue
+    if now is None:
+        now = datetime.now().astimezone()
 
-        dominant = assessment.dominant_signal
+    if today is None:
+        today = now.date()
 
-        stalled.append(
-            StalledGoal(
-                goal_title=assessment.goal_title,
-                health_state=assessment.health_state,
-                dominant_signal=(
-                    dominant.signal
-                    if dominant
-                    else ""
-                ),
-                dominant_signal_score=(
-                    dominant.score
-                    if dominant
-                    else 0
-                ),
-                dominant_signal_reason=(
-                    dominant.reason
-                    if dominant
-                    else ""
-                ),
-                progress=assessment.progress,
-                progress_delta=assessment.progress_delta,
-                days_since_last_activity=(
-                    assessment.days_since_last_activity
-                ),
-                measurement_overdue_count=(
-                    assessment.measurement_overdue_count
-                ),
+    if goals is None:
+        from janus.integrations.markdown_goals import load_goals
+
+        goals = load_goals(
+            trace_id=trace_id
+        )
+
+    if open_task_titles is None:
+        open_task_titles = set()
+
+    if all_task_titles is None:
+        all_task_titles = set()
+
+    # Load task state when necessary.
+    if not open_task_titles or not all_task_titles:
+        try:
+            from janus.integrations.markdown_tasks import load_tasks
+
+            tasks = load_tasks(
+                trace_id=trace_id
             )
+
+            open_task_titles.update(
+                task.title
+                for task in tasks
+            )
+
+            all_task_titles.update(
+                task.title
+                for task in tasks
+            )
+
+            try:
+                completed = set(
+                    _read_completed_task_titles()
+                )
+                all_task_titles.update(completed)
+            except FileNotFoundError:
+                pass
+
+        except FileNotFoundError:
+            pass
+
+    # Health assessments.
+    if assessments is None:
+        assessments = _compute_assessments(
+            goals=goals,
+            today=today,
+            open_task_titles=open_task_titles,
+            all_task_titles=all_task_titles,
+            completed_task_dates=completed_task_dates,
+            metric_snapshots_by_goal=metric_snapshots_by_goal,
         )
 
-    stalled.sort(
-        key=lambda item: item.dominant_signal_score,
-        reverse=True,
+    # Weekly reviews.
+    if goal_reviews is None:
+        goal_reviews = _load_goal_reviews()
+
+    # Attention items.
+    if attention_items is None:
+        attention_items = _load_attention_items(
+            goals,
+            today,
+            now,
+            trace_id,
+        )
+
+    # Task recommendations.
+    if recommendations is not None:
+        task_recommendations = recommendations
+
+    if task_recommendations is None:
+        task_recommendations = _load_task_recommendations(
+            goals,
+            today,
+        )
+
+    # Cross-domain links.
+    if cross_links is None:
+        cross_links = _collect_cross_domain_links(
+            {goal.title for goal in goals},
+            research_artifacts=research_artifacts,
+            decisions=decisions,
+            followups=followups,
+        )
+
+    # Portfolio health.
+    if portfolio_health_counts is None:
+        portfolio_health_counts = _compute_portfolio_health_counts(
+            goals,
+            assessments,
+        )
+
+    # Restrict health-derived sections to active goals.
+    active_titles = {
+        goal.title
+        for goal in goals
+        if goal.status == "active"
+    }
+
+    active_assessments = [
+        assessment
+        for assessment in assessments
+        if assessment.goal_title in active_titles
+    ]
+
+    # Stalled goals.
+    stalled_assessments = [
+        assessment
+        for assessment in active_assessments
+        if assessment.health_state == "stalled"
+    ]
+
+    stalled_assessments.sort(
+        key=lambda assessment: (
+            -(
+                assessment.dominant_signal.score
+                if assessment.dominant_signal
+                else 0
+            ),
+            assessment.goal_title,
+        )
     )
 
-    # ── Neglected goals ─────────────────────────────────────────────────────
-
-    neglected: list[NeglectedGoal] = []
-
-    for assessment in assessments:
-        if assessment.health_state not in (
-            "watch",
-            "stalled",
-        ):
-            continue
-
-        goal = next(
-            (
-                goal
-                for goal in goals
-                if goal.title == assessment.goal_title
+    stalled_goals = [
+        StalledGoal(
+            goal_title=assessment.goal_title,
+            health_state=assessment.health_state,
+            dominant_signal=(
+                assessment.dominant_signal.signal
+                if assessment.dominant_signal
+                else ""
             ),
-            None,
+            dominant_signal_score=(
+                assessment.dominant_signal.score
+                if assessment.dominant_signal
+                else 0
+            ),
+            dominant_signal_reason=(
+                assessment.dominant_signal.reason
+                if assessment.dominant_signal
+                else ""
+            ),
+            progress=assessment.progress,
+            progress_delta=assessment.progress_delta,
+            days_since_last_activity=(
+                assessment.days_since_last_activity
+            ),
+            measurement_overdue_count=(
+                assessment.measurement_overdue_count
+            ),
         )
+        for assessment in stalled_assessments
+    ]
 
-        if goal is None:
-            continue
+    # Neglected goals.
+    neglected_assessments = identify_neglected_goals(
+        active_assessments,
+        goals,
+        open_task_titles,
+        today,
+    )
 
-        if goal.status in (
-            "inactive",
-            "completed",
-        ):
-            continue
-
-        dominant = assessment.dominant_signal
-
-        inactivity_window = (
-            goal.inactivity_window_days
-            or INACTIVITY_WINDOW_DAYS
+    neglected_goals = [
+        NeglectedGoal(
+            goal_title=assessment.goal_title,
+            health_state=assessment.health_state,
+            dominant_signal=(
+                assessment.dominant_signal.signal
+                if assessment.dominant_signal
+                else ""
+            ),
+            dominant_signal_score=(
+                assessment.dominant_signal.score
+                if assessment.dominant_signal
+                else 0
+            ),
+            dominant_signal_reason=(
+                assessment.dominant_signal.reason
+                if assessment.dominant_signal
+                else ""
+            ),
+            progress=assessment.progress,
+            days_since_last_activity=(
+                assessment.days_since_last_activity
+            ),
+            measurement_overdue_count=(
+                assessment.measurement_overdue_count
+            ),
         )
+        for assessment in neglected_assessments
+    ]
 
-        days = assessment.days_since_last_activity
+    # Recommended actions.
+    actions = create_recommended_actions(
+        active_assessments,
+        goals,
+        goal_reviews=goal_reviews,
+        attention_items=attention_items,
+        recommendations=task_recommendations,
+        cross_links=cross_links,
+        open_task_titles=open_task_titles,
+        today=today,
+        now=now,
+    )
 
-        days_exceeds = (
-            days is not None
-            and days > inactivity_window
-        )
-
-        has_measurement_overdue = (
-            assessment.measurement_overdue_count > 0
-        )
-
-        open_related = any(
-            related_task in open_task_titles
-            for related_task in goal.related_tasks
-        )
-
-        has_upcoming = (
-            _has_upcoming_milestone_or_deadline(
-                goal,
-                today,
-            )
-        )
-
-        if (
-            days_exceeds
-            or has_measurement_overdue
-            or (
-                not open_related
-                and not has_upcoming
-            )
-        ):
-            neglected.append(
-                NeglectedGoal(
-                    goal_title=assessment.goal_title,
-                    health_state=assessment.health_state,
-                    dominant_signal=(
-                        dominant.signal
-                        if dominant
-                        else ""
-                    ),
-                    dominant_signal_score=(
-                        dominant.score
-                        if dominant
-                        else 0
-                    ),
-                    dominant_signal_reason=(
-                        dominant.reason
-                        if dominant
-                        else ""
-                    ),
-                    progress=assessment.progress,
-                    progress_delta=assessment.progress_delta,
-                    days_since_last_activity=(
-                        assessment.days_since_last_activity
-                    ),
-                    measurement_overdue_count=(
-                        assessment.measurement_overdue_count
-                    ),
-                    has_open_related_tasks=open_related,
-                    has_upcoming_deadline=has_upcoming,
-                )
-            )
-
-    neglected.sort(
+    # Normalise ordering for deterministic output.
+    neglected_goals.sort(
         key=lambda item: (
-            0
-            if item.health_state == "stalled"
-            else 1,
+            0 if item.health_state == "stalled" else 1,
             -item.dominant_signal_score,
             -(item.days_since_last_activity or 0),
             item.goal_title,
         )
     )
 
-    # ── Recommended actions ──────────────────────────────────────────────────
-
-    neglected_titles = (
-        {item.goal_title for item in neglected}
-        | {item.goal_title for item in stalled}
-    )
-
-    recommendations_list: list[RecommendedAction] = []
-
-    for assessment in assessments:
-        if assessment.goal_title not in neglected_titles:
-            continue
-
-        dominant = assessment.dominant_signal
-        goal_review = review_by_goal.get(
-            assessment.goal_title
-        )
-
-        suggested = (
-            goal_review.suggested_next_step
-            if (
-                goal_review
-                and goal_review.suggested_next_step
-            )
-            else None
-        )
-
-        attention_reason = attention_by_title.get(
-            assessment.goal_title
-        )
-
-        goal_links = _links_for_goal(
-            assessment.goal_title,
-            all_links,
-        )
-
-        recommendations_list.append(
-            RecommendedAction(
-                goal_title=assessment.goal_title,
-                health_state=assessment.health_state,
-                dominant_signal=(
-                    dominant.signal
-                    if dominant
-                    else ""
-                ),
-                dominant_signal_score=(
-                    dominant.score
-                    if dominant
-                    else 0
-                ),
-                dominant_signal_reason=(
-                    dominant.reason
-                    if dominant
-                    else ""
-                ),
-                progress=assessment.progress,
-                progress_delta=assessment.progress_delta,
-                days_since_last_activity=(
-                    assessment.days_since_last_activity
-                ),
-                measurement_overdue_count=(
-                    assessment.measurement_overdue_count
-                ),
-                suggested_next_step=suggested,
-                attention_reason=attention_reason,
-                cross_links=goal_links,
-            )
-        )
-
-    recommendations_list.sort(
+    actions.sort(
         key=lambda item: (
             0
             if item.health_state == "stalled"
@@ -1400,11 +1474,14 @@ def create_strategic_summary(
     return StrategicSummary(
         generated_at=now,
         portfolio_health_counts=portfolio_health_counts,
-        stalled_goals=stalled,
-        neglected_goals=neglected,
-        recommended_actions=recommendations_list,
-        cross_domain_links=all_links,
+        stalled_goals=stalled_goals,
+        neglected_goals=neglected_goals,
+        recommended_actions=actions,
+        cross_domain_links=cross_links,
     )
+
+
+# ── Rendering ─────────────────────────────────────────────────────────────────
 
 
 def render_strategic_summary(
@@ -1434,7 +1511,7 @@ def render_strategic_summary(
 
     lines.append("")
 
-    # Stalled work list.
+    # Stalled work.
     lines.append("STALLED WORK")
 
     if summary.stalled_goals:
@@ -1451,10 +1528,10 @@ def render_strategic_summary(
             )
 
             if stalled_goal.progress is not None:
-                delta_str = ""
+                delta = ""
 
                 if stalled_goal.progress_delta is not None:
-                    delta_str = (
+                    delta = (
                         f", delta "
                         f"{stalled_goal.progress_delta:+.1f}% "
                         f"over 14d"
@@ -1463,7 +1540,7 @@ def render_strategic_summary(
                 lines.append(
                     f"    Progress: "
                     f"{stalled_goal.progress:.1f}%"
-                    f"{delta_str}"
+                    f"{delta}"
                 )
 
             if (
@@ -1485,7 +1562,7 @@ def render_strategic_summary(
 
     lines.append("")
 
-    # Neglected goals list.
+    # Neglected goals.
     lines.append("NEGLECTED GOALS")
 
     if summary.neglected_goals:
@@ -1502,10 +1579,10 @@ def render_strategic_summary(
             )
 
             if neglected_goal.progress is not None:
-                delta_str = ""
+                delta = ""
 
                 if neglected_goal.progress_delta is not None:
-                    delta_str = (
+                    delta = (
                         f", delta "
                         f"{neglected_goal.progress_delta:+.1f}% "
                         f"over 14d"
@@ -1514,7 +1591,7 @@ def render_strategic_summary(
                 lines.append(
                     f"    Progress: "
                     f"{neglected_goal.progress:.1f}%"
-                    f"{delta_str}"
+                    f"{delta}"
                 )
             else:
                 lines.append("    Progress: N/A")
@@ -1560,10 +1637,10 @@ def render_strategic_summary(
             )
 
             if recommendation.progress is not None:
-                delta_str = ""
+                delta = ""
 
                 if recommendation.progress_delta is not None:
-                    delta_str = (
+                    delta = (
                         f", delta "
                         f"{recommendation.progress_delta:+.1f}% "
                         f"over 14d"
@@ -1572,7 +1649,7 @@ def render_strategic_summary(
                 lines.append(
                     f"   Progress: "
                     f"{recommendation.progress:.1f}%"
-                    f"{delta_str}"
+                    f"{delta}"
                 )
             else:
                 lines.append("   Progress: N/A")
@@ -1605,14 +1682,14 @@ def render_strategic_summary(
                 )
 
             if recommendation.cross_links:
-                link_strs = [
+                link_strings = [
                     f"{link.category}: {link.title}"
                     for link in recommendation.cross_links
                 ]
 
                 lines.append(
                     f"   Cross-links: "
-                    f"{'; '.join(link_strs)}"
+                    f"{'; '.join(link_strings)}"
                 )
 
             lines.append("")

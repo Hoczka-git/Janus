@@ -1,6 +1,6 @@
 # Decision: Canonical Review Topology for Hermes Kanban
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-31
 **Author:** Researcher agent (t_0ccf3c75)
 

@@ -1,9 +1,18 @@
 """Janus execution-feedback sync listener (Hermes → Janus).
 
-Hooks ``kanban_task_completed`` in the worker process, mirroring the pattern
-established by the replenishment plugin (``plugins/replenishment``).  When a
-completed Kanban task carries ``janus_domain`` frontmatter — the sole runtime
-bridge linking a Hermes task to a Janus domain object — the listener:
+Hooks two Kanban lifecycle events:
+
+* ``kanban_task_claimed`` (dispatcher process, before worker spawn) — Phase 1
+  of ADR-004 (Pre-Implementation Sync): automatically invokes
+  :func:`janus.git_sync.sync_branch` on the task's worktree so the task branch
+  is rebased onto the current target branch and force-pushed before
+  implementation begins. A rebase conflict blocks the task with reason
+  ``sync_conflict`` and routes it to the ``merge-reconciler`` skill.
+
+* ``kanban_task_completed`` (worker process) — mirrors the pattern established
+  by the replenishment plugin (``plugins/replenishment``).  When a completed
+  Kanban task carries ``janus_domain`` frontmatter — the sole runtime
+  bridge linking a Hermes task to a Janus domain object — the listener:
 
 1. Reads the completed task body (``kanban_db.get_task``).
 2. Parses the ``janus_domain`` frontmatter via the Janus-side
@@ -142,6 +151,209 @@ def on_task_completed(
         # audit comment.
         _try_append_sync_failed_event(task_id, board, exc)
         return None
+
+
+# ── Phase 1: Pre-Implementation Sync (auto-invoke at task start) ─────────────
+# ADR-004 §4.1 requires sync_branch() to run automatically when a task is
+# claimed, so the task branch is rebased onto the current target branch and
+# force-pushed with --force-with-lease before implementation begins.
+# ``kanban_task_claimed`` fires in the dispatcher process *before* the worker
+# subprocess spawns (per the kanban_db lifecycle-hook contract), which is the
+# ideal place to enforce this mechanically rather than relying on worker prompt
+# guidance. A rebase conflict routes the task to the neutral merge-reconciler
+# skill — the implementor must not self-resolve a conflict against independently
+# developed target work (ADR-004 §7.1 / D-08 of t_ad23793c).
+_MERGE_RECONCILER_SKILL = "merge-reconciler"
+
+
+def on_task_claimed(
+    task_id: str,
+    *,
+    board: Optional[str] = None,
+    assignee: Optional[str] = None,
+    run_id: Optional[int] = None,
+    profile_name: Optional[str] = None,
+    **_kwargs: Any,
+) -> Optional[dict]:
+    """``kanban_task_claimed`` callback — best-effort, never raises.
+
+    Fires in the dispatcher process *before* the worker subprocess spawns. For
+    ``workspace_kind == 'worktree'`` tasks it invokes
+    :func:`janus.git_sync.sync_branch` on the task's worktree so the branch is
+    brought up to date against the target before implementation begins.
+
+    Routing of failure modes (per ADR-004 §5.1):
+
+    * ``SYNC_CONFLICT`` — blocks the task with reason ``sync_conflict`` and
+      routes it to the ``merge-reconciler`` skill.
+    * Other non-success results (``TARGET_BRANCH_MISSING``,
+      ``REBASE_DIVERGED``, ``SYNC_PUSH_FAILED``) — recorded as an audit
+      comment but do NOT block the task; the worker can still attempt
+      implementation (these are environmental, not author-side conflicts).
+    * ``ALREADY_UP_TO_DATE`` / clean success — proceeds normally (no-op).
+
+    Return values are ignored by the hook dispatcher. This function exists
+    purely for its side effects and returns a structured dict (for tests) or
+    ``None`` when the task carries no syncable worktree.
+    """
+    try:
+        return _run_auto_sync(task_id, board=board)
+    except Exception as exc:  # noqa: BLE001 — observer must never break claim
+        logger.warning(
+            "janus_sync_auto_sync: error while processing task %s: %s",
+            task_id, exc, exc_info=True,
+        )
+        _try_record_auto_sync_error(task_id, board, exc)
+        return None
+
+
+def _run_auto_sync(
+    task_id: str, *, board: Optional[str] = None,
+) -> Optional[dict]:
+    """Core auto-sync logic, factored out for testability.
+
+    Returns a structured result dict, or ``None`` when the task carries no
+    syncable worktree (``workspace_kind != 'worktree'`` or no
+    ``workspace_path``).
+    """
+    from hermes_cli import kanban_db as kb
+
+    conn = kb.connect(board=board) if board else kb.connect()
+    try:
+        task = kb.get_task(conn, task_id)
+        if task is None:
+            return None
+
+        # Only worktree tasks have a git branch to sync. Scratch and dir
+        # workspaces (and non-coding tasks) are no-ops — ADR-004 §11 excludes
+        # non-coding / non-worktree tasks from the sync-integrate workflow.
+        if task.workspace_kind != "worktree":
+            return {"status": "skipped", "task_id": task_id,
+                    "reason": "not_a_worktree"}
+        workspace = (task.workspace_path or "").strip()
+        if not workspace:
+            return {"status": "skipped", "task_id": task_id,
+                    "reason": "no_workspace_path"}
+        ws_path = Path(workspace).expanduser()
+        if not ws_path.is_dir():
+            # Worktree not yet materialized (or pruned) — nothing to sync here;
+            # the dispatcher materializes the worktree on task start.
+            return {"status": "skipped", "task_id": task_id,
+                    "reason": "workspace_absent"}
+
+        # Invoke the ADR-004 Phase 1 primitive.
+        from janus.git_sync import (
+            sync_branch, SYNC_CONFLICT, ALREADY_UP_TO_DATE,
+        )
+        result = sync_branch(str(ws_path))
+
+        if result.success:
+            # Clean success or already-up-to-date no-op → proceed to worker.
+            status = ("already_up_to_date"
+                      if result.reason == ALREADY_UP_TO_DATE else "synced")
+            return {
+                "status": status,
+                "task_id": task_id,
+                "target_branch": result.target_branch,
+                "task_branch": result.task_branch,
+                "reason": result.reason,
+            }
+
+        # ── Non-success: route per ADR-004 §5.1 ───────────────────────────
+        if result.reason == SYNC_CONFLICT:
+            # Genuine wall: a rebase conflict between the task branch and the
+            # target branch requires the neutral merge-reconciler. Block the
+            # task so the worker never starts on a diverging branch and route
+            # to the reconciler skill.
+            _handle_sync_conflict(conn, kb, task_id, result)
+            return {
+                "status": "blocked",
+                "task_id": task_id,
+                "reason": "sync_conflict",
+                "conflicts": list(result.conflicts),
+            }
+
+        # Environmental / non-blocking failures: record an audit comment so
+        # the failure is observable, but do not block — the worker may still
+        # be able to proceed (e.g. target_branch_missing on an offline repo).
+        _try_add_audit_comment(
+            conn, kb, task_id,
+            _SimpleMeta(None, None),
+            {"state_changes": [f"auto_sync_failed:{result.reason}"],
+             "synced_at": None},
+        )
+        return {
+            "status": "failed",
+            "task_id": task_id,
+            "reason": result.reason,
+            "error": result.error,
+        }
+    finally:
+        conn.close()
+
+
+def _handle_sync_conflict(conn, kb, task_id: str, result) -> None:
+    """Block the task with ``sync_conflict`` and route to merge-reconciler."""
+    # Record the structured reason + conflicted files as an audit comment so
+    # the merge-reconciler has the context it needs (design §7.1).
+    conflicts = result.conflicts or []
+    conf_str = ", ".join(conflicts) if conflicts else "(unknown files)"
+    comment = (
+        f"[janus_sync] Phase 1 pre-implementation sync conflict on branch "
+        f"{result.task_branch!r} vs target {result.target_branch!r}. "
+        f"Conflicts: {conf_str}. "
+        f"Routing to the {_MERGE_RECONCILER_SKILL} skill for neutral "
+        f"reconciliation — the implementor must not self-resolve."
+    )
+    try:
+        kb.add_comment(conn, task_id, _AUDIT_COMMENT_AUTHOR, comment)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("janus_sync_auto_sync: add_comment failed: %s", exc)
+
+    # Block the task so the worker never starts on a diverging branch.
+    # ``kind='capability'`` routes it as a genuine wall needing external
+    # capability (the merge-reconciler); it lands in ``blocked`` and is never
+    # reclaimed into ``running`` by the stale-claim cron.
+    try:
+        kb.block_task(
+            conn, task_id, reason="sync_conflict", kind="capability",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "janus_sync_auto_sync: block_task(sync_conflict) failed for %s: %s",
+            task_id, exc, exc_info=True,
+        )
+
+
+def _try_record_auto_sync_error(
+    task_id: str, board: Optional[str], exc: Exception,
+) -> None:
+    """Write a best-effort error comment for unhandled auto-sync failures."""
+    from hermes_cli import kanban_db as kb
+
+    conn = None
+    try:
+        conn = kb.connect(board=board) if board else kb.connect()
+        kb.add_comment(
+            conn, task_id, _AUDIT_COMMENT_AUTHOR,
+            f"[janus_sync_auto_sync] error: {type(exc).__name__}: {exc}",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+class _SimpleMeta:
+    """Minimal stand-in for the ``(metadata, dispatch_result)`` args consumed
+    by :func:`_try_add_audit_comment`.  Only ``object``/``title`` are read, so
+    we provide ``None`` for both.
+    """
+
+    def __init__(self, object: Optional[str], title: Optional[str]):
+        self.object = object
+        self.title = title
 
 
 def _run_sync(
@@ -618,15 +830,24 @@ def _try_append_sync_failed_event(
 # ---------------------------------------------------------------------------
 
 def register(ctx) -> None:
-    """Register the ``kanban_task_completed`` hook callback.
+    """Register the ``janus_sync`` plugin's lifecycle hook callbacks.
 
-    Wires :func:`on_task_completed` into the Hermes plugin lifecycle so that
-    when a Kanban task is completed (after the write txn commits, per the
-    kanban_db lifecycle-hook contract), the listener parses any
-    ``janus_domain`` frontmatter and dispatches to the Janus service
-    functions.
+    Wires two complementary callbacks into the Hermes plugin lifecycle:
 
-    The hook is observer-only: return values are ignored by the dispatcher,
-    and :func:`on_task_completed` is fully best-effort — it never raises.
+    * ``kanban_task_completed`` — when a Kanban task is completed (after the
+      write txn commits, per the kanban_db lifecycle-hook contract), the
+      listener parses any ``janus_domain`` frontmatter and dispatches to the
+      Janus service functions.
+
+    * ``kanban_task_claimed`` (Phase 1 of ADR-004) — fires in the dispatcher
+      process *before* the worker subprocess spawns, for ``worktree`` tasks;
+      invokes :func:`janus.git_sync.sync_branch` so the task branch is
+      rebased onto the target and force-pushed before implementation begins.
+      A rebase conflict blocks the task with reason ``sync_conflict`` and
+      routes it to the ``merge-reconciler`` skill.
+
+    Both hooks are observer-only: return values are ignored by the dispatcher,
+    and the callbacks are fully best-effort — they never raise.
     """
+    ctx.register_hook("kanban_task_claimed", on_task_claimed)
     ctx.register_hook("kanban_task_completed", on_task_completed)

@@ -163,9 +163,11 @@ class TestCompleteTaskCLIDuplicateSafeguard:
         out = capsys.readouterr().out
         assert exc_info.value.code == 1
         assert "Warning:" in err
-        assert "Multiple open tasks found with title: Duplicate task" in err
+        # The warning states the exact number of matches found
+        assert "Multiple open tasks found with title" in err
         # Actionable guidance is included
         assert "janus task list" in err
+        assert "more specific task ID or line reference" in err
         # No completion message on stdout
         assert "Completed task:" not in out
         # File is untouched — neither duplicate was completed

@@ -9,7 +9,9 @@
 
 ### 1.1 Creation path — single DB entry point
 
-All task creation flows through `kb.create_task()` in `hermes_cli/kanban_db.py:3172`. Four surfaces feed it:
+All task creation flows through the Kanban task creation mechanism
+(`kanban_create` / `kb.create_task()` in the Hermes CLI `kanban_db` module,
+line ~3172 in the Hermes `hermes_cli/kanban_db.py`). Four surfaces feed it:
 
 | Surface | File:line | Passes body verbatim? |
 |---------|-----------|-----------------------|
@@ -19,7 +21,15 @@ All task creation flows through `kb.create_task()` in `hermes_cli/kanban_db.py:3
 | Auto-decomposer | `kanban_decompose.py` | Yes — constructs body inline |
 | Swarm | `kanban_swarm.py:233` | Yes — constructs body inline |
 
-Right now none of them set `integration_required`. The field only exists as opt-in frontmatter that _must_ be manually written into the body string. The gate at `_enforce_integration_gate()` (`kanban_db.py:5661`) is called by `complete_task()` (`kanban_db.py:5899`) and reads the flag from the body — but nothing guarantees it's there.
+Right now none of them set `integration_required`. The field only exists as opt-in frontmatter that _must_
+be manually written into the body string. The gate at `_enforce_integration_gate()` (in the Hermes CLI `kanban_db.py`,
+line ~5661) is called by `complete_task()` (line ~5899) and reads the flag from the body — but nothing
+guarantees it's there.
+
+> **Note:** The `kanban_db.py` references above (`_enforce_integration_gate`, `complete_task`) point to the
+> Hermes CLI architecture, not the Janus domain layer. In the Janus codebase, task completion is handled by
+> `src/janus/services/tasks.py:complete_task()` (line 43). The integration gate is a Hermes-side concern that
+> wraps the Janus completion path.
 
 ### 1.2 The gate — already works, just needs the flag to be guaranteed
 

@@ -1,307 +1,173 @@
-# ADR-003 Supplement: Review Probes via `delegate_task` and the Human-in-the-Loop Review Path
+# ADR-003 Supplement: Delegate-Task Review Probes and Human-in-the-Loop Review
 
-**Parent:** `docs/decisions/003-canonical-review-topology.md` (Accepted)
 **Status:** Accepted
 **Date:** 2026-09-16
-**Author:** implementer (t_7688471b)
+**Parent ADR:** `docs/decisions/003-canonical-review-topology.md` (Accepted)
+**Resolves remaining uncertainty:** Parallel review fan-out and human-in-the-loop review path (ADR-003 §Remaining Uncertainty #1 and #2)
 
 ---
 
-## Purpose
+## Context
 
-ADR-003 (`003-canonical-review-topology.md`) adopts **Model A — Native Review Lane** as the
-canonical review topology and defers two topics to a follow-up document:
+ADR-003 establishes Model A (Native Review Lane) as the canonical review topology: review is a phase of the *same* task, not a separate child task. ADR-003's "Remaining Uncertainty" section identifies two topics that need separate documentation:
 
-1. The interaction between `delegate_task`-based review probes (parallel fan-out) and the
-   native review lane.
-2. The human-in-the-loop (HITL) review path — when a human manually pulls a `review` task
-   via the dashboard or CLI instead of relying on the dispatcher to auto-spawn a reviewer
-   worker.
+1. **Parallel review fan-out** — how `delegate_task`-based review probes interact with the native review lane, and why this is distinct from Model B's persistent reviewer-child workflow.
+2. **Human-in-the-loop review** — what happens when a human manually pulls a `review` task instead of the dispatcher spawning an autonomous reviewer worker.
 
-This document resolves both topics. It does **not** alter the canonical topology decision:
-review remains a phase of the same task (Model A), not a separate reviewer-child (Model B).
+This document resolves both.
 
 ---
 
-## 1. Background: Model A (Native Review Lane)
+## 1. Delegate-Task Review Probes
 
-The review lifecycle is a phase of the same task identity. The transitions, all implemented
-in `hermes_cli/kanban_db.py`, are:
+### 1.1 What review probes are
 
-```
-ready --claim_task--> running --request_review--> review
-                                                   |
-                                                   | claim_review_task (reviewer only)
-                                                   v
-                                            running (review run)
-                                                   |
-                                                   | request_changes
-                                                   v
-                                            ready or todo (implementer reclaims)
-                                                   |
-                                                   | request_review (re-review)
-                                                   v
-                                            review
-                                                   |
-                                                   | [after MAX_ROUNDS]
-                                                   v
-                                            blocked (escalation)
-```
+A **review probe** is a short-lived, same-run parallel subagent spawned via `delegate_task` to investigate *one specific aspect* of the work under review (e.g., "audit this diff for security vulnerabilities", "verify the test plan passes against the reported behavior"). Multiple probes can be spawned in a single `delegate_task` call to run in parallel, each with a narrow, different lens.
 
-Key invariants:
+Review probes are **read-only investigators**. They do not decide the final verdict on the implementation task. Their output is summarized to the parent agent, which then uses that evidence to inform its own `kanban_request_review` handoff (or, if the parent is the reviewer, its `kanban_complete` / `kanban_request_changes` decision).
 
-- The **task identity** (`task_id`) and its run history persist across review rounds.
-- **`request_review()`** persists `{implementer, reviewer}` in the `review_requested` event
-  payload (`kanban_db.py:7717-7726`). On re-review, the implementer omits `reviewer=` and
-  the system recovers provenance from the latest `changes_requested` event
-  (`kanban_db.py:7629-7666`).
-- **`request_changes()`** closes the reviewer run, restores the implementer from the
-  latest `review_requested` payload, and re-applies parent gating via
-  `_landing_status_after_parents()` (`kanban_db.py:7809`). It emits a `changes_requested`
-  event with `{reason, implementer, reviewer, status}`.
-- **Parent re-gating** (`_landing_status_after_parents`, `kanban_db.py:7209`) ensures a
-  task returning from review or rework cannot skip ahead of unfinished parents.
-- **Escalation** at `MAX_ROUNDS` (`kanban_db.py:6676`) moves the task to `blocked` with a
-  `review_limit_exceeded` event — distinct from `request_changes`, which never touches
-  `block_recurrences`.
-- `claim_review_task()` (`kanban_db.py:4806`) atomically transitions `review -> running`
-  with a reviewer provenance guard and re-checks parent dependencies.
+### 1.2 How they differ from Model B (Reviewer-Child Workflow)
 
-All verifier verdicts (`sdlc-review` skill) and tool-handler enforcement
-(`_handle_request_review`, `_handle_request_changes` in `kanban_tools.py`) are scoped to
-Model A.
-
----
-
-## 2. Review Probes via `delegate_task`
-
-### 2.1 What a review probe is
-
-A **review probe** is a short-lived, parallel investigation that an autonomous reviewer
-(or, less commonly, an implementer) dispatches to gather independent evidence — e.g., one
-probe for a security check and another for a correctness check. Probes are spawned with
-`delegate_task` and return a summary to the agent that spawned them.
-
-### 2.2 When to use `delegate_task` probes
-
-Use `delegate_task` for probes when you need **same-run, independent investigation** that
-does not itself need to mutate board state. Each probe gets a different lens (diff-only,
-checkout-and-run, full-context) so their verdicts decorrelate — see the sdlc-review skill's
-lens-variation guidance for parallel fan-outs.
-
-### 2.3 What `delegate_task` probes CANNOT do
-
-`delegate_task` children run in the **same process** as their parent, so inherited
-`HERMES_KANBAN_*` env vars are not proof of dispatcher ownership. The system enforces this
-explicitly:
-
-- `_reject_delegated_child_mutation(tool_name)` (`kanban_tools.py:85`) denies all Kanban
-  mutations (complete, request_changes, block, comment, create, link, claim) from
-  `delegate_task` children. The child may summarize findings to its parent, but the parent
-  (or the dispatcher) must perform the actual board transition.
-- `_is_delegated_child_context()` (`kanban_tools.py:65`) identifies these children via the
-  delegation context module.
-- `_check_kanban_mode()` (`kanban_tools.py:103`) returns `False` for delegated children, so
-  they see zero Kanban tools in their schema.
-
-This is the **correct behavior**: a probe that discovers a security issue should return its
-findings to the parent reviewer, which then routes them via the native review lane
-(`kanban_request_changes`, `kanban_complete`, or `kanban_block`).
-
-### 2.4 How probes interact with the native review lane
-
-The native review lane's provenance chain is **not affected** by delegate_task probes,
-because:
-
-1. Probes do not call `kanban_request_review` or `kanban_request_changes` (they cannot —
-   see §2.3).
-2. The parent reviewer (the agent that spawned the probes) is the sole actor that
-   transitions the real task through `review` and back.
-3. The `review_requested` and `changes_requested` event payloads persist
-   `{implementer, reviewer}` for the same `task_id`, unaffected by parallel probe activity.
-
-**Recommendation:** Treat `delegate_task` probes as evidence-gathering. The formal verdict
-always goes through the native review lane.
-
-### 2.5 This is NOT Model B
-
-Model B (documented in `003-canonical-review-topology.md`) proposes a **persistent,
-separate reviewer-child** task created with `kanban_create(parents=[...])` that lives
-beyond a single run and persists on the board. Review probes via `delegate_task` are:
-
-| Dimension | Model B (rejected) | `delegate_task` probe (current) |
+| Aspect | Review probe (`delegate_task`) | Model B child (`kanban_create`) |
 |---|---|---|
-| Task existence | A separate card on the board, claimable by others | A ephemeral child agent; no board presence |
-| Lifecycle | Persists across runs; has its own `done`/`review` cycle | Lives only for the parent's current run; auto-collected |
-| Board mutations | Attempted via `kanban_request_changes` on the implementer's task (structurally impossible — see `mechanical-verification-reviewer-request-changes.md`) | Not allowed — probes cannot mutate board state |
-| Verdict routing | None (broken by ownership guard) | Parent routes findings through the native review lane |
-| Use case | Parallel persistent review ownership | Same-run parallel evidence gathering |
+| **Lifecycle** | Same process/session as the parent; spawned and reaped within one run. No persistent task record. | Own task card with a unique ID, own body, own run history. Persists across dispatcher ticks. |
+|| **Board mutations** | **Blocked.** `delegate_task` children cannot call any kanban lifecycle tool (`kanban_complete`, `kanban_request_changes`, `kanban_block`, `kanban_comment`, `kanban_create`, `kanban_heartbeat`). See `_reject_delegated_child_mutation()` at `tools/kanban_tools.py:85`. | Not applicable — Model B was rejected, but by design it *would* have board mutations. |
+| **Verdict authority** | None. The probe returns a summary; the parent acts on it. | Would have had its own verdict authority (this is the path Model B takes and which ADR-003 rejected). |
+| **Provenance chain** | The probe is not itself a reviewer on the task card. The formal `review_requested` / `changes_requested` events always record the **parent agent's** identity as the implementer or reviewer. The probe's findings enter the provenance only if the parent cites them in a handoff. | Would have fragmented provenance (own assignee, own events), which is why Model B was rejected. |
+| **Concurrency** | Bounded by `delegation.max_concurrent_children` (default: 10) and `delegation.max_spawn_depth` (default: 1, so probe children cannot spawn their own probes). | Bounded by the board's `max_in_progress` setting. |
+| **Use case** | Independent verification of a specific property *before* or *alongside* requesting review. | N/A (rejected pattern). |
 
-Model B is rejected (ADR-003 §4, `sdlc-review/SKILL.md:29`, `kanban_decompose.py:92-100`).
-`delegate_task` probes are a complementary, non-overlapping tool for evidence gathering —
-not a re-introduction of Model B.
+**Key invariant:** A `delegate_task` review probe **cannot** corrupt the native review lane's provenance chain because it is structurally incapable of writing `review_requested` or `changes_requested` events. The only agent that can transition the implementation task into or out of `review` is the task's own worker (dispatcher-owned, verified via `_is_dispatcher_owned_worker()`) or an orchestrator profile with the kanban toolset.
 
-### 2.6 Guidance summary
+### 1.3 When to use review probes
 
-- Use short-lived `delegate_task` probes for parallel, independent evidence gathering (e.g.,
-  security + correctness) within a single review run.
-- Never rely on a probe to perform the formal verdict — that is the native review lane's
-  job.
-- Give each probe a different lens; identical briefs produce correlated verdicts.
-- A probe's findings return to the parent, which routes them through
-  `kanban_request_changes` / `kanban_complete` / `kanban_block` on the real task.
+Use `delegate_task` probes when:
+
+- **Parallel independent checks are needed** — e.g., one probe audits the security boundary, another runs the integration test suite, a third checks error-handling paths. Give each probe a *different lens* (the `sdlc-review` skill's lens-decorrelation guidance at `sdlc-review/SKILL.md:71` applies here too: vary the inspection rather than duplicating it).
+- **The parent agent is the implementer** and wants to gather evidence *before* calling `kanban_request_review`. The probes are not reviewers; they are evidence gatherers.
+- **The parent agent is the reviewer** (i.e., the task is in `review` and the reviewer worker was spawned by the dispatcher) and wants to parallelize investigation within the single review run. The reviewer may spawn probes via `delegate_task`, but the **final verdict still comes from the reviewer's own `kanban_complete` or `kanban_request_changes` call** on the task card — not from any probe.
+
+### 1.4 When to use the native review lane instead
+
+Always use `kanban_request_review` for the **formal verdict handoff** that routes the task into the `review` status, regardless of whether probes were used. The native review lane is the only path that:
+
+- Persists the `review_requested` event (with implementer provenance).
+- Enables dispatcher budget reservation for the review lane.
+- Triggers `changes_requested` notifications to the implementer via `kanban_watchers.py`.
+- Preserves reviewer-provenance auto-routing for re-reviews.
+
+Review probes are **complementary** to the native lane, never a replacement for it.
+
+### 1.5 Interaction with the provenance chain
+
+The `sdlc-review` skill's lens-decorrelation note (`sdlc-review/SKILL.md:71`) explicitly endorses using `delegate_task` for parallel ad-hoc review fan-outs. The provenance guarantee holds because:
+
+1. **Event ownership** — only the reviewer worker (the task's own `assignee`) calls `kanban_complete` or `kanban_request_changes`, emitting `changes_requested` with `{reason, implementer, reviewer, status}` (`kanban_db.py:7399-7403`). Probes cannot emit these events.
+2. **Reviewer provenance** — `request_review()` reads the latest `changes_requested` event to recover the prior reviewer's profile (`kanban_db.py:7195-7228`). Probe findings are never stored in this field.
+3. **No cross-task mutation** — `_enforce_worker_task_ownership` at `tools/kanban_tools.py:183` prevents a worker scoped to task A from mutating task B, and `_reject_delegated_child_mutation` blocks all kanban tools from delegated children entirely.
+
+**Anti-pattern:** Do not spawn a `delegate_task` child and then ask it to call `kanban_request_changes` on the parent task. The call will be refused at the tool wrapper layer with: *"kanban_request_changes refused: delegate_task child agents are not Kanban run owners."* Return findings as a summary to the parent, and let the parent act.
+
+### 1.6 When the reviewer is itself a probe
+
+If a task is dispatched to the `review` lane and the assigned reviewer is an orchestrator that wants to fan out parallel investigation, the reviewer may spawn `delegate_task` probes and then make its own verdict call. In this case:
+
+- The reviewer's `kanban_complete` or `kanban_request_changes` is the only call that transitions the task card.
+- The reviewer should cite which probe's findings informed the verdict in the `summary`/`reason`.
+- This pattern is **not** Model B. The task identity, event provenance, and run history all remain on the original card — exactly as Model A requires. Model B would have created a *separate* review child card via `kanban_create`; this pattern does not.
 
 ---
 
-## 3. Human-in-the-Loop Review Path
+## 2. Human-in-the-Loop Review Path
 
-### 3.1 When this path applies
+### 2.1 What it is
 
-Normally, the dispatcher auto-spawns a reviewer worker for tasks in the `review` lane:
+When an implementer calls `kanban_request_review`, the task enters the `review` status. The dispatcher normally auto-claims it and spawns an autonomous reviewer worker with the `sdlc-review` skill force-loaded. However, a **human-in-the-loop review** occurs when a human reviewer pulls a `review` task manually — either through the dashboard UI or by running `hermes kanban` CLI commands — instead of the dispatcher spawning an automated reviewer.
 
-- `_dispatch_once_locked` enumerates `review_rows` where `status='review' AND claim_lock IS NULL`
-  (`kanban_db.py:11124`).
-- When `review_dispatch_enabled()` returns `true` (the default), the dispatcher calls
-  `claim_review_task()` and spawns a reviewer worker with the `sdlc-review` skill
-  force-loaded (`kanban_db.py:11436`, `11463-11465`).
-- The review lane reserves a spawn slot so a sustained `ready` backlog cannot starve
-  autonomous reviews (`kanban_db.py:11120-11155`).
-- `_any_spawnable_review()` checks whether each review row has a real Hermes profile
-  assignee (`profile_exists`). Rows assigned to control-plane lanes (e.g., interactive
-  terminals like `orion-cc`) are **non-spawnable** — the dispatcher skips them rather than
-  spawning a subprocess that would crash.
+### 2.2 When it happens
 
-The HITL path applies when **an operator or human manually claims a `review` task** via the
-dashboard or CLI instead of letting the dispatcher auto-spawn a reviewer. This is the same
-mechanism used for control-plane lanes in the `ready` queue: the task sits in `review`
-until a human claims it.
-
-### 3.2 How a human claims a review task
-
-A human pulls a review task by calling `claim_review_task()` directly (via the dashboard
-"Claim" action or `hermes kanban claim --review`). This transitions `review -> running`:
-
-- **Parent re-check:** `claim_review_task` re-checks `_parents_satisfied()` because a parent
-  may have been reopened while the task waited in review. If a parent is not done, the task
-  is demoted to `todo` and a `dependency_wait` event is emitted
-  (`kanban_db.py:4828-4844`).
-- **New run:** A fresh `task_runs` row is created so the human's review is tracked
-  independently from the original worker run (`kanban_db.py:4867-4879`).
-- **Claimer provenance:** The `claimer` parameter (or `_claimer_id()`) is stored in
-  `claim_lock`, just as for `claim_task`.
-
-Because `claim_review_task` does **not** check `HERMES_KANBAN_TASK` ownership (unlike the
-tool handlers), a human claiming via the CLI/dashboard bypasses the worker-ownership
-guard. This is intentional: the human is an explicit operator action, not a worker
-mis-claim.
-
-### 3.3 How a human reviewer acts
-
-Once claimed, a human reviewer acts identically to an autonomous reviewer — the same
-verdict surface applies:
-
-| Verdict | Tool | Effect |
+| Trigger | Dispatcher behavior | Human behavior |
 |---|---|---|
-| **Approve** | `kanban_complete(summary=..., metadata={...})` | Transitions `review -> done`, closes the review run, emits a `completed` event, and promotes dependent children |
-| **Request changes** | `kanban_request_changes(reason="...")` | Transitions back to `ready`/`todo` for the implementer, restores implementer provenance, emits `changes_requested` with `{reason, implementer, reviewer, status}` |
-| **Escalate** | `kanban_block(reason="...")` | Moves to `blocked` status for human escalation |
+| `kanban.review_dispatch` is `True` (default) | If the task's `assignee` is a real profile, the dispatcher calls `claim_review_task()` (`kanban_db.py:4831`) → `_spawn()` (`kanban_db.py:11045`) force-loads the `sdlc-review` skill (`kanban_db.py:11048-11056`) → spawns a reviewer worker. | N/A — auto-review path. |
+| `kanban.review_dispatch` is `False` (human-only board) | The dispatcher **does not enumerate `review_rows`** at all — it guards enumeration behind `review_dispatch_enabled()` (`kanban_db.py:10715`). Review tasks sit in `review` unclaimed until a human pulls them. | Human claims via dashboard or CLI, then acts as reviewer. |
+||| `assignee` is not a real profile (e.g., set to a human handle with no profile) | The dispatcher skips the task in the review loop (`skipped_nonspawnable`, `kanban_db.py:11002-11005`), after the `profile_exists` check. | Human pulls and reviews. |
+| Human intervenes even when auto-dispatch is enabled | The dispatcher's `claim_review_task` uses a CAS guard (`WHERE status = 'review' AND claim_lock IS NULL`); if the human claims first, the dispatcher's atomic claim returns `None` and it skips the task. | Human claims via CLI/dash, reviewer worker spawn is skipped. |
 
-The human reviewer should follow the same evidence-first approach as the `sdlc-review`
-skill: cite file paths, command output, and git state in the summary. A human reviewer is
-not exempt from the verification checklist.
+### 2.3 How a human claims a review task
 
-### 3.4 Key behavioral notes for the human path
+A human reviewer claims a `review` task through the same `claim_review_task()` function the dispatcher uses (`kanban_db.py:4831`). The function:
 
-1. **No auto-spawn after human claim.** Once a human claims a review task, the dispatcher
-   sees `claim_lock IS NOT NULL` on the `review_rows` query and will not re-claim or
-   spawn another reviewer. The human owns the claim until they complete, request changes,
-   block, or the claim expires.
+1. **Re-checks parent dependencies** — if any parent was reopened to non-`done` while the task waited in `review`, it demotes to `todo` with a `dependency_wait` event (`source_status='review'`) and returns `None`.
+2. **Atomically transitions** `review → running` with a CAS guard (`WHERE id = ? AND status = 'review' AND claim_lock IS NULL`).
+3. **Creates a new `task_runs` entry** so the human review run is tracked independently from the original worker run (`task_runs.profile` = the task's `assignee`).
 
-2. **Claim expiry.** A claimed review task that goes silent (no heartbeat within the TTL,
-   default ~4 hours) is reclaimed by `release_stale_claims`, which clears `claim_lock`
-   and returns the task to the `ready` queue (`kanban_db.py` claim expiry logic). The
-   dispatcher then re-evaluates: if `review_dispatch_enabled()` and the assignee is a real
-   profile, it may auto-spawn a reviewer; otherwise it returns to waiting for a human.
+The human reviewer's CLI entry point is `hermes kanban` — there is no dedicated `claim-review` subcommand; claiming is handled internally by the dispatcher. A human reviewer using the dashboard or CLI effectively performs the claim + review as one session. The human reviewer then uses the same verdict tools as an autonomous reviewer (see §2.4).
 
-3. **Operator override for `request_review`.** The `complete_task` function runs the
-   Janus verification gate and PR/integration gate even for direct human review approval
-   (`kanban_db.py:6500-6509`). A human reviewer completing a worktree task must satisfy
-   these gates unless `integration_required` is false on the task.
+### 2.4 Verdict routing for human reviewers
 
-4. **`review_dispatch_enabled()` can disable auto-spawn entirely.** Operators on
-   human-only review boards can set `kanban.review_dispatch: false` in config
-   (`kanban_db.py:10676-10689`). In that mode, all review tasks stay in `review` until a
-   human pulls them — the native review lane is still fully functional; only the
-   auto-spawn is disabled.
+Once claimed (status = `running`, from `review`), the human reviewer has the **same three verdict options** as an autonomous `sdlc-review` worker, documented in `sdlc-review/SKILL.md`:
 
-5. **Human review is not a different verdict model.** A human reviewer uses the exact same
-   `kanban_request_changes`, `kanban_complete`, and `kanban_block` transitions as an
-   autonomous reviewer. The provenance chain (`{implementer, reviewer}` in event payloads)
-   is preserved identically. On re-review, the implementer omits `reviewer=` and the
-   system recovers the human's profile from the `changes_requested` event payload.
+| Verdict | Action | Effect |
+|---|---|---|
+| **Approve** | `kanban_complete` (or CLI: task completes via the normal completion path) | Task transitions `running → done`. Triggers watchers, closes workspace. |
+| **Request changes** | `kanban_request_changes(reason=...)` (or CLI: `request-changes <id> <reason>`) | Review run is closed. Task lands in `ready` or `todo` (via `_landing_status_after_parents`). Reassigns to the original implementer recovered from the `review_requested` event payload. Emits `changes_requested` event and wakes the implementer's notifier. |
+| **Escalate** | `kanban_block(reason=..., kind=...)` | Task transitions to `blocked` with the given reason. Increments `block_recurrences` (unlike `request_changes` which does not). |
 
-### 3.5 Human review vs. Model B
+**Important:** `kanban_request_changes` is **not** a block. It does not increment `consecutive_failures` or `block_recurrences` (`request_changes()` in `kanban_db.py:7289` does not touch either counter, mirroring `unblock_task` — see the deliberate preservation comment at `kanban_db.py:7361`). A task can cycle through review indefinitely without tripping block-loop detection. Review-cycle limits are **not yet implemented** in `config_defaults.py` / `kanban_db.py`; the policy design (opt-in warning threshold + hard cap) is specified in `docs/research/review-loop-policy-spec.md` and `docs/research/review-loop-position-statement.md` but remains a future enhancement. Until then, unlimited review cycles are the default and no auto-block is triggered by repeat `changes_requested` events.
 
-A human pulling a review task is **not** Model B. In Model B, a separate reviewer-child
-card is created as a persistent board entity. In the human HITL path:
+### 2.5 Provenance guarantees for human reviewers
 
-- There is **no separate child task** — the human operates on the *same* task in `review`
-  status.
-- The human does **not** create a new task via `kanban_create`; they claim the existing
-  review slot via `claim_review_task`.
-- The human's verdict uses the **same** `kanban_complete` / `kanban_request_changes`
-  transitions, with the same provenance tracking.
-- Model B was rejected because the decomposed reviewer-child cannot call
-  `kanban_request_changes` on its implementer (ownership guard + cross-task preconditions
-  fail — see `docs/research/mechanical-verification-reviewer-request-changes.md`). The
-  human HITL path does not have this problem because the human operates on the same task
-  identity.
+The human-in-the-loop path provides the **same** provenance guarantees as the autonomous path:
+
+- **`review_requested` event** — records `{implementer, reviewer}` at handoff time. When the human is the reviewer, `reviewer` is the human's profile/handle (the task's `assignee` at claim time).
+- **`changes_requested` event** — records `{reason, implementer, reviewer, status}` on return. For re-reviews, `request_review()` reads the latest `changes_requested` event to recover the original reviewer provenance (`kanban_db.py:7600-7645`), whether that reviewer was an autonomous worker or a human.
+- **`sdlc-review` skill** — a human reviewer using the skill gets the same lens-decorrelation guidance (Round 1: Artifact, Round 2: Execution, Round 3+: Contract). The round count is derived from `changes_requested` event history, visible in `kanban_show` output.
+
+### 2.6 Disabling auto-dispatch for human-only boards
+
+Set `kanban.review_dispatch: false` in `config.yaml` (default `True`, defined in `hermes_cli/config_defaults.py:2908`) or via the `HERMES_KANBAN_REVIEW_DISPATCH` environment variable. When disabled:
+
+| The dispatcher's `_dispatch_once_locked` skips enumeration of `review_rows` entirely — enumeration is guarded by `review_dispatch_enabled()` (`kanban_db.py:10676`); when disabled, `review_rows` stays `[]` and no review budget reservation is applied (`kanban_db.py:11118-11135`). |
+- No review budget reservation is applied.
+- All `review` tasks require a human to manually claim and act.
+
+This is the recommended configuration for boards where human review is the only sanctioned review path (e.g., security-sensitive or compliance-gated work).
 
 ---
 
-## 4. Cross-References
+## 3. Cross-Reference: Verdict Routing Summary
 
-- **Parent ADR:** `docs/decisions/003-canonical-review-topology.md` — adopts Model A as
-  canonical.
-- **sdlc-review skill:** `skills/devops/sdlc-review/SKILL.md` — the canonical "how to
-  review" guide. Verdict routing: `kanban_complete` → approve,
-  `kanban_request_changes` → rework, `kanban_block` → escalate. Round tracking reads
-  `changes_requested` history from the task record. Section "Lens variation for ad-hoc
-  review fan-outs" (`SKILL.md:71-73`) covers assigning different lenses to parallel
-  `delegate_task` probes.
-- **Worker prompt guidance:** `agent/prompt_builder.py` `KANBAN_GUIDANCE` (lines 317-338)
-  instructs implementers to call `kanban_request_review(summary=..., metadata=...,
-  reviewer=<optional-profile>)` and explains that "review is not a block, so repeated
-  review cycles do not trip unblock-loop detection."
-- **Review lifecycle tests:** `tests/hermes_cli/test_kanban_review_lifecycle.py` (1523
-  lines) and `tests/hermes_cli/test_kanban_review_surfaces.py` (435 lines) — cover the
-  full Model A lifecycle, round counting, escalation, ownership transfer, CAS guard, and
-  redaction.
-- **Decomposer rejection of review children:** `hermes_cli/kanban_decompose.py:92-100` and
-  `280-447` — rejects dedicated review-child fan-out from the auto-decomposer.
-- **Delegated child mutation guard:** `tools/kanban_tools.py:85`
-  (`_reject_delegated_child_mutation`) and `tools/kanban_tools.py:65`
-  (`_is_delegated_child_context`).
-- **Mechanical verification of Model B incompatibility:**
-  `docs/research/mechanical-verification-reviewer-request-changes.md`.
-- **Reviewer-request tracing:** `docs/research/kanban-request-changes-trace.md`.
-- **Review topology findings (gaps + test plan):**
-  `docs/research/findings-review-topology.md`.
+All verdict routing — whether the reviewer is autonomous (spawned by the dispatcher) or human (manual claim) — flows through the `sdlc-review` skill's Quick Reference table:
+
+| Verdict | Tool | Terminal action |
+|---|---|---|
+| Approve | `kanban_complete` | Implementation phase is done |
+| Request changes | `kanban_request_changes` | Returns task to original implementer with reason |
+| Escalate | `kanban_block` | Routes to `blocked` for human triage |
+
+The skill is loaded automatically by the review dispatcher for autonomous reviewers (`kanban_db.py:10310-10400` force-loads `sdlc-review` into the reviewer worker's skill set). A human reviewer may load it manually:
+
+```bash
+hermes skills load sdlc-review
+```
 
 ---
 
-## 5. Decision
+## 4. Decision
 
-Both items are resolved:
+**Both remaining uncertainties from ADR-003 are resolved as follows:**
 
-1. **Review probes via `delegate_task`** are an evidence-gathering pattern that complements
-   (does not replace) the native review lane. Probes cannot and should not perform board
-   mutations — they return findings to the parent, which routes the verdict through
-   `kanban_request_review` → native review lane. This is distinct from Model B and is
-   reinforced by the `sdlc-review` skill's lens-variation guidance.
+1. **Parallel review fan-out** is handled via `delegate_task` review probes (short-lived, same-run, read-only parallelism) for evidence gathering. The **formal verdict** always goes through the native review lane (`kanban_request_review` → `review` → `claim_review_task` → reviewer worker → `kanban_complete`/`kanban_request_changes`). This is structurally distinct from Model B: probes cannot mutate the board, cannot emit review events, and have no persistent task identity. The provenance chain is preserved because only the task's own reviewer worker can call verdict tools.
 
-2. **Human-in-the-loop review** is a first-class path: a human claims a `review` task via
-   `claim_review_task`, then uses the same `kanban_complete` /
-   `kanban_request_changes` / `kanban_block` verdict surface as an autonomous reviewer.
-   The provenance chain, round tracking, and parent re-gating are identical. Operators can
-   disable auto-spawn entirely (`kanban.review_dispatch: false`) for human-only boards.
+2. **Human-in-the-loop review** is a first-class path: when a human claims a `review` task (either because `kanban.review_dispatch` is disabled, or because the human claimed it before the dispatcher), the human acts as the reviewer with the full `sdlc-review` skill verdict surface. No separate tool surface is needed — the human uses the same `kanban_complete`, `kanban_request_changes`, and `kanban_block` tools. The dispatcher's CAS guard ensures no double-claim when a human and auto-dispatch race for the same task.
+
+---
+
+## 5. Related Documents
+
+- `docs/decisions/003-canonical-review-topology.md` — Parent ADR (Model A vs Model B decision)
+- `skills/devops/sdlc-review/SKILL.md` — Reviewer workflow, lens variation, verdict routing
+- `docs/research/findings-review-topology.md` — Research findings on review topology and identified gaps
+- `docs/research/review-loop-policy-spec.md` — Review-cycle limits and warning policy
+- `docs/research/rejected-review-semantics-synthesis.md` — `request_changes` semantics and parent re-gating
+- `docs/research/kanban-request-changes-trace.md` — Full call chain for `request_changes`

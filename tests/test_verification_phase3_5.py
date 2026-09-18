@@ -356,7 +356,7 @@ class TestPhase3_5PassScenario:
         report = _run(baseline_repo)
         assert report.overall == "PASS", report.summary
 
-    def test_all_nine_checks_executed(self, baseline_repo: Path) -> None:
+    def test_all_checks_executed(self, baseline_repo: Path) -> None:
         report = _run(baseline_repo)
         executed = set(report.checks.keys())
         expected = {
@@ -368,7 +368,10 @@ class TestPhase3_5PassScenario:
             "untracked",
             "symbols_required",
             "symbols_forbidden",
+            "os_replace",
             "git_diff_check",
+            "data_write_path",
+            "data_file_write_gates",
         }
         assert executed == expected, f"expected {expected}, got {executed}"
 

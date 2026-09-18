@@ -188,11 +188,12 @@ def handle_task_complete(args: list[str]) -> None:
         complete_task(title)
     except ValueError as e:
         msg = str(e)
-        if "Multiple open tasks found" in msg:
+        if "Multiple open tasks found with title" in msg or "open tasks matching title" in msg:
             print(
                 f"Warning: {msg} Refusing to complete to avoid ambiguity. "
-                f"Use 'janus task list' to review duplicates, then complete "
-                f"each entry individually.",
+                f"Use a more specific task ID or line reference, "
+                f"or run 'janus task list' to review and disambiguate "
+                f"the matching entries.",
                 file=sys.stderr,
             )
         else:
