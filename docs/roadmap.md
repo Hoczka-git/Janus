@@ -110,6 +110,14 @@ existing design and planning artifacts in this repository.
   tracking actionable items that do not yet belong to an active task
 - [x] Close the research → finding → decision → action loop by connecting research artifacts with decisions, goals, projects, and follow-up tasks
 - [x] Implement Janus ↔ Hermes execution feedback, including task handoff, execution results, evidence, and resulting state updates
-- [x] Verify the complete Goal → Task → Execution → Completion → Review loop end-to-end, including execution evidence and resulting goal/task state updates
+- [~] Verify the complete Goal → Task → Execution → Completion → Review loop
+  - Status transitions and execution evidence verified.
+  - Remaining: production verification of Completion → Goal Update and Review.
 - [x] Add evidence-based skill tracking linking completed work and project outcomes to career-development goals
 - [x] Add strategic state summaries that surface meaningful changes, neglected goals, stalled work, and recommended next actions
+- [ ] Define the `GoalIntegrityReport` and `GoalIntegrityIssue` domain models. specification in [`docs/design/goal_integrity_audit.md`
+- [ ] Implement deterministic goal/task integrity checks. specification in [`docs/design/goal_integrity_audit.md`
+- [ ] Add `janus goal audit` CLI command. specification in [`docs/design/goal_integrity_audit.md`
+- [ ] Add `janus goal audit --json` output and exit-code semantics
+- [ ] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`
+- [ ] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
