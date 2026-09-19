@@ -28,20 +28,25 @@ rework (`kanban_request_changes`). Model B (Reviewer-Child Workflow) is rejected
 
 **Decision:** The core design (5-phase workflow: sync → implement → verify →
 integrate → complete, fail-stop gates, no shared dev branch, atomic integration)
-is accepted. Caveats: the spec referenced non-existent `hermes_cli/kanban_db.py`;
-the actual completion path is `src/janus/services/tasks.py:complete_task()`.
-Phase 4 (integrator) was absent and must be designed. Phase 3 (verifier) is
-opt-in/contract-based, not default-on.
+is accepted. The full workflow is implemented and enforced in the completion
+path: Phase 1 re-sync at gate time, Phase 3 default-on deterministic pre-completion
+gate, Phase 4 active safe integration, and Phase 5 gating on Phases 1/3/4 via
+`run_completion_gates()` in `complete_task()`. Evidence artifacts
+(`pre_completion_report.json`, `integration_report.json`) are produced.
+
+Caveats (residual): Phase 1 is enforced at gate time (pre-completion) but not
+at task-start time — this is an explicit design choice documented in
+`docs/design/sync_integration_workflow_design.md`. Phase 1 start-time invocation
+remains a separate decision if/when desired.
 
 **Implementation work (linked to implementation task IDs):**
-- `t_021f3833` — Auto-invoke `sync_branch()` at task start (Phase 1); rebase with
-  `--force-with-lease`; route conflicts to `merge-reconciler`.
-- `t_e2f37f8c` — Extend `verification.py` with default-on deterministic checks
-  (Phase 3): working tree clean, `git diff --check`, test re-run after rebase.
-- `t_467d7d4f` — Decide and implement Phase 4 integrator model (merge/push/rollback,
-  `integration_report.json`, structured reason codes).
+- `t_021f3833` — Phase 1 sync primitive (`git_sync.py:sync_branch()`).
+- `t_e2f37f8c` — Phase 3 default-on deterministic checks (`_phase3_pre_completion_gate()`).
+- Phase 4 (active safe integration) + Phase 5 (gated completion) — PR #189
+  (`2a947b8`), branch `wt/t_2f105d50`; implemented in `src/janus/integration.py`
+  (`integrate_task()`) and `src/janus/services/tasks.py` (`run_completion_gates()`).
 - `t_4cd8c17f` — Gate `complete_task()` on Phase 3 + Phase 4 passing (Phase 5).
-  **Depends on `t_467d7d4f`.**
+  **Delivered by PR #189; depends on Phase 4 integration.**
 - `t_9d03b5ad` — Reconcile `kanban_db.py` references with `services/tasks.py`;
   add ADR→actual-file mapping table.
 
@@ -70,5 +75,5 @@ and already implemented. Caveats: the service migration is incomplete —
 | ADR  | Status                  | Rationale                                   |
 | ---- | ----------------------- | ------------------------------------------- |
 | 003  | Accepted                | Model A fully implemented and tested        |
-| 004  | Accepted (w/ caveats)   | Design sound; paths/Phase 3/4 need work     |
+|| 004  | Accepted                | Full workflow implemented; enforced in completion path; Phase 1 start-time invocation is an explicit design choice |
 | 005  | Accepted (on consensus) | Design implemented; migration incomplete    |

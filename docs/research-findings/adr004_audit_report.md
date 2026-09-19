@@ -104,3 +104,31 @@ Ran `is_branch_stale` logic against `wt/t_0bd55de8`:
 ## 7. Bottom line
 
 The codebase has built the Phase 1 primitive and the Phase 3 verifier scaffolding, but neither is wired into the completion path, Phase 4 is entirely absent, and `complete_task()` is a bare markdown edit with no gates. ADR-004 compliance is currently **not achieved** — the primitives exist but the workflow is not enforced. The smallest correct move is to wire `sync_branch()` into the implementation entrypoint (P1), harden the pre-completion gate with deterministic checks (P3), and decide P4's fate: implement an active integration step or update ADR-004 to document the passive-gate trade-off. Evidence artifacts follow from P3/P4 wiring.
+
+---
+
+## 8. Post-PR-189 Status (added 2026-09-19)
+
+PR #189 (`2a947b8`, branch `wt/t_2f105d50`) merged on 2026-09-19 and delivered
+Phase 4 (active safe integration) + Phase 5 (gated completion). As of that merge:
+
+- **Phase 1**: `sync_branch()` still not auto-invoked at task start, but is now
+  called at gate time by `tasks.py:_phase1_resync()` in `run_completion_gates()`.
+  ADR-004 gate-time enforcement is satisfied; start-time invocation remains a
+  documented design choice.
+- **Phase 3**: default-on deterministic pre-completion gate implemented in
+  `tasks.py:_phase3_pre_completion_gate()`: working tree clean, test run,
+  `git diff --check`. Evidence artifact `pre_completion_report.json` generated.
+- **Phase 4**: active integration implemented in `src/janus/integration.py`
+  (`integrate_task()`): fast-forward first, `--no-ff` fallback, post-merge
+  tests on target, push, remote contains check, rollback on failure.
+  `integration_report.json` generated on success.
+- **Phase 5**: `complete_task()` / `complete_janus_task()` gated via
+  `run_completion_gates()`; `CompletionGateError` routes to `kanban_block`
+  via `_handle_gate_block()` in `execution_feedback.py`.
+- **Verification**: 2213 tests pass; 22 gate-specific tests pass;
+  test suite includes end-to-end gate enforcement on the real completion path.
+
+**After PR #189, ADR-004 compliance is achieved** for the enforced completion
+path. The audit report's "bottom line" conclusion (P4 absent, no gates) is
+superseded by this section; the historical gaps in §5 were the input to PR #189.
