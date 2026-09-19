@@ -23,6 +23,10 @@ Hooks two Kanban lifecycle events:
 4. Dispatches to ``execution_feedback.dispatch_completion`` which routes to
    the correct Janus service function (``goals.update_goal_progress``,
    ``tasks.complete_janus_task``, ``milestones.update_milestone_status``).
+   For ``object: task`` linkage, ADR-004 Phase 5 gates (Phase 1 re-sync,
+   Phase 3 verification, Phase 4 integration) are enforced before the Janus
+   task is marked complete.  A gate failure blocks the task (rather than
+   silently completing it) so the implementor can remediate.
 5. Records an audit comment on the completed task describing the outcome.
 
 Directionality: Hermes → Janus.  Janus never calls back into Hermes.
@@ -52,6 +56,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# ADR-004 Phase 5 — CompletionGateError surfaces gate failures from the
+# execution-feedback path so they can be routed to kanban_block (design §6.5).
+# Imported lazily inside the handlers below to avoid a circular / load-order
+# issue: this plugin is loaded by hermes_cli, and janus.services.tasks imports
+# janus.integrations which may not be ready at plugin load time.
 
 
 # Per-task serialization lock for concurrent hook invocations.  Two workers
@@ -137,9 +147,27 @@ def on_task_completed(
     Return values are ignored by the hook dispatcher — this function exists
     purely for its side effects.  It returns the sync result dict (for tests)
     or ``None`` when the task carries no Janus linkage.
+
+    If a :class:`~janus.services.tasks.CompletionGateError` is raised by the
+    Hermes execution-feedback path (``dispatch_completion``), it is treated as
+    a hard gate failure: the task is transitioned to ``blocked`` with
+    ``reason=<gate reason>`` and ``kind="capability"``, a gate-block audit
+    comment is recorded, and the structured ``janus_sync_gated`` event is
+    emitted so the dispatcher surfaces the block.  No completion marker is
+    stamped — the task never reaches ``done``.
     """
+    from janus.services.tasks import CompletionGateError
     try:
         return _run_sync(task_id, board=board, run_id=run_id, summary=summary)
+    except CompletionGateError as gce:
+        # ADR-004 Phase 5: a gate failure must block, never silently complete.
+        _handle_gate_block(task_id, board, gce)
+        return {
+            "status": "blocked",
+            "task_id": task_id,
+            "reason": gce.reason,
+            "error": str(gce),
+        }
     except Exception as exc:  # noqa: BLE001 — observer must never break completion
         logger.warning(
             "janus_sync: error while processing task %s: %s",
@@ -324,6 +352,55 @@ def _handle_sync_conflict(conn, kb, task_id: str, result) -> None:
             task_id, exc, exc_info=True,
         )
 
+
+def _handle_gate_block(
+    task_id: str, board: Optional[str], gate_error: CompletionGateError,
+) -> None:
+    """Block a task for an ADR-004 completion-gate failure (design §6.5).
+
+    A ``CompletionGateError`` raised by the Hermes execution-feedback path means
+    a Phase 1/3/4 gate failed and the task must NOT be marked completed.  This
+    helper transitions the task to ``blocked`` with ``reason=<gate reason>`` and
+    ``kind="capability"`` (matching the sync-conflict routing semantics so a
+    flaky gate cannot be auto-reclaimed into ``running``), records a diagnostic
+    audit comment, and emits a structured ``janus_sync_gated`` event.
+
+    Best-effort on every sub-step: a failure to block or comment must not
+    propagate out of the hook observer (``on_task_completed`` already caught it).
+    """
+    from hermes_cli import kanban_db as kb
+
+    conn = None
+    try:
+        conn = kb.connect(board=board) if board else kb.connect()
+        kb.block_task(
+            conn, task_id,
+            reason=gate_error.reason or "completion_gate_failed",
+            kind="capability",
+        )
+        # Structured event so the dispatcher / dashboard surfaces the gate block.
+        _try_append_sync_event(
+            conn, kb, task_id, "janus_sync_gated",
+            {
+                "domain_object": "task",
+                "reason": gate_error.reason or "completion_gate_failed",
+                "error": str(gate_error),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "janus_sync: block_task(gate_block) failed for %s: %s",
+            task_id, exc, exc_info=True,
+        )
+    finally:
+        if conn is not None:
+            conn.close()
+
+    # Diagnostic audit comment so the implementor sees the gate failure reason.
+    _try_record_error(
+        task_id, board, gate_error,
+        detail="completion_gate_blocked",
+    )
 
 def _try_record_auto_sync_error(
     task_id: str, board: Optional[str], exc: Exception,
