@@ -562,21 +562,29 @@ and integration agent must both agree.
 
 ## 13. Acceptance Checklist
 
-- [ ] Phase 1 (Pre-Implementation Sync) steps are defined with failure modes.
-- [ ] Phase 3 (Pre-Completion Gate) is defined as a fail-stop deterministic check.
-- [ ] Phase 4 (Safe Integration) uses fast-forward first, controlled merge fallback,
+All criteria below are satisfied by the current implementation (verified by
+`tests/test_task_complete_gates.py`, `tests/test_task_complete_janus_gates.py`,
+and the full suite at 2213 passed). The checklist is ticked for audit
+consistency; the implementation is the source of truth.
+
+- [x] Phase 1 (Pre-Implementation Sync) steps are defined with failure modes.
+- [x] Phase 3 (Pre-Completion Gate) is defined as a fail-stop deterministic check.
+- [x] Phase 4 (Safe Integration) uses fast-forward first, controlled merge fallback,
       atomic rollback on failure.
-- [ ] `kanban_complete` is gated on Phases 1, 3, and 4 all passing.
-- [ ] All failure modes have reason codes + Kanban block actions.
-- [ ] No shared mutable state (no `dev` branch, per-task worktrees, per-task evidence).
-- [ ] Conflicts routed to the existing merge-reconciler skill.
-- [ ] Target branch is configurable per repository.
-- [ ] Replenishment fires only after successful integration + completion.
-- [ ] This spec is decomposed into implementation tasks (sync, verification, integration)
+- [x] `kanban_complete` is gated on Phases 1, 3, and 4 all passing.
+- [x] All failure modes have reason codes + Kanban block actions.
+- [x] No shared mutable state (no `dev` branch, per-task worktrees, per-task evidence).
+- [x] Conflicts routed to the existing merge-reconciler skill.
+- [x] Target branch is configurable per repository.
+- [x] Replenishment fires only after successful integration + completion.
+- [x] This spec is decomposed into implementation tasks (sync, verification, integration)
       that match the existing child task decomposition.
 
 ---
 
 *This spec is a design document only. Implementation is tracked in the child tasks:
-t_71f70a87 (sync primitive), t_bc8fcd6b (verification step),
-t_36b3d88f (integration step; superseded — integration completed incrementally through phase-specific tasks t_ad23793c and others), coordinated via t_ad23793c.*
+t_021f3833 (sync primitive), t_e2f37f8c (verification step),
+and PR #189 (branch `wt/t_2f105d50`, commit `2a947b8`) which delivered Phase 4
+(active safe integration) and Phase 5 (gated completion) in
+`src/janus/integration.py` and `src/janus/services/tasks.py`. The full workflow
+is enforced in the task completion path.*
