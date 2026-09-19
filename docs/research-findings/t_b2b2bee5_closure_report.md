@@ -2,7 +2,7 @@
 
 **Parent task:** t_b2b2bee5
 **PR:** #188 (closure, branched from #187 synthesis)
-**CI:** Passed (2x verify SUCCESS)
+**CI:** Passed (verify SUCCESS)
 **Date:** 2026-09-19
 
 ## Summary
@@ -33,5 +33,6 @@ Completion → Goal-update: the execution-feedback pipeline (`janus_sync` listen
 ## Branch
 
 `janus/t_b2b2bee5-wykonaj-e2e-runtime-verification-goal-ta`
-- Based on PR #187 (synthesa)
-- Currently at HEAD = origin/master (39d9c0f)
+- Based on PR #187 (synthesis from t_cbe72f8a)
+- Merged into origin/master via PR #188 (CI: verify SUCCESS)
+- Final commit: 486bf77 (fix PR reference 187→188)
