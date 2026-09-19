@@ -1,8 +1,9 @@
 """Gated completion for Janus task service (ADR-004 Phase 5).
 
-Wires Phase 3 (pre-completion verification) and Phase 4 (safe integration)
-gates into ``complete_task()`` so a task cannot be marked done without
-passing both gates, and produces the evidence artifacts specified by ADR-004.
+Wires Phase 1 (pre-completion re-sync), Phase 3 (pre-completion verification),
+and Phase 4 (safe integration) gates into ``complete_task()`` /
+``complete_janus_task()`` so a task cannot be marked done without passing all
+applicable gates, and produces the evidence artifacts specified by ADR-004.
 """
 
 from __future__ import annotations
@@ -80,6 +81,11 @@ GATE_DIFF_CHECK_FAILED = "pre_completion_diff_check_failed"
 GATE_INTEGRATION_NOT_DONE = "integration_not_done"
 GATE_INTEGRATION_FAILED = "integration_failed"
 GATE_NO_GIT_REPO = "no_git_repo"
+# Phase 1 re-sync conflict at gate time (mirrors git_sync.SYNC_CONFLICT so the
+# Kanban block reason is consistent across both trigger points).
+GATE_SYNC_CONFLICT = "sync_conflict"
+# Phase 3 extension — contract-based verification failure.
+GATE_CONTRACT_VERIFICATION_FAILED = "contract_verification_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +147,69 @@ def _target_branch(root: Path) -> Optional[str]:
     return detect_target_branch(str(root))
 
 
+def _phase1_resync(git_root: Path) -> Optional[CompletionGateResult]:
+    """Run Phase 1 re-sync (fetch + rebase if stale + re-push).
+
+    Implements ADR-004 §4.3 step 3: "Final fetch + re-sync (if target advanced,
+    loop back to Phase 1)".  Ensures Phase 3 tests run against the most current
+    target branch.
+
+    Returns ``None`` when the re-sync proceeds normally (or is not applicable),
+    or a ``CompletionGateResult`` (always with ``ok=False`` for a conflict) when
+    the re-sync must block completion.
+
+    * ``SYNC_CONFLICT`` → ``ok=False``, ``GATE_SYNC_CONFLICT`` (blocks; route to
+      ``merge-reconciler``).
+    * Environmental failures (``TARGET_BRANCH_MISSING``, ``SYNC_PUSH_FAILED``,
+      ``REBASE_DIVERGED``) → logged as a warning, ``None`` returned (Phase 4's
+      ``TARGET_NOT_INTEGRATED`` check will catch a genuinely stale branch).
+    * ``ALREADY_UP_TO_DATE`` / clean success → ``None`` (proceed to Phase 3).
+    """
+    # Only re-sync branches that have an origin remote.  Local-only repos
+    # (e.g. the temp git repos used by tests) cannot fetch/push — Phase 4
+    # skips itself for such repos, so Phase 1 re-sync is equally N/A.
+    if not _has_origin_remote(git_root):
+        return None
+
+    try:
+        from janus.git_sync import sync_branch, SYNC_CONFLICT
+    except ImportError:
+        # git_sync is part of the janus package; if it's unavailable the
+        # re-sync cannot run.  Log and continue — Phase 4 will surface
+        # any integration problem.
+        logger.warning(
+            "Phase 1 re-sync: git_sync primitive unavailable; skipping re-sync"
+        )
+        return None
+
+    result = sync_branch(str(git_root))
+    if result.success:
+        return None
+
+    # A conflict at gate time is a hard block — the implementor must not
+    # self-resolve against independently developed target work.
+    if result.reason == SYNC_CONFLICT:
+        conflicts = result.conflicts or []
+        conf_str = ", ".join(conflicts) if conflicts else "unknown files"
+        return CompletionGateResult(
+            ok=False,
+            blocked_reason=GATE_SYNC_CONFLICT,
+            blocked_message=(
+                f"Phase 1 re-sync conflict on {result.task_branch!r} "
+                f"vs target {result.target_branch!r}: {conf_str}. "
+                f"Route to merge-reconciler."
+            ),
+            pre_completion_report=None,
+        )
+
+    # Environmental failures (target missing, push rejected, rebase diverged):
+    # record as a warning and let Phase 3 / Phase 4 surface the real problem.
+    logger.warning(
+        "Phase 1 re-sync soft-failed (%s): %s", result.reason, result.error,
+    )
+    return None
+
+
 def _head_sha(root: Path) -> Optional[str]:
     return _git_out(root, ["rev-parse", "HEAD"]) or None
 
@@ -187,18 +256,56 @@ def _write_pre_completion_report(
 # ---------------------------------------------------------------------------
 
 
+def _find_task_contract(git_root: Path, branch: Optional[str]) -> Optional[Path]:
+    """Discover an optional task-specific implementation contract file.
+
+    Implements ADR-004 §4.4 (contract-verification extension): if a contract
+    file exists for the current task branch, it is loaded and run through
+    the full ``run_verification()`` contract-based verifier (14 check types)
+    as an extended Phase 3 step.  When no contract file is found the step is
+    a no-op (contract verification is opt-in — D-08).
+
+    Discovery convention: `contracts/<branch>.yaml` at the repository root,
+    where ``<branch>`` is the current task branch name (e.g.
+    ``wt/t_7d5a13e2``).
+
+    Args:
+        git_root: Repository root (the path to search ``contracts/`` under).
+        branch: Current task branch name from ``git rev-parse``.
+
+    Returns:
+        Path to the contract file, or ``None`` if none exists.
+    """
+    if not branch:
+        return None
+    candidate = git_root / "contracts" / f"{branch}.yaml"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def run_completion_gates(
     root: Optional[Path] = None,
     *,
     test_command: str = "uv run pytest tests/",
     integration_report_path: Optional[Path] = None,
 ) -> CompletionGateResult:
-    """Run ADR-004 Phase 3 + Phase 4 gates and return the outcome.
+    """Run ADR-004 Phase 1 (re-sync) + Phase 3 + Phase 4 gates and return the outcome.
 
+    Phase 1 re-sync (pre-completion, best-effort):
+        - ``sync_branch()`` fetches the remote target, rebases the task branch
+          onto it (if stale), and re-pushes. ``SYNC_CONFLICT`` blocks; other
+          environmental failures are logged and Phase 4 catches any stale branch.
     Phase 3 (pre-completion verification):
         - ``check_working_tree_clean``
         - ``check_git_diff_check``
         - ``check_tests_pass_after_rebase``
+
+    Phase 3 extension (contract-based verification, opt-in):
+        - If ``contracts/<current_branch>.yaml`` exists, run the full
+          ``run_verification()`` verifier (all 14 contract checks).  Failure
+          blocks with ``GATE_CONTRACT_VERIFICATION_FAILED``.  When no
+          contract file exists, the step is a no-op.
 
     Phase 4 (safe integration):
         - If the current branch's HEAD is already contained in the remote
@@ -237,6 +344,14 @@ def run_completion_gates(
 
     report_dir = integration_report_path or _default_report_dir(git_root)
 
+    # ── Phase 1 re-sync: fetch target, rebase task branch if stale, re-push.
+    # This mirrors the auto-sync performed on task claim (ADR-004 §4.3 step 3:
+    # "Final fetch + re-sync (if target advanced, loop back to Phase 1)") so
+    # that Phase 3 tests run against the most current target branch.
+    _resync_result = _phase1_resync(git_root)
+    if _resync_result is not None:
+        return _resync_result
+
     # ── Phase 3: pre-completion verification ──────────────────────────────
     from janus.verification import DefaultCheckConfig
 
@@ -271,11 +386,43 @@ def run_completion_gates(
             pre_completion_report=pre_report,
         )
 
-    # ── Persist Phase 3 evidence artifact before Phase 4 ─────────────────
+    # ── Persist Phase 3 evidence artifact before Phase 3 extension ────────
     _write_pre_completion_report(pre_report, report_dir)
 
-    # ── Phase 4: safe integration ─────────────────────────────────────────
+    # ── Phase 3 extension: contract-based verification (ADR-004 §4.4) ─────
+    # Discover the task branch and an optional implementation contract.  If a
+    # contract file exists (``contracts/<branch>.yaml``), run the full
+    # ``run_verification()`` verifier as an extended Phase 3 step.  Contract
+    # verification is opt-in (D-08): no contract file → no-op, proceed to Phase 4.
     branch = _current_branch(git_root)
+    contract_path = _find_task_contract(git_root, branch)
+    if contract_path is not None:
+        try:
+            contract_report = run_verification(contract_path)
+        except Exception as exc:  # pragma: no cover - contract load error
+            return CompletionGateResult(
+                ok=False,
+                blocked_reason=GATE_CONTRACT_VERIFICATION_FAILED,
+                blocked_message=(
+                    f"Contract verification failed: could not load "
+                    f"{contract_path.name}: {exc}"
+                ),
+                pre_completion_report=pre_report,
+                integration_result=None,
+            )
+        if not contract_report.is_pass:
+            return CompletionGateResult(
+                ok=False,
+                blocked_reason=GATE_CONTRACT_VERIFICATION_FAILED,
+                blocked_message=(
+                    f"Contract verification failed: "
+                    f"{len(contract_report.failures)} check(s) failed. "
+                    f"See {contract_path}."
+                ),
+                pre_completion_report=contract_report,
+            )
+
+    # ── Phase 4: safe integration ─────────────────────────────────────────
     if branch is None:
         # Detached HEAD or no branch — integration not applicable in this
         # invocation; the caller is responsible for ensuring integration

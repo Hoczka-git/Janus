@@ -622,6 +622,29 @@ def _parse_janus_domain_simple(yaml_block: str) -> dict | None:
 
 # ── Dispatch helpers ──────────────────────────────────────────────────────────
 
+
+
+def _task_is_open(tasks_path, title: str) -> bool:
+    """Return True if *title* matches an **open** (unchecked) task line.
+
+    Used by the Hermes execution-feedback path as the idempotency guard for
+    ADR-004 gate enforcement (design §6.4 / D-04): gates only run when the
+    Janus task is currently ``- [ ]``.  Already-completed (``- [x]``) tasks are
+    idempotent re-evidence updates and must NOT re-run gates.
+    """
+    try:
+        content = tasks_path.read_text(encoding="utf-8")
+    except (OSError, AttributeError):
+        return False
+    for line in content.splitlines():
+        if line.startswith("- [ ] "):
+            task_title = line[len("- [ ] "):]
+            task_title = task_title.split(" | ", 1)[0] if " | " in task_title else task_title
+            if task_title.strip() == title.strip():
+                return True
+    return False
+
+
 def dispatch_completion(
     metadata: JanusDomainMetadata,
     evidence: EvidencePackage,
@@ -648,7 +671,27 @@ def dispatch_completion(
             skill_name=getattr(metadata, "skill_name", None),
         )
     elif metadata.object == "task":
-        from janus.services.tasks import complete_janus_task
+        from janus.services.tasks import (
+            complete_janus_task, run_completion_gates, CompletionGateError,
+        )
+        import janus.services.tasks as _tasks_mod
+
+        # ── ADR-004 Phase 5 enforcement for the Hermes execution-feedback path
+        # ──
+        # Only enforce gates when the Janus task is currently OPEN (``- [ ]``)
+        # and lives inside a git repository.  Already-completed tasks are
+        # idempotent re-evidence updates (the branch is already integrated),
+        # and non-git tasks have no integration to verify.  This preserves the
+        # idempotency contract documented in tasks.py:complete_janus_task.
+        if _task_is_open(_tasks_mod.TASKS_PATH, metadata.title):
+            git_root = _tasks_mod._find_git_root(_tasks_mod.TASKS_PATH.parent)
+            if git_root is not None:
+                gate_result = run_completion_gates(root=git_root)
+                if not gate_result.ok:
+                    raise CompletionGateError(
+                        reason=gate_result.blocked_reason or "unknown",
+                        message=gate_result.blocked_message or "Completion gate blocked",
+                    )
         results["task"] = complete_janus_task(
             title=metadata.title,
             evidence=evidence_dict,

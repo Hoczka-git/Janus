@@ -281,6 +281,69 @@ class TestTaskDispatch:
 
 
 # ---------------------------------------------------------------------------
+# ADR-004 Phase 5 gate enforcement on the Hermes path (T2 tests)
+# ---------------------------------------------------------------------------
+class TestGateBlockRouting:
+    """When dispatch_completion raises CompletionGateError (Hermes path),
+    on_task_completed must route it to kanban_block (design §6.5) instead of
+    silently logging it as a generic error."""
+
+    def test_gate_failure_blocks_task(self, conn, plugin_module, tmp_path, monkeypatch):
+        """A CompletionGateError from dispatch_completion blocks the task."""
+        _setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature X\n")
+        from janus.services.tasks import (
+            CompletionGateError, GATE_WORKING_TREE_NOT_CLEAN,
+        )
+        tid = _create_task(
+            conn, title="Gate task", body=_JANUS_DOMAIN_TASK,
+            workspace_kind="worktree",
+            workspace_path=str(tmp_path),
+        )
+
+        with mock.patch(
+            "janus.services.execution_feedback.dispatch_completion",
+            side_effect=CompletionGateError(
+                GATE_WORKING_TREE_NOT_CLEAN,
+                "Pre-completion gate failed: working tree is not clean",
+            ),
+        ):
+            result = plugin_module.on_task_completed(
+                tid, board="default", run_id=1, summary="Done",
+            )
+
+        assert result is not None
+        assert result["status"] == "blocked"
+        assert result["reason"] == GATE_WORKING_TREE_NOT_CLEAN
+
+        # The task should be in 'blocked' status in the DB.
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert task.status == "blocked"
+        # And an audit comment should have been recorded.
+        comments = kb.list_comments(conn, tid)
+        assert any("completion_gate_blocked" in c.body for c in comments)
+
+    def test_gate_failure_does_not_stamp_sync_marker(self, conn, plugin_module, tmp_path, monkeypatch):
+        """A gate failure must NOT stamp the janus_sync_completed_at marker —
+        the task must remain retryable."""
+        _setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature X\n")
+        tid = _create_task(conn, title="Gate task 2", body=_JANUS_DOMAIN_TASK)
+
+        from janus.services.tasks import CompletionGateError, GATE_TESTS_FAILED
+        with mock.patch(
+            "janus.services.execution_feedback.dispatch_completion",
+            side_effect=CompletionGateError(
+                GATE_TESTS_FAILED,
+                "Pre-completion gate failed: tests did not pass after rebase",
+            ),
+        ):
+            plugin_module.on_task_completed(tid, board="default", run_id=1, summary="Done")
+
+        # The sync marker must NOT be present — the task should be retryable.
+        assert kb.janus_sync_already_processed(conn, tid) is False
+
+
+# ---------------------------------------------------------------------------
 # Milestone dispatch
 # ---------------------------------------------------------------------------
 class TestMilestoneDispatch:
