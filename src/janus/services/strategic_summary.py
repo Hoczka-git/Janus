@@ -1187,6 +1187,7 @@ def _load_task_recommendations(
     try:
         from janus.integrations.markdown_tasks import load_tasks
         from janus.services.recommendations import recommend_tasks
+        from janus.services.weekly_review import _read_completed_task_titles
 
         tasks = load_tasks()
         completed = set(
@@ -1261,6 +1262,7 @@ def create_strategic_summary(
     if not open_task_titles or not all_task_titles:
         try:
             from janus.integrations.markdown_tasks import load_tasks
+            from janus.services.weekly_review import _read_completed_task_titles
 
             tasks = load_tasks(
                 trace_id=trace_id
