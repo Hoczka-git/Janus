@@ -482,5 +482,127 @@ class TestEndToEndFailSafe:
         assert any("Janus on fire" in c.body for c in audit)
 
 
+# ---------------------------------------------------------------------------
+# End-to-end: goal handoff → skill_name + skill_evidence via full hook path
+# ---------------------------------------------------------------------------
+class TestEndToEndGoalSkillEvidence:
+    """AC6 verification (from task_goal_evidence_to_skill_evidence.md): a
+    Hermes Kanban task carrying janus_domain.skill_name completes through the
+    real kanban_task_completed lifecycle hook, and the goal ends up with both
+    skill_name set and skill_evidence populated — not just recent_activity.
+
+    This is the only test class that exercises the full insertion path from
+    hook fire through dispatch_completion into update_goal_progress's
+    skill_name-aware branch, then reloads goals.md to confirm persistence.
+    """
+
+    def _janus_domain_field(self, title, object="goal", skill_name="Python"):
+        """janus_domain frontmatter for a goal task with skill_name."""
+        return (
+            "---\n"
+            "janus_domain:\n"
+            f"  object: {object}\n"
+            f"  title: {title!r}\n"
+            f"  skill_name: {skill_name!r}\n"
+            "---\n"
+            f"Task work for {title!r}.\n"
+        )
+
+    def test_skill_name_and_skill_evidence_propagate_via_hook(
+        self, conn, janus_sync_callback, tmp_path, monkeypatch,
+    ):
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n"
+            "## Goal: Skill Evidence Goal\n"
+            "Status: active\n"
+            "# noqa: E501",
+        )
+        tid = _create_task(conn, title="Skill E2E task", body=self._janus_domain_field(
+            "Skill Evidence Goal", skill_name="Python",
+        ))
+
+        kb.complete_task(conn, tid, result="done", summary="Learned Python")
+
+        # ── Goal loaded back from markdown ──
+        from janus.integrations.markdown_goals import load_goals
+        goal = load_goals()[0]
+        assert goal.skill_name == "Python", (
+            "skill_name should be set on the goal via the full hook path"
+        )
+        assert goal.skill_evidence is not None, (
+            "skill_evidence list should be populated via the full hook path"
+        )
+        assert len(goal.skill_evidence) == 1, (
+            "one evidence entry expected from one completed task"
+        )
+        entry = goal.skill_evidence[0]
+        assert entry["task_id"] == tid
+        assert entry["summary"] == "Learned Python"
+
+    def test_skill_evidence_idempotent_on_re_completion_via_hook(
+        self, conn, janus_sync_callback, tmp_path, monkeypatch,
+    ):
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n"
+            "## Goal: Skill Evidence Goal\n"
+            "Status: active\n"
+            "# noqa: E501",
+        )
+        tid = _create_task(conn, title="Skill E2E task", body=self._janus_domain_field(
+            "Skill Evidence Goal", skill_name="Python",
+        ))
+
+        kb.complete_task(conn, tid, result="done", summary="Learned Python")
+
+        # Re-complete the same task_id — must not double the entry.
+        kb.complete_task(conn, tid, result="done", summary="Learned Python again")
+
+        from janus.integrations.markdown_goals import load_goals
+        goal = load_goals()[0]
+        assert goal.skill_name == "Python"
+        assert goal.skill_evidence is not None
+        assert len(goal.skill_evidence) == 1, (
+            "re-completion must be idempotent in skill_evidence too"
+        )
+        # The re-entrancy guard blocks the second dispatch, so the summary
+        # keeps the first completion's value.
+        assert goal.skill_evidence[0]["summary"] == "Learned Python"
+
+    def test_skill_name_mismatch_keeps_recent_activity_only(
+        self, conn, janus_sync_callback, tmp_path, monkeypatch,
+    ):
+        """When the goal already has a different skill, evidence stays in
+        recent_activity but not in skill_evidence (warning path)."""
+        _setup_goals(
+            tmp_path, monkeypatch,
+            "# Goals\n\n"
+            "## Goal: Mismatched Skill Goal\n"
+            "Status: active\n"
+            "Skill: Rust\n"
+            "# noqa: E501",
+        )
+        tid = _create_task(conn, title="Mismatched task", body=self._janus_domain_field(
+            "Mismatched Skill Goal", skill_name="Python",
+        ))
+
+        kb.complete_task(conn, tid, result="done", summary="Used Python")
+
+        from janus.integrations.markdown_goals import load_goals
+        goal = load_goals()[0]
+        assert goal.skill_name == "Rust", (
+            "existing skill must not be overwritten on mismatch"
+        )
+        assert len(goal.recent_activity) == 1, (
+            "activity entry still recorded"
+        )
+        assert goal.skill_evidence is None or (
+            len(goal.skill_evidence) == 0
+        ), (
+            "skill_evidence must not receive mismatched evidence"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
