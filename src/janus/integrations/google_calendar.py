@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from janus._log import emit
+from janus.integrations.atomic_io import atomic_write
 from janus.models.event import Event
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -39,7 +40,7 @@ def get_calendar_service():
         )
 
         credentials = flow.run_local_server(port=0)
-        TOKEN_PATH.write_text(credentials.to_json())
+        atomic_write(TOKEN_PATH, credentials.to_json())
 
     return build(
         "calendar",

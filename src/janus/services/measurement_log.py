@@ -96,8 +96,4 @@ def find_entries_since(
     ]
 
 
-def append_entry(path: Path, entry: MeasurementEntry) -> None:
-    """Append a single entry to the JSONL file. Creates file if missing."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
-        f.write(json.dumps(entry.to_json()) + "\n")
+

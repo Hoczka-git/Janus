@@ -32,6 +32,7 @@ from janus.git_sync import (
     detect_target_branch,
     detect_task_branch,
 )
+from janus.integrations.atomic_io import atomic_write
 
 # ── Reason codes (mirror docs/design/sync_integration_workflow_design.md §5.1 ──
 
@@ -529,9 +530,9 @@ def _write_report(
         path = Path(report_path)
         path.mkdir(parents=True, exist_ok=True)
         report_file = path / "integration_report.json"
-        report_file.write_text(
+        atomic_write(
+            report_file,
             json.dumps(report, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
         result._report_path = report_file  # type: ignore[attr-defined]
 

@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from janus.integrations.atomic_io import read_modify_write
 from janus.models.metric_snapshot import MetricSnapshot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -111,9 +112,6 @@ def append_metric_snapshot(
         path: Override the history file path (used by tests).
     """
     history_path = path if path is not None else METRIC_HISTORY_PATH
-    should_write_header = not history_path.exists()
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-
     line = (
         f"# {snapshot.timestamp.isoformat()} | "
         f"{snapshot.goal_title} | "
@@ -122,11 +120,14 @@ def append_metric_snapshot(
         f"{snapshot.source}"
     )
 
-    with history_path.open("a") as f:
-        if should_write_header:
-            for h in _HEADER_LINES:
-                f.write(h + "\n")
-        f.write(line + "\n")
+    def _append(current: str) -> str:
+        if not current.strip():
+            header = "\n".join(_HEADER_LINES) + "\n"
+            return header + line + "\n"
+        base = current if current.endswith("\n") else current + "\n"
+        return base + line + "\n"
+
+    read_modify_write(history_path, _append)
 
     logger.debug(
         "Appended metric snapshot for goal %s: %s=%.2f (%s)",
