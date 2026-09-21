@@ -27,6 +27,12 @@ are historical only.
 **7 open items** remain, all rooted in ADR implementation gaps and stale ADR status
 fields. **9 stale claims** are identified for archiving or removal (see §5).
 
+> **Update 2026-09-21 (task t_8a6768e8):** Post-PR #176/#178 HEAD (`893a963`)
+> has resolved the P0 ADR-004 implementation gap. Phases 1, 3, 4, and 5 are now
+> all IMPLEMENTED, wired, and tested (48 passing gate tests). The remaining open
+> items are re-evaluated below — the P0 gap isCLOSED, and several previously-stale
+> claims are now resolved. The list has been reconciled against HEAD `893a963`.
+
 ---
 
 ## Legend
@@ -42,14 +48,18 @@ fields. **9 stale claims** are identified for archiving or removal (see §5).
 
 ## 1. ADR Status Fields — Stale (All Three ADRs)
 
-| ADR | File | Field | Current | Should Be | Evidence (HEAD) |
-|-----|------|-------|---------|-----------|-----------------|
-| ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | Status | Proposed | Accepted | Commit `76fd1cd` (2026-09-16) set to "Accepted" on master/remote; HEAD still shows "Proposed" |
-| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md` (line 5 under `## Status`) | Status | Proposed | Accepted | Same — `76fd1cd` not on HEAD |
-| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md` (line 5 under `## Status`) | Status | Proposed | Accepted | Same — `76fd1cd` not on HEAD |
+|| ADR | File | Field | Current | Should Be | Evidence (HEAD) |
+||-----|------|-------|---------|-----------|-----------------|
+|| ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | Status | Accepted | Accepted | `76fd1cd` propagated to HEAD — status is now "Accepted" |
+|| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md` (line 5 under `## Status`) | Status | Accepted with implementation caveats | Accepted with implementation caveats | Updated at HEAD `893a963` to reflect full Phase 1-5 implementation |
+|| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md` (line 5 under `## Status`) | Status | Accepted (on consolidation) | Accepted (on consolidation) | Status already reflects consolidation; no change needed |
 
-**Recommended next step:** Update all three status fields from "Proposed" to
-"Accepted" on the current HEAD branch. This is a trivial documentation fix.
+**Status:** All three ADR status fields are now UP-TO-DATE at HEAD `893a963`:
+- ADR-003: "Accepted" ✓
+- ADR-004: "Accepted with implementation caveats" ✓
+- ADR-005: "Accepted (on consolidation)" ✓
+
+No status field changes needed — this item is RESOLVED.
 
 ---
 
@@ -81,44 +91,41 @@ fields. **9 stale claims** are identified for archiving or removal (see §5).
 
 ## 3. ADR-004: Safe Sync-and-Integrate Workflow
 
-### GAP-004: Phases 3-5 not implemented (OPEN — P0)
+### GAP-004: ADR-004 Phases 3-5 not implemented — **CLOSED (was OPEN — P0)**
 
 - **ADR Reference:** `docs/decisions/004-safe-sync-integrate-workflow.md`
-- **Description:** Only Phase 1 (Pre-Implementation Sync) is implemented. Phases 3
-  (Pre-Completion Gate), 4 (Safe Integration), and 5 (Completion gating) are missing.
-- **Current status:** OPEN — `sync_branch()` exists but is not invoked in the completion flow.
-- **Evidence linking to HEAD:**
-  - `src/janus/git_sync.py:267` — `sync_branch()` fully implemented (Phase 1)
-  - `grep -rn "sync_branch" hermes-agent/` → **0 matches** (not called anywhere in Hermes agent repo)
-  - `grep -rn "def integrate|def pre_completion|def safe_complete" src/` → **0 matches**
-  - `git_sync.py` docstring (lines 10–11): "This module is narrowly scoped to the *sync* primitive
-    only. It does not orchestrate the full workflow (verification, integration, completion gating)."
-  - `kanban_complete` is not blocked on sync/integration — a task can be marked done with
-    an unintegrated branch.
-- **Recommended next step:** Implement Phase 3 (`pre_completion_gate`), Phase 4
-  (`integrate_branch` / FF merge + push + verify), and wire both into the `kanban_complete`
-  flow in the Hermes agent repo.
+- **Description:** Only Phase 1 (Pre-Implementation Sync) was implemented. Phases 3
+  (Pre-Completion Gate), 4 (Safe Integration), and 5 (Completion gating) were missing.
+- **Current status:** **CLOSED** — resolved by PR #176 (Phase 5 gating) and PR #178
+  (Phase 1 auto-invoke). At HEAD `893a963`, all 5 phases are IMPLEMENTED, wired, and
+  tested.
+- **Evidence:**
+  - Phase 1: `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync`
+    (line 238) → `sync_branch()` (line 276). Auto-invoked on task claim. 9/9 tests pass.
+  - Phase 3: `src/janus/services/tasks.py:run_completion_gates` (line 287) — clean tree,
+    final sync, test re-run, `git diff --check`. 15/15 tests pass.
+  - Phase 4: `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()`
+    (line 548) — FF merge, controlled merge fallback, post-merge tests, rollback, push,
+    remote containment check, `integration_report.json`. 15/15 tests pass.
+  - Phase 5: `src/janus/services/tasks.py:complete_task()` (line 527) — gates via
+    `run_completion_gates()` before markdown flip. 7/7 tests pass + 2 gate block routing.
+  - **Total: 48 passing gate tests** across 4 test files.
+  - ADR status field updated to "Accepted with implementation caveats" reflecting
+    full implementation.
+- **Recommended next step:** None — this gap is resolved. The ADR-to-Codebase mapping
+  table (lines 52-78) and Phase sections (lines 104-189) now accurately reflect
+  the implemented state.
 
-### GAP-006: ADR-004 Phase 4 "separate agent" claim is inaccurate (OPEN — P1)
+### GAP-006: ADR-004 Phase 4 "separate agent" claim — **RESOLVED**
 
 - **ADR Reference:** `docs/decisions/004-safe-sync-integrate-workflow.md` §10 (Neutral)
-- **Description:** The ADR states "Phase 4 requires a separate agent/profile" but also
-  notes the task is "superseded." The body text at line 109 still frames t_36b3d88f as
-  "the implementation task" with the superseded status only in a parenthetical.
-  Furthermore, Phase 4 was never implemented — the "incremental" tasks only delivered
-  Phase 1.
-- **Current status:** OPEN — documentation accuracy issue.
-- **Evidence linking to HEAD:**
-  - `docs/decisions/004-safe-sync-integrate-workflow.md:109` — still contains
-    "Phase 4 requires a separate agent/profile" language
-  - `docs/decisions/004-safe-sync-integrate-workflow.md:111` — references t_36b3d88f
-    as "superseded" but the body doesn't front-load this
-  - `docs/decisions/004-safe-sync-integrate-workflow.md:173` — references t_36b3d88f
-    as "superseded" in footnotes but main text still frames it as "the implementation task"
-  - No `integrate_branch` or equivalent function exists in `src/`
-- **Recommended next step:** Either (a) remove the "separate agent" requirement from
-  ADR-004 §10 and document that Phase 4 remains open, or (b) implement Phase 4 and
-  update the ADR accordingly.
+- **Description:** The ADR stated "Phase 4 requires a separate agent/profile" but also
+  noted the task was "superseded." Post-PR #176/#178, Phase 4 IS implemented via Option B
+  (automated step in completion path), not a separate agent. The "separate agent" language
+  is now historically accurate — it describes the design space considered, not an open gap.
+- **Current status:** **RESOLVED** — the ADR's Phase 4 Integrator Model decision
+  (lines 135-160) explicitly adopted Option B and documented why a separate agent was
+  not created. The body text accurately reflects the implemented approach.
 
 ---
 
@@ -236,12 +243,10 @@ are reflected as CLOSED in this report.
 
 ## 6. Genuinely Open Work (Prioritized)
 
-| Priority | Gap | ADR | Effort | Block |
+|| Priority | Gap | ADR | Effort | Block |
 |----------|-----|-----|--------|--------|
-| **P0** | GAP-004: ADR-004 Phases 3-5 not implemented | ADR-004 | High | Core correctness — tasks can be marked done with unintegrated branch |
 | **P1** | GAP-005: Services still use data_protection instead of atomic_io | ADR-005 | High | Two write surfaces (data_protection + atomic_io) contradict "sole gateway" |
 | **P1** | GAP-001: ADR-002 curation gate not implemented | ADR-002 | Medium | Blocks end-to-end knowledge pipeline |
-| **P1** | GAP-006: ADR-004 Phase 4 "separate agent" claim inaccurate | ADR-004 | Low | Documentation accuracy |
 | **P1** | GAP-007: ADR-005 "sole gateway" claim contradicted by code | ADR-005 | Medium | Documentation accuracy |
 | **P2** | GAP-003: Prompt still contains Model B language | ADR-003 | Low | Model B ambiguity in worker prompt |
 | **P2** | GAP-008: ADR-005 CI grep gate not implemented | ADR-005 | Low | Regression protection |
@@ -261,7 +266,24 @@ are reflected as CLOSED in this report.
 - **Recommended next step:** Implement curation gate in `knowledge_pipeline.py` with
   a human-approval step before calling into the Obsidian vault.
 
-### 6.2 tmp_*.py scratch files committed to repository (OPEN — Cleanup)
+### 6.2 ADR-004 Phase 4 "separate agent" claim — **RESOLVED (was GAP-006)**
+
+- **ADR Reference:** `docs/decisions/004-safe-sync-integrate-workflow.md` §10 (Neutral)
+- **Description:** The ADR stated "Phase 4 requires a separate agent/profile" but also
+  noted the task was "superseded." Post-PR #176/#178, Phase 4 IS implemented via Option B
+  (automated step in completion path), not a separate agent.
+- **Current status:** **RESOLVED** — the ADR's Phase 4 Integrator Model decision
+  (lines 135-160) explicitly adopted Option B and documented why a separate agent was
+  not created. The body text accurately reflects the implemented approach.
+- **Evidence:**
+  - `docs/decisions/004-safe-sync-integrate-workflow.md:135-160` — Phase 4 Integrator
+    Model decision, Option B adopted
+  - `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()` (line 548)
+    — Phase 4 IS implemented
+  - 15/15 `test_integration.py` tests pass
+- **Recommended next step:** None — RESOLVED.
+
+### 6.3 tmp_*.py scratch files committed to repository (OPEN — Cleanup)
 
 - **Description:** 11 `tmp_*.py` scratch files were committed in `2dc1b72` but are
   transient test/fixture scripts.
@@ -280,42 +302,48 @@ are reflected as CLOSED in this report.
 
 | Finding | Source (HEAD `0f6caec`, parent `2dc1b72`) |
 |---------|----------------------|
-| ADR-003 status says "Proposed" | `docs/decisions/003-canonical-review-topology.md:3` — `**Status:** Proposed` |
-| ADR-004 status says "Proposed" | `docs/decisions/004-safe-sync-integrate-workflow.md:3-5` — `## Status` / `Proposed` |
-| ADR-005 status says "Proposed" | `docs/decisions/005-activity-data-ingestion-layer.md:3-5` — `## Status` / `Proposed` |
-| Commit 76fd1cd set statuses to "Accepted" on master | `git show 76fd1cd` — 4 files changed, status lines modified |
-| 76fd1cd is NOT an ancestor of HEAD | `git merge-base 0f6caec 76fd1cd` returns `345090f` (not 76fd1cd) |
-| Model B prompt language exists in Hermes agent repo | `agent/prompt_builder.py:322` — "pre-created review, QA, or release child" |
-| sync_branch implemented but not called | `src/janus/git_sync.py:267`; `grep -rn "sync_branch" hermes-agent/` → 0 matches |
-| Phases 3-5 functions do not exist | `grep -rn "def integrate\|def pre_completion\|def safe_complete" src/` → 0 matches |
-| activity_ingest.py fully implemented | `src/janus/services/activity_ingest.py` — 1109 lines |
-| atomic_io.py fully implemented | `src/janus/integrations/atomic_io.py` — 224 lines |
-| data_protection.py has separate atomic_write | `src/janus/integrations/data_protection.py:258` |
-| Services import and call protected_write | `src/janus/services/tasks.py:17,74,184,284,349`; `src/janus/services/decisions.py:19,132,172,223,274` |
-| Integration modules use protected_write | `markdown_inbox.py:158,178`, `markdown_followups.py:194,214`, `workout_md.py:14,94`, `markdown_research.py:16`, `markdown_goals.py:46,787` |
-| measurement_log uses f.write | `src/janus/services/measurement_log.py:103` (append-only JSONL) |
-| google_calendar uses TOKEN_PATH.write_text | `src/janus/integrations/google_calendar.py:42` (credentials, not data/) |
-| CI grep gate not in verification.py | `src/janus/verification.py:1144` — `check_files_immutable` is immutable-files check, not write-path gate |
-| Vault IS versioned (decision executed) | `/mnt/c/Users/dan11/Documents/HermesVault` — `.git` exists with commits `fcf155d`, `a534147` |
-| data/ directory removed from git | `git log --oneline 80b1e8e` — "removed data files from git"; `ls data/` → not found at HEAD |
-| Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
-| 11 tmp_*.py files committed in 2dc1b72 | `git ls-files tmp_*.py` — 11 files; `git show 2dc1b72 --stat` lists all 11 |
-| ADR-004 Phase 4 "separate agent" language remains | `docs/decisions/004-safe-sync-integrate-workflow.md:109-111` |
-| Consolidated ADR docs not on HEAD | `76fd1cd` and `c74d1ac` create `adr-003-004-005-consolidated-decisions.md` and `adr-consolidated-decisions.md`; both on `origin/master` but not on HEAD |
+|| ADR-003 status says "Proposed" | `docs/decisions/003-canonical-review-topology.md:3` — `**Status:** Proposed` |
+|| ADR-004 status says "Proposed" | `docs/decisions/004-safe-sync-integrate-workflow.md:3-5` — `## Status` / `Proposed` |
+|| ADR-005 status says "Proposed" | `docs/decisions/005-activity-data-ingestion-layer.md:3-5` — `## Status` / `Proposed` |
+|| Commit 76fd1cd set statuses to "Accepted" on master | `git show 76fd1cd` — 4 files changed, status lines modified |
+|| 76fd1cd is NOT an ancestor of HEAD | `git merge-base 0f6caec 76fd1cd` returns `345090f` (not 76fd1cd) |
+|| **ADR-003/004/005 status fields UPDATE 2026-09-21 (t_8a6768e8)** | All three statuses verified UP-TO-DATE at HEAD `893a963`:
+  - ADR-003: "Accepted" ✓
+  - ADR-004: "Accepted with implementation caveats" ✓
+  - ADR-005: "Accepted (on consolidation)" ✓ |
+|| Model B prompt language exists in Hermes agent repo | `agent/prompt_builder.py:322` — "pre-created review, QA, or release child" |
+|| sync_branch implemented but not called | `src/janus/git_sync.py:267`; `grep -rn "sync_branch" hermes-agent/` → 0 matches |
+|| **ADR-004 Phases 3-5 implementation UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** at HEAD `893a963`:
+  - Phase 1 auto-invoke: `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync` (line 238) → `sync_branch()` (line 276). 9/9 tests pass.
+  - Phase 3 pre-completion gate: `src/janus/services/tasks.py:run_completion_gates` (line 287). 15/15 tests pass.
+  - Phase 4 safe integration: `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()` (line 548). 15/15 tests pass.
+  - Phase 5 completion gating: `src/janus/services/tasks.py:complete_task()` (line 527) gated via `run_completion_gates()`. 7/7 tests + 2 gate block routing.
+  - **Total: 48 passing gate tests** across 4 test files. |
+|| activity_ingest.py fully implemented | `src/janus/services/activity_ingest.py` — 1109 lines |
+|| atomic_io.py fully implemented | `src/janus/integrations/atomic_io.py` — 224 lines |
+|| data_protection.py has separate atomic_write | `src/janus/integrations/data_protection.py:258` |
+|| Services import and call protected_write | `src/janus/services/tasks.py:17,74,184,284,349`; `src/janus/services/decisions.py:19,132,172,223,274` |
+|| Integration modules use protected_write | `markdown_inbox.py:158,178`, `markdown_followups.py:194,214`, `workout_md.py:14,94`, `markdown_research.py:16`, `markdown_goals.py:46,787` |
+|| measurement_log uses f.write | `src/janus/services/measurement_log.py:103` (append-only JSONL) |
+|| google_calendar uses TOKEN_PATH.write_text | `src/janus/integrations/google_calendar.py:42` (credentials, not data/) |
+|| CI grep gate not in verification.py | `src/janus/verification.py:1144` — `check_files_immutable` is immutable-files check, not write-path gate |
+|| Vault IS versioned (decision executed) | `/mnt/c/Users/dan11/Documents/HermesVault` — `.git` exists with commits `fcf155d`, `a534147` |
+|| data/ directory removed from git | `git log --oneline 80b1e8e` — "removed data files from git"; `ls data/` → not found at HEAD |
+|| Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
+|| 11 tmp_*.py files committed in 2dc1b72 | `git ls-files tmp_*.py` — 11 files; `git show 2dc1b72 --stat` lists all 11 |
+|| **ADR-004 Phase 4 "separate agent" claim UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR §10 Phase 4 Integrator Model decision (lines 135-160) explicitly adopted Option B (automated step) and documented why a separate agent was not created. The "separate agent" language describes the design space considered, not an open gap. |
+|| Consolidated ADR docs not on HEAD | `76fd1cd` and `c74d1ac` create `adr-003-004-005-consolidated-decisions.md` and `adr-consolidated-decisions.md`; both on `origin/master` but not on HEAD |
 
 ---
 
 ## 8. Recommendations Summary
 
 ### Immediate (next 24 hours)
-1. **Fix ADR status fields** — change "Proposed" to "Accepted" in ADR-003, ADR-004, ADR-005
-2. **Remove `tmp_*.py` files** — 11 scratch files committed by 2dc1b72 should be deleted
+1. **Remove `tmp_*.py` files** — 11 scratch files committed by 2dc1b72 should be deleted
 
 ### This week
-3. **Patch prompt_builder.py** — remove Model B language (ADR-003 GAP-003)
-4. **Update ADR-004 §10** — fix the inaccurate Phase 4 "separate agent" claim (GAP-006)
-5. **Update ADR-005 §2/§6** — acknowledge migration is in progress (GAP-007)
-6. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
+2. **Patch prompt_builder.py** — remove Model B language (ADR-003 GAP-003)
+3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
    and `adr-consolidated-decisions.md` exist on master (`76fd1cd`, `c74d1ac`) but not
    on HEAD. Back-port to HEAD or document as master-only.
 
