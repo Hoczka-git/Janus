@@ -37,8 +37,8 @@ fields. **9 stale claims** are identified for archiving or removal (see §5).
 
 ## Legend
 
-| Disposition | Meaning |
-|-------------|---------|
+|| Disposition | Meaning |
+|-------------|---------|---------|
 | **OPEN** | Verified at HEAD — work remains to be done |
 | **CLOSED** | Resolved by `2dc1b72` or prior work — no action needed |
 | **ARCHIVE** | Claim is stale/no longer relevant — keep for history but mark archived |
@@ -356,4 +356,227 @@ are reflected as CLOSED in this report.
 
 ---
 
-*End of authoritative open work list.*
+---
+
+*End of authoritative open work list (2026-09-18 snapshot).*
+
+---
+
+# Reconciliation — 2026-09-21
+
+**Reconciliation commit:** `893a963` (Roadmap complete change)
+**Reconciling task:** t_8a6768e8 — Reconcile and update authoritative open-work list
+**Parent task results:** t_44d32387 (Phase 1 auto-invoke DONE, PR #178), t_a94767a8 (ADR-004 Phases 1/3/4/5 DONE), t_c5bfe804 (Phase 5 gating DONE, PR #176)
+**Date of reconciliation:** 2026-09-21
+
+> **Purpose:** This section is the current authoritative reconciliation, updated against
+> HEAD `893a963`. The 2026-09-18 snapshot above is preserved verbatim as a historical
+> record. Future research/watchdog jobs should treat this §9 as the live state and the
+> pre-§9 content as the archived baseline.
+
+## 9.1 ADR Status Fields — Current State at HEAD `893a963`
+
+All three ADR status fields are now UP-TO-DATE at HEAD:
+
+| ADR | File | Status at HEAD `893a963` | Previously (2026-09-18) | Change |
+|-----|------|--------------------------|-------------------------|--------|
+| ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | **Accepted** | Proposed | ✓ RESOLVED |
+| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted with implementation caveats** | Proposed | ✓ RESOLVED |
+| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted (on consolidation)** | Proposed | ✓ RESOLVED |
+
+**Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
+field now reads "Accepted with implementation caveats," accurately reflecting that all 5
+phases are implemented (see §9.2).
+
+## 9.2 ADR-004: Safe Sync-and-Integrate Workflow — Current State
+
+**GAP-004 (Phases 3-5 not implemented): CLOSED**
+
+- **Was:** OPEN — P0, only Phase 1 implemented
+- **Now at HEAD `893a963`:** ALL FIVE PHASES IMPLEMENTED, WIRED, AND TESTED
+- **Resolution:** PR #176 (Phase 5 completion gating, merged 2026-09-17) + PR #178
+  (Phase 1 auto-invoke sync_branch at task start, merged 2026-09-17)
+
+### Phase implementation status at HEAD `893a963`
+
+| Phase | Status | Location | Tests |
+|-------|--------|----------|-------|
+| Phase 1 — Auto-invoke sync before implementation | **IMPLEMENTED** | `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync` (line 238) → `sync_branch()` (line 276). Hook: `kanban_task_claimed`. Registration: line 929. | `tests/plugins/test_janus_sync_plugin.py`: TestAutoInvokeOnClaim — **9 passed** |
+| Phase 2 — Implementation in worktree | N/A (worker's job) | Task worktree + branch per task (dispatcher-managed) | — |
+| Phase 3 — Pre-completion gate | **IMPLEMENTED** | `src/janus/services/tasks.py:run_completion_gates` (line 287). Checks: working_tree_clean, tests_pass_after_rebase, git_diff_check. Evidence artifact: `pre_completion_report.json`. | `tests/test_task_complete_gates.py`: **15 passed** |
+| Phase 4 — Safe integration | **IMPLEMENTED** | `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()` (line 548). FF merge first, `--no-ff` controlled merge fallback, post-merge test suite, rollback on test failure, push, remote contains check, `integration_report.json`. Reason codes: target_not_integrated, integration_conflict, post_integration_test_failure, target_push_failed, target_contains_check_failed, merge_failed, nothing_to_integrate, integration_setup_failed. | `tests/test_integration.py`: **15 passed** |
+| Phase 5 — Completion gating | **IMPLEMENTED** | `src/janus/services/tasks.py:complete_task()` (line 527) — calls `run_completion_gates()` before markdown flip. `src/janus/services/execution_feedback.py:686-694` — `complete_janus_task_gated` gates open tasks in git repos. Gate error routing: `CompletionGateError` → `_handle_gate_block` (plugins/janus_sync/__init__.py:356) → `kanban_block`. | `tests/test_task_complete_janus_gates.py`: **7 passed** + `tests/plugins/test_janus_sync_plugin.py`: TestGateBlockRouting — **2 passed** |
+
+**Total gate test count at HEAD `893a963`:** 9 + 15 + 15 + 7 + 2 = **48 passing gate tests**
+across 4 test files. Additionally, the broader test suite (72 tests across these 4 files
+including non-gate tests in test_janus_sync_plugin.py) passes.
+
+**ADR-004 status field:** "Accepted with implementation caveats" — this accurately reflects
+that the ADR-to-Codebase Mapping Table (lines 52-78) still shows stale "not wired" status
+for Phases 1/3/5 in the Status section intro (lines 7-14), while the Post-PR-176/#178 Status
+section (added 2026-09-19) correctly acknowledges full implementation. The code is authoritative;
+the mapping table intro is stale but the table rows themselves are current.
+
+### GAP-006 (ADR-004 "separate agent" claim): RE-EVALUATED — PARTIALLY RESOLVED
+
+- **Was:** OPEN — P1, documentation accuracy issue
+- **ADR-004 §Neutral (line 215-217) at HEAD `893a963`:**
+  > "Phase 4 requires a separate agent/profile. The integration step must be performed
+  > by someone other than the implementor. The exact profile assignment is deferred to
+  > the implementation task (t_36b3d88f; superseded — integration completed incrementally
+  > through phase-specific tasks)."
+
+- **Assessment:** The Phase 4 Integrator Model decision (lines 135-160) adopted **Option B**
+  (automated step in completion path), explicitly choosing NOT to require a separate agent.
+  The Neutral §consequence at line 215 still lists "Phase 4 requires a separate agent/profile"
+  as a Neutral consequence, which is now misleading — Option B means NO separate agent is
+  required. The parenthetical "(t_36b3d88f; superseded — integration completed incrementally
+  through phase-specific tasks)" acknowledges the incremental path but the main clause still
+  frames a separate agent as required.
+
+- **Verdict:** NOT fully resolved. The ADR body still contains language that implies a
+  separate agent is required (§Neutral, line 215), even though the design decision (§Phase 4
+  Integrator Model, lines 135-160) explicitly chose Option B which does NOT use a separate
+  agent. This is a documentation inconsistency worth fixing — the "separate agent" language
+  in §Neutral should be updated to reflect that integration runs as an automated step via
+  `src/janus/integration.py`. However, this is a documentation refinement, not an open
+  implementation gap — Phase 4 IS implemented.
+
+- **Disposition:** Re-classify from "GAP-006: separate agent claim inaccurate (OPEN — P1)"
+  to "ADR-004 §Neutral line 215: update 'separate agent' language to reflect Option B
+  (automated step)." This is a low-effort documentation fix, not a P1 gap.
+
+## 9.3 ADR-003: Canonical Review Topology — Current State
+
+**GAP-003 (Prompt still contains Model B language): STILL OPEN**
+
+- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
+- **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
+  (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
+  Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
+  the Janus-side PRs #176/#178.
+- **Verdict:** Genuinely open. This item was and remains OPEN. The status field update
+  (Proposed → Accepted) does not resolve GAP-003.
+
+## 9.4 ADR-005: Activity Data Ingestion Layer — Current State
+
+**GAP-005 (data_protection vs atomic_io): STILL OPEN**
+
+- **Status at HEAD `893a963`:** UNCHANGED
+- **Verdict:** Genuinely open. Services still use `protected_write` from `data_protection.py`.
+  No change from 2026-09-18.
+
+**GAP-007 ("sole write gateway" claim contradicted): RE-EVALUATED**
+
+- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
+- **Nuance:** The j_ prec rebaseline (t_13a8b54a, 2026-09-18) had already corrected this:
+  the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus
+  data files; the only direct-write outlier is `google_calendar.py:42` (OAuth token cache,
+  not data). The claim is substantially accurate but the §2/§6 text still says "must be the
+  ONLY path" which is technically contradicted by the google_calendar outlier. Still worth
+  a caveat note, but less severe than the original "contradicted" framing.
+
+**GAP-008 (CI grep gate): STILL OPEN**
+
+- **Status at HEAD `893a963`:** UNCHANGED
+- **Verdict:** Genuinely open.
+
+## 9.5 Other Items from 2026-09-18 — Status at HEAD `893a963`
+
+| Item | 2026-09-18 status | 2026-09-21 status | Notes |
+|------|-------------------|-------------------|-------|
+| tmp_*.py scratch files (6.2) | OPEN — Cleanup | UNCHANGED — still 11 committed files | No cleanup performed since 2026-09-18 |
+| ADR-002 curation gate (6.1 / GAP-001) | OPEN — P1 | UNCHANGED | No Obsidian promotion code exists |
+| Consolidated ADR docs not on HEAD (§5) | ARCHIVE | UNCHANGED | Still on origin/master, not on HEAD `893a963` |
+| ADR-004 §10 "Phase 4 requires separate agent" | Was GAP-006 (P1) | Re-evaluated §9.2 — documentation inconsistency, low effort | Phase 4 IS implemented via Option B |
+| Roadmap items 113-116 | CLOSED (2dc1b72) | UNCHANGED | Still [x] at HEAD |
+| Product backlog done items | CLOSED (2dc1b72) | UNCHANGED | Still [done] at HEAD |
+
+## 9.4 Consolidated ADR Docs Not on HEAD — Remains ARCHIVE
+
+The two consolidated ADR decision documents (`adr-003-004-005-consolidated-decisions.md`
+from `76fd1cd` and `adr-consolidated-decisions.md` from `c74d1ac`) exist on
+`origin/master` but are NOT on HEAD `893a963`. This item is unchanged from 2026-09-18
+and should be archived as "available on master only" or back-ported.
+
+## 9.5 Current Genuinely Open Work (2026-09-21, HEAD `893a963`)
+
+After reconciliation against HEAD `893a963`, the following items remain genuinely open:
+
+### P1 (high priority)
+
+1. **GAP-005: ADR-005 data_protection → atomic_io migration**
+   - Services still call `protected_write` from `data_protection.py` instead of routing
+     through `atomic_io.read_modify_write_with_retry`
+   - Effort: High. Blocks "sole write gateway" claim from being fully accurate.
+
+2. **GAP-001: ADR-002 curation gate not implemented**
+   - No `curation_gate()` / `human_approval()` / `promote_to_obsidian()` in
+     `knowledge_pipeline.py`
+   - Effort: Medium. Blocks end-to-end knowledge pipeline.
+
+### P2 (medium priority)
+
+3. **ADR-004 §Neutral line 215: "separate agent" language update**
+   - The §Neutral consequence still says "Phase 4 requires a separate agent/profile"
+   - Phase 4 Integrator Model (lines 135-160) adopted Option B (automated step, no separate agent)
+   - This is a documentation inconsistency — low effort fix, not an implementation gap
+   - **Note:** This is NOT the same as GAP-006 from 2026-09-18. GAP-006 claimed Phase 4
+     was never implemented; that claim is now false. The remaining issue is the stale
+     language in §Neutral.
+
+4. **GAP-007: ADR-005 "sole write gateway" claim — add caveat**
+   - §2/§6 says "must be the ONLY path" but `google_calendar.py:42` is a direct-write outlier
+   - Effort: Low. Add caveat noting the token cache exception.
+
+5. **GAP-003: ADR-003 prompt_builder.py Model B language**
+   - In Hermes agent repo, not Janus. Unaffected by Janus PRs.
+   - Effort: Low.
+
+6. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
+   - No CI rule grepping for data/ writes outside atomic_io
+   - Effort: Low. Regression guard.
+
+### Cleanup
+
+7. **tmp_*.py scratch files (11 files)**
+   - Committed in `2dc1b72`, still present at HEAD `893a963`
+   - Effort: Low. Remove from repository.
+
+### Archived (not open, retain for history)
+
+- **GAP-004 (ADR-004 Phases 3-5):** RESOLVED — all 5 phases implemented (§9.2)
+- **ADR status fields (§1):** RESOLVED — all three now "Accepted" at HEAD `893a963`
+- **Consolidated ADR docs not on HEAD (§5):** ARCHIVE — master-only
+
+## 9.6 Evidence: Test Verification at HEAD `893a963`
+
+```
+$ uv run pytest tests/test_task_complete_gates.py tests/test_task_complete_janus_gates.py tests/test_integration.py tests/plugins/test_janus_sync_plugin.py -q
+[100%] 72 passed in 14.75s
+```
+
+Breakdown:
+- `tests/test_task_complete_gates.py`: 15 passed (Phase 3 pre-completion gates)
+- `tests/test_task_complete_janus_gates.py`: 7 passed (Phase 5 completion gating)
+- `tests/test_integration.py`: 15 passed (Phase 4 safe integration)
+- `tests/plugins/test_janus_sync_plugin.py`: 35 passed (includes 9 TestAutoInvokeOnClaim for Phase 1 + 2 TestGateBlockRouting for gate error routing + other plugin tests)
+
+**Gate-specific test count: 48** (9 + 15 + 15 + 7 + 2). The remaining 24 tests in
+test_janus_sync_plugin.py cover other plugin functionality.
+
+## 9.7 Summary of Changes Since 2026-09-18
+
+| # | Item | 2026-09-18 | 2026-09-21 (HEAD `893a963`) |
+|---|------|-----------|------------------------------|
+| 1 | ADR-003 status | Proposed | **Accepted** ✓ |
+| 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
+| 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
+| 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
+| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **Re-evaluated** — Phase 4 IS implemented via Option B; remaining issue is §Neutral stale language (doc fix, not P1 gap) |
+| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open |
+| 7 | tmp_*.py files | OPEN — Cleanup | **UNCHANGED** — 11 files still committed |
+
+---
+
+*End of reconciliation — 2026-09-21.*
