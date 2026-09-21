@@ -417,7 +417,7 @@ for Phases 1/3/5 in the Status section intro (lines 7-14), while the Post-PR-176
 section (added 2026-09-19) correctly acknowledges full implementation. The code is authoritative;
 the mapping table intro is stale but the table rows themselves are current.
 
-### GAP-006 (ADR-004 "separate agent" claim): RE-EVALUATED — PARTIALLY RESOLVED
+**GAP-006 (ADR-004 "separate agent" claim): RE-EVALUATED — PARTIALLY RESOLVED**
 
 - **Was:** OPEN — P1, documentation accuracy issue
 - **ADR-004 §Neutral (line 215-217) at HEAD `893a963`:**
@@ -428,7 +428,7 @@ the mapping table intro is stale but the table rows themselves are current.
 
 - **Assessment:** The Phase 4 Integrator Model decision (lines 135-160) adopted **Option B**
   (automated step in completion path), explicitly choosing NOT to require a separate agent.
-  The Neutral §consequence at line 215 still lists "Phase 4 requires a separate agent/profile"
+  The Neutral consequence at line 215 still lists "Phase 4 requires a separate agent/profile"
   as a Neutral consequence, which is now misleading — Option B means NO separate agent is
   required. The parenthetical "(t_36b3d88f; superseded — integration completed incrementally
   through phase-specific tasks)" acknowledges the incremental path but the main clause still
