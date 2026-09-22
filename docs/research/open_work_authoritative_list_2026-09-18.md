@@ -466,7 +466,7 @@ the mapping table intro is stale but the table rows themselves are current.
 - **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open.
 
-## 9.5 Other Items from 2026-09-18 — Status at HEAD `893a963`
+## 9.5 Other Items from 2026-09-18 — Status at HEAD `2f2ffa3`
 
 | Item | 2026-09-18 status | 2026-09-21 status | Notes |
 |------|-------------------|-------------------|-------|
@@ -529,7 +529,7 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
 ### Cleanup
 
 7. **tmp_*.py scratch files (11 files)**
-   - Committed in `2dc1b72`, still present at HEAD `893a963`
+   - Committed in `2dc1b72`, still present at HEAD `2f2ffa3`
    - Effort: Low. Remove from repository.
 
 ### Archived (not open, retain for history)
