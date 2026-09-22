@@ -14,7 +14,7 @@ and the implementation modules:
 - `src/janus/integrations/atomic_io.py` — the atomic I/O primitives
   (`atomic_write`, `atomic_read`, `read_modify_write`,
   `read_modify_write_with_retry`).
-- `src/janus/integrations/data_protection.py` — the data/ protection layer
+- `src/janus/integrations/data_integrity.py` — the data/ protection layer
   (conflict detection, backup rotation, regeneration gating, integrity verification).
 
 ---
@@ -185,7 +185,7 @@ data/ protection layer, or are caught by the CI grep gate.
 
 3. **Regenerating an entire `data/` file.** A full-content rewrite by an
    untrusted writer that exceeds the configured change threshold is blocked
-   by `gate_regeneration()` (`data_protection.py`), which raises
+   by `gate_regeneration()` (`data_integrity.py`), which raises
    `RegenerationBlockedError`. Only whitelisted programmatic writers
    (`services.tasks.complete_janus_task`, `markdown_goals.update_goal`, etc.)
    may rewrite a whole file; see the `allowed_regenerators` set.
@@ -207,12 +207,12 @@ writes outside `atomic_io.py` or the integration modules' `read_modify_write`
 usage is a verification failure.
 
 As of ADR-005 Amendment 01, the gate is extended by `check_no_os_replace`:
-`data_protection.py` no longer defines its own `atomic_write` that calls
-`os.replace` directly. Its `protected_write` / `protected_append` /
-`repair_file` import and call `atomic_io.atomic_write`, so `atomic_io` is the
-sole module that performs `os.replace`. A contract listing
-`data_protection.py` under `forbidden_os_replace` will FAIL the verification
-pipeline if any `os.replace` call site is re-introduced there.
+`data_protection.py` was deleted once all writers migrated to `atomic_io` /
+`data_integrity`. `atomic_io` is the sole module that performs `os.replace`;
+`data_integrity` delegates all atomic replacement to it. The
+`check_data_write_path` / `check_data_file_write_gates` grep gates exclude
+`atomic_io.py` and `data_integrity.py` from caller checks, enforcing that
+no other module writes to `data/` outside the controlled gateway.
 
 ---
 
@@ -235,13 +235,13 @@ pipeline if any `os.replace` call site is re-introduced there.
 | `read_modify_write_with_retry` | `janus.integrations.atomic_io` | Retries `ConcurrentWriteError` with exponential backoff. |
 | `ConcurrentWriteError` | `janus.integrations.atomic_io` | Raised when file changed between read and write. |
 | `AtomicWriteError` | `janus.integrations.atomic_io` | Raised on disk-full / permission failure. |
-| `protected_write` | `janus.integrations.data_protection` | Full-rewrite gateway with conflict + regeneration gating. |
-| `protected_append` | `janus.integrations.data_protection` | Atomic append with backup. |
-| `gate_regeneration` | `janus.integrations.data_protection` | Change-threshold gate. |
-| `detect_conflict` | `janus.integrations.data_protection` | SHA-256 stale-load detection. |
-| `backup_previous` | `janus.integrations.data_protection` | Timestamped `.bak` rotation. |
-| `repair_file` | `janus.integrations.data_protection` | Legitimate full-rewrite bypass for manual repair. |
-| `verify_file_integrity` | `janus.integrations.data_protection` | Integrity check used by `janus data verify`. |
+| `protected_write` | `janus.integrations.data_integrity` | Full-rewrite gateway with conflict + regeneration gating. |
+| `protected_append` | `janus.integrations.data_integrity` | Atomic append with backup. |
+| `gate_regeneration` | `janus.integrations.data_integrity` | Change-threshold gate. |
+| `detect_conflict` | `janus.integrations.data_integrity` | SHA-256 stale-load detection. |
+| `backup_previous` | `janus.integrations.data_integrity` | Timestamped `.bak` rotation. |
+| `repair_file` | `janus.integrations.data_integrity` | Legitimate full-rewrite bypass for manual repair. |
+| `verify_file_integrity` | `janus.integrations.data_integrity` | Integrity check used by `janus data verify`. |
 
 ### Configuration
 
@@ -271,10 +271,12 @@ write_retry_backoff_base = 0.1
 # "measurement"     = "data/measurements.jsonl"
 ```
 
-`[data_protection]` (separate table) configures the protection layer:
+`[data_ingestion]` configures the protection layer (backup rotation, advisory
+locking, post-write verification, regeneration gating, and the
+`allowed_regenerators` set):
 
 ```toml
-[data_protection]
+[data_ingestion]
 enabled = true
 max_backups = 3
 backup_dir = ".backups"
@@ -529,6 +531,6 @@ read_modify_write() / atomic_write()   ← janus.integrations.atomic_io
 data/<entity>.md   /  data/*.jsonl    (gitignored, local)
 ```
 
-The model never calls `atomic_io` or `data_protection` directly — those are
+The model never calls `atomic_io` or `data_integrity` directly — those are
 implementation details of the gateway. The model's only contract is
 `ingest_activities()` + `ActivityRecord`.

@@ -1,13 +1,20 @@
-"""Targeted tests for the data protection layer (src/janus/integrations/data_protection.py).
+"""Targeted tests for the data integrity / protection layer.
 
-These tests demonstrate the four safety guards:
+Tests cover the four safety guards from the original data_protection spec:
   1. Existence checks before writes (new-file guard)
-  2. Conflict detection (stale-load hash → DataConflictError)
-  3. Regeneration gating (excessive change by untrusted writer → RegenerationBlockedError)
+  2. Conflict detection (stale-load hash -> DataConflictError)
+  3. Regeneration gating (excessive change by untrusted writer -> RegenerationBlockedError)
   4. Atomic write + backup rotation + post-write verification
 
-The central scenario from the task spec is covered: attempting to overwrite a
-seeded data/ file and verifying it is preserved or handled per design.
+These tests now import from the canonical homes:
+  - ``janus.integrations.data_integrity`` (protected_write, protected_append,
+    backup_previous, detect_conflict, gate_regeneration, repair_file,
+    verify_file_integrity, and config/data classes)
+  - ``janus.integrations.atomic_io`` (compute_content_hash)
+
+The legacy ``data_protection.py`` shim was removed once all writers migrated
+to atomic_io (ADR-005 Amendment 01 deprecation criteria). See
+``docs/decisions/005-01-atomic_io-vs-data_protection-amendment.md``.
 """
 from __future__ import annotations
 
@@ -16,15 +23,14 @@ import pathlib
 
 import pytest
 
-from janus.integrations.data_protection import (
+from janus.integrations.atomic_io import compute_content_hash
+from janus.integrations.data_integrity import (
     DataConflictError,
     DataCorruptionError,
     RegenerationBlockedError,
     ProtectionConfig,
     WriteResult,
-    atomic_write,
     backup_previous,
-    compute_content_hash,
     compute_hash,
     detect_conflict,
     gate_regeneration,
@@ -69,7 +75,7 @@ class TestNewFileWriterGuard:
 
 
 # ---------------------------------------------------------------------------
-# 2. Conflict detection (stale-load hash → DataConflictError)
+# 2. Conflict detection (stale-load hash -> DataConflictError)
 # ---------------------------------------------------------------------------
 class TestConflictDetection:
     """If a file is modified since the expected hash was captured, the write
@@ -110,7 +116,7 @@ class TestConflictDetection:
 
     def test_no_conflict_for_new_file(self, tmp_path):
         path = _make_tmp_dir(tmp_path) / "new.md"
-        # File doesn't exist, expected_hash=None → no conflict
+        # File doesn't exist, expected_hash=None -> no conflict
         result = protected_write(
             path, "fresh\n",
             expected_hash=None,
