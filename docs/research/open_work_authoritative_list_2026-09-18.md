@@ -499,9 +499,9 @@ the following items remain genuinely open:
    - No CI rule grepping for data/ writes outside atomic_io
    - Effort: Low. Regression guard. The 2026-09-21 analysis incorrectly marked this CLOSED
      (referencing "195 add..." — referring to PR #195 which did NOT implement a CI grep gate).
-     Confirmed still OPEN: `protected_write` is still used in multiple services
-     (`strength.py:68`, `workout.py:61`, `checklist.py:65`) and `calendar_sync.py` writes
-     directly to `Today.md` (line 60) and `FollowUps.md` (line 77) outside atomic_io.
+     Confirmed still OPEN: no CI rule (e.g. `.github/workflows/ci.yml`) greps for `protected_write`
+     or direct file writes outside `atomic_io`, so a service could add a non-atomic data/ write
+     without CI catching it. The gate itself does not exist yet.
 
 ### Closed / Resolved / Archived
 
