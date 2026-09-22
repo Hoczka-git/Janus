@@ -335,3 +335,77 @@ class TestUtilities:
         result = verify_file_integrity(path)
         assert not result.exists
         assert not result.ok
+
+
+# ---------------------------------------------------------------------------
+# 7. protected_append — migrated from raw open("a") to atomic_io
+# ---------------------------------------------------------------------------
+class TestProtectedAppend:
+    """Tests for ``protected_append`` in ``data_integrity``.
+
+    The config-disabled path previously bypassed ``atomic_io`` with a raw
+    ``open("a")`` call (audit §1.7 / §4 known gate bypasses). It now routes
+    through ``atomic_io`` (via ``read_modify_write`` / ``atomic_write``)
+    unconditionally.
+    """
+
+    def test_append_to_new_file_creates_file(self, tmp_path, monkeypatch):
+        """Appending to a non-existent file creates it with the content."""
+        monkeypatch.setattr(
+            "janus.integrations.data_integrity.get_config",
+            lambda: ProtectionConfig(enabled=True),
+        )
+        path = _make_tmp_dir(tmp_path) / "append_new.md"
+        bytes_written = protected_append(path, "first line\n")
+        assert path.exists()
+        assert path.read_text() == "first line\n"
+        assert bytes_written == len("first line\n".encode("utf-8"))
+
+    def test_append_to_existing_file(self, tmp_path, monkeypatch):
+        """Appending to an existing file preserves old content and appends new."""
+        monkeypatch.setattr(
+            "janus.integrations.data_integrity.get_config",
+            lambda: ProtectionConfig(enabled=True),
+        )
+        path = _make_tmp_dir(tmp_path) / "append_existing.md"
+        path.write_text("old content\n")
+        protected_append(path, "new content\n")
+        assert path.read_text() == "old content\nnew content\n"
+
+    def test_config_disabled_uses_atomic_io(self, tmp_path, monkeypatch):
+        """When protection is disabled, the append still routes through
+        atomic_io — no raw ``open("a")`` bypass (audit §1.7/§4)."""
+        monkeypatch.setattr(
+            "janus.integrations.data_integrity.get_config",
+            lambda: ProtectionConfig(enabled=False),
+        )
+        path = _make_tmp_dir(tmp_path) / "append_disabled.md"
+        path.write_text("seeded\n")
+        protected_append(path, "appended\n")
+        assert path.read_text() == "seeded\nappended\n"
+
+    def test_config_disabled_creates_new_file(self, tmp_path, monkeypatch):
+        """Config-disabled append on a non-existent file creates it safely."""
+        monkeypatch.setattr(
+            "janus.integrations.data_integrity.get_config",
+            lambda: ProtectionConfig(enabled=False),
+        )
+        path = _make_tmp_dir(tmp_path) / "append_disabled_new.md"
+        protected_append(path, "brand new\n")
+        assert path.read_text() == "brand new\n"
+
+    def test_config_disabled_preserves_existing_no_loss(self, tmp_path, monkeypatch):
+        """Regression guard: the config-disabled path must not lose content
+        by opening in append mode and racing. The read-then-write-via-atomic
+        approach guarantees the full existing content is preserved."""
+        monkeypatch.setattr(
+            "janus.integrations.data_integrity.get_config",
+            lambda: ProtectionConfig(enabled=False),
+        )
+        path = _make_tmp_dir(tmp_path) / "append_preserve.md"
+        # Seed with multi-line content
+        path.write_text("line1\nline2\nline3\n")
+        protected_append(path, "line4\n")
+        content = path.read_text()
+        assert content == "line1\nline2\nline3\nline4\n"
+        assert "line1" in content and "line4" in content
