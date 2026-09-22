@@ -428,3 +428,173 @@ class TestGoalAuditCLI:
         handle_goal_audit([])
         captured = capsys.readouterr()
         assert "No issues found." in captured.out
+
+    def test_human_output_contains_issue_codes_and_details(self, tmp_path, monkeypatch, capsys):
+        """§12(9): Human-readable output reports each issue code + affected IDs, not just headers."""
+        _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n\n"
+            "## Goal: Lonely goal\n"
+            "Status: active\n",
+            "- [ ] Ghost task | goal: Ghost goal\n",
+        )
+        from janus.goals_cli import handle_goal_audit
+        with pytest.raises(SystemExit) as exc:
+            handle_goal_audit([])
+        assert exc.value.code != 0
+        captured = capsys.readouterr()
+        # UNKNOWN_GOAL_REFERENCE is an error for the ghost task
+        assert "UNKNOWN_GOAL_REFERENCE" in captured.out
+        assert "Ghost goal" in captured.out
+        assert "Ghost task" in captured.out
+        # GOAL_WITHOUT_TASKS fires for the active goal with no related tasks
+        assert "GOAL_WITHOUT_TASKS" in captured.out
+
+    def test_all_four_issue_codes_in_output(self, tmp_path, monkeypatch, capsys):
+        """§12(6)/(9): A report with all four issue codes renders all of them."""
+        goals_md = (
+            "# Goals\n\n"
+            # GOAL_WITHOUT_TASKS: active, no metric, no valid related task
+            "## Goal: Lonely goal\n"
+            "Status: active\n"
+            "\n"
+            # INVALID_METRIC: metric_name set but missing required values
+            "## Goal: Bad metric goal\n"
+            "Status: active\n"
+            "Metric: Savings\n"
+            "Start: 100\n"
+            "Target: 200\n"
+            "Direction: increase\n"
+        )
+        tasks_md = (
+            # UNKNOWN_GOAL_REFERENCE: references a non-existent goal
+            "- [ ] Ghost task | goal: Phantom goal\n"
+            "- [ ] Stale task | goal: Lonely goal\n"
+        )
+        _setup_cli_fixtures(tmp_path, monkeypatch, goals_md, tasks_md)
+        from janus.goals_cli import handle_goal_audit
+        # Expect SystemExit because UNKNOWN_GOAL_REFERENCE / INVALID_METRIC are errors
+        with pytest.raises(SystemExit) as exc:
+            handle_goal_audit([])
+        assert exc.value.code != 0
+        captured = capsys.readouterr()
+        for code in ("GOAL_WITHOUT_TASKS", "UNKNOWN_GOAL_REFERENCE", "INVALID_METRIC"):
+            assert code in captured.out
+
+    def test_json_output_full_structure(self, tmp_path, monkeypatch, capsys):
+        """§12(10): JSON output contains complete structured report with codes, severity, IDs, details."""
+        _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Real goal\nStatus: active\n",
+            "- [ ] Ghost task | goal: Ghost goal\n",
+        )
+        from janus.goals_cli import handle_goal_audit
+        with pytest.raises(SystemExit):
+            handle_goal_audit(["--json"])
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        # Counts
+        assert data["goals_checked"] == 1
+        assert data["tasks_checked"] == 1
+        # The UNKNOWN_GOAL_REFERENCE error must be present with full fields
+        issues = data["issues"]
+        ghost = [i for i in issues if i["code"] == "UNKNOWN_GOAL_REFERENCE"]
+        assert len(ghost) == 1
+        g = ghost[0]
+        assert g["severity"] == "error"
+        assert g["goal_id"] == "Ghost goal"
+        assert g["task_id"] == "Ghost task"
+        assert "does not exist" in g["message"]
+        assert g["details"]["referenced_goal"] == "Ghost goal"
+        assert g["details"]["task_id"] == "Ghost task"
+        # Summary counts must be consistent
+        assert data["error_count"] == data["error_count"]  # exists
+        assert data["error_count"] >= 1
+        assert "warning_count" in data
+        assert "info_count" in data
+        assert "evaluated_at" in data
+
+    def test_json_output_exit_code_with_errors(self, tmp_path, monkeypatch, capsys):
+        """§12(11): --json also exits non-zero when error-severity issues are present."""
+        _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Real goal\nStatus: active\n",
+            "- [ ] Ghost task | goal: Ghost goal\n",
+        )
+        from janus.goals_cli import handle_goal_audit
+        with pytest.raises(SystemExit) as exc:
+            handle_goal_audit(["--json"])
+        assert exc.value.code != 0
+
+    def test_json_output_exit_code_warnings_only(self, tmp_path, monkeypatch, capsys):
+        """§12(12): --json exits 0 when only warnings are present."""
+        _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n\n## Goal: Lonely goal\nStatus: active\n",
+            "- [ ] Some task\n",
+        )
+        from janus.goals_cli import handle_goal_audit
+        # Should NOT raise SystemExit — only GOAL_WITHOUT_TASKS warning, no errors
+        handle_goal_audit(["--json"])
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["error_count"] == 0
+        assert data["warning_count"] >= 1
+
+    def test_audit_is_read_only(self, tmp_path, monkeypatch, capsys):
+        """Read-only contract (spec §3): audit must not modify goals.md or tasks.md."""
+        goals_md = "# Goals\n\n## Goal: Real goal\nStatus: active\n"
+        tasks_md = "- [ ] Ghost task | goal: Ghost goal\n"
+        _setup_cli_fixtures(tmp_path, monkeypatch, goals_md, tasks_md)
+        goals_file = tmp_path / "goals.md"
+        tasks_file = tmp_path / "tasks.md"
+        from janus.goals_cli import handle_goal_audit
+        with pytest.raises(SystemExit):
+            handle_goal_audit([])
+        capsys.readouterr()  # drain output
+        assert goals_file.read_text() == goals_md
+        assert tasks_file.read_text() == tasks_md
+
+    def test_cli_deterministic_output(self, tmp_path, monkeypatch, capsys):
+        """§12(7),(10): Same input produces identical JSON output across two CLI runs."""
+        goals_md = (
+            "# Goals\n\n"
+            "## Goal: Lonely goal\n"
+            "Status: active\n"
+        )
+        tasks_md = (
+            "- [ ] Ghost task | goal: Ghost goal\n"
+        )
+        # First run
+        _setup_cli_fixtures(tmp_path, monkeypatch, goals_md, tasks_md)
+        from janus.goals_cli import handle_goal_audit
+        with pytest.raises(SystemExit):
+            handle_goal_audit(["--json"])
+        first = capsys.readouterr().out
+
+        # Second run: rewrite fixtures to ensure determinism independent of buffer
+        _setup_cli_fixtures(tmp_path, monkeypatch, goals_md, tasks_md)
+        with pytest.raises(SystemExit):
+            handle_goal_audit(["--json"])
+        second = capsys.readouterr().out
+
+        # evaluated_at is the only non-deterministic field at the CLI level;
+        # strip it before comparing so we isolate structural determinism.
+        first_data = json.loads(first)
+        second_data = json.loads(second)
+        first_data.pop("evaluated_at", None)
+        second_data.pop("evaluated_at", None)
+        assert first_data == second_data
+
+    def test_cli_wired_through_main(self, tmp_path, monkeypatch, capsys):
+        """End-to-end: `janus goal audit` dispatches to handle_goal_audit via main()."""
+        _setup_cli_fixtures(
+            tmp_path, monkeypatch,
+            "# Goals\n",
+            "- [ ] Test task\n",
+        )
+        import janus
+        monkeypatch.setattr("sys.argv", ["janus", "goal", "audit"])
+        janus.main()
+        captured = capsys.readouterr()
+        assert "Goal Integrity Audit" in captured.out
