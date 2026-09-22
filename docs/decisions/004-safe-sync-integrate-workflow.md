@@ -213,9 +213,10 @@ evidence artifacts (pre-completion and integration reports). The existing
 
 - **Adds latency to completion.** Tests now run twice (Phase 3 and Phase 4 post-merge).
   This is the cost of correctness.
-- **Phase 4 requires a separate agent/profile.** The integration step must be performed
-  by someone other than the implementor. The exact profile assignment is deferred to
-  the implementation task (t_36b3d88f; superseded — integration completed incrementally through phase-specific tasks).
+- **Phase 4 integration runs as an automated step in the completion path (Option B).**
+  The integration logic is implemented in `src/janus/integration.py` and runs as part of
+  the Phase 5 gated completion flow — no separate agent/profile is required. The Phase 4
+  Integrator Model decision (lines 135-160) explicitly adopted Option B.
 
 ### Negative / Risks
 
