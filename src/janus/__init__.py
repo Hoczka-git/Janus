@@ -52,6 +52,7 @@ from janus.goals_cli import (
     handle_goal_milestone,
     handle_goal_project,
     handle_goal_health,
+    handle_goal_audit,
     handle_goal_skills,
     handle_goal_set_skill,
     print_goal_help,
@@ -164,6 +165,8 @@ def main() -> None:
                 handle_goal_next(filtered[2:])
             elif sub == "health":
                 handle_goal_health(filtered[2:])
+            elif sub == "audit":
+                handle_goal_audit(filtered[2:])
             else:
                 print(f"Unknown goal subcommand: {sub}")
                 print("Usage: janus goal list")
@@ -174,6 +177,7 @@ def main() -> None:
                 print("       janus goal milestone <add|list|show|complete|update> <goal> ...")
                 print("       janus goal next <title>")
                 print("       janus goal health [<title>]")
+                print("       janus goal audit [--json]")
         elif command == "weekly":
             show_weekly(trace_id=trace_id)
         elif command == "status":

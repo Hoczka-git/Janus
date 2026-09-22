@@ -15,6 +15,8 @@ Exports:
     Decision
     GoalSignal
     GoalHealthAssessment
+    GoalIntegrityReport
+    GoalIntegrityIssue
     StrategicSummary
     PortfolioHealthCounts
     StrategicStateSnapshot
@@ -66,6 +68,8 @@ __all__ = [
     "Decision",
     "GoalSignal",
     "GoalHealthAssessment",
+    "GoalIntegrityReport",
+    "GoalIntegrityIssue",
     "StrategicSummary",
     "PortfolioHealthCounts",
     "StrategicStateSnapshot",
