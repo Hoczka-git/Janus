@@ -253,28 +253,9 @@ evidence artifacts (pre-completion and integration reports). The existing
 - **Adds latency to completion.** Tests now run twice (Phase 3 and Phase 4 post-merge).
   This is the cost of correctness.
 - **Phase 4 integration runs as an automated step in the completion path (Option B).**
-  The integration logic in `src/janus/integration.py` executes as part of the Phase 5 gated
-  completion flow via `run_completion_gates()` -> `integrate_task()`. No separate
-  agent/profile is required to perform integration.
-
-  *Historical note (superseded assumption):* The original Neutral consequence stated
-  that "Phase 4 requires a separate agent/profile" and deferred profile assignment to
-  task `t_36b3d88f`. This reflected the initial design intent (Option A: a dedicated
-  integration agent). That intent was superseded when Option B was adopted: the
-  `merge-reconciler` skill was absent from the Janus repo at design time, and a
-  dedicated integrator agent would have been dead infrastructure. Option B delivers
-  atomic integration + rollback + evidence artifacts with no new agent wiring. The
-  structured reason codes (`integration_conflict`, `post_integration_test_failure`,
-  `target_push_failed`, `target_contains_check_failed`, `merge_failed`) remain as
-  handoff signals: a human or future `merge-reconciler` agent can claim a blocked
-  task and resolve conflicts.
-
-  *Production caveat:* the `janus_sync` plugin (which wires Phase 1 auto-invoke on
-  task claim and Phase 5 gate-block routing to `kanban_block`) is **not loaded** by
-  any Hermes config (`plugins.enabled: []` in all profiles). Phase 1 auto-invoke and
-  execution-feedback dispatch are therefore dormant in the current Hermes install.
-  The Phase 3/4/5 gates within `src/janus/services/tasks.py` remain active when invoked
-  through the Janus CLI completion path.
+  The integration logic is implemented in `src/janus/integration.py` and runs as part of
+  the Phase 5 gated completion flow — no separate agent/profile is required. The Phase 4
+  Integrator Model decision (lines 135-160) explicitly adopted Option B.
 
 ### Negative / Risks
 
