@@ -1,6 +1,6 @@
 # Goal Integrity Audit
 
-**Status:** Proposed
+**Status:** Implemented
 **Domain:** Goals / Tasks
 **Type:** Deterministic domain audit
 **CLI:** `janus goal audit`
