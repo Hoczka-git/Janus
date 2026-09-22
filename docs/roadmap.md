@@ -115,9 +115,9 @@ existing design and planning artifacts in this repository.
   - Remaining: production verification of Completion → Goal Update and Review.
 - [x] Add evidence-based skill tracking linking completed work and project outcomes to career-development goals
 - [x] Add strategic state summaries that surface meaningful changes, neglected goals, stalled work, and recommended next actions
-- [ ] Define the `GoalIntegrityReport` and `GoalIntegrityIssue` domain models. specification in [`docs/design/goal_integrity_audit.md`
-- [ ] Implement deterministic goal/task integrity checks. specification in [`docs/design/goal_integrity_audit.md`
-- [ ] Add `janus goal audit` CLI command. specification in [`docs/design/goal_integrity_audit.md`
-- [ ] Add `janus goal audit --json` output and exit-code semantics
-- [ ] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`
-- [ ] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
+- [x] Define the `GoalIntegrityReport` and `GoalIntegrityIssue` domain models. specification in [`docs/design/goal_integrity_audit.md`
+- [x] Implement deterministic goal/task integrity checks. specification in [`docs/design/goal_integrity_audit.md`
+- [x] Add `janus goal audit` CLI command. specification in [`docs/design/goal_integrity_audit.md`
+- [x] Add `janus goal audit --json` output and exit-code semantics
+- [x] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`
+- [x] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
