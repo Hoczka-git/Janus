@@ -424,7 +424,7 @@ integration is complete and tested.
   reconciliation baseline `893a963` still contained the stale "separate agent" language
   ("Phase 4 requires a separate agent/profile"). This was fixed post-`893a963` by commit
   `2f2ffa3` ("docs: update ADR-004 §Neutral to reflect Option B (no separate agent required)").
-- **ADR-004 §Neutral at current HEAD (`076b882`, post-`2f2ffa3`):** Correctly states Option B:
+- **ADR-004 §Neutral at current HEAD (`781d4ae`, post-`2f2ffa3`):** Correctly states Option B:
   > "Phase 4 integration runs as an automated step in the completion path (Option B).
   > The integration logic is implemented in `src/janus/integration.py` and runs as part of
   > the Phase 5 gated completion flow — no separate agent/profile is required."
@@ -466,9 +466,9 @@ integration is complete and tested.
 - **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open.
 
-## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `893a963`)  [7 items]
+## 9.5 Current Genuinely Open Work (2026-09-22, post-PR #176/#178/#189, HEAD `893a963`)  [7 items]
 
-After reconciliation against HEAD `893a963` (and subsequent fixes through commit `076b882`),
+After reconciliation against HEAD `893a963` (and subsequent fixes through commit `781d4ae`),
 the following items remain genuinely open:
 
 ### P1 (high priority)
@@ -513,11 +513,11 @@ the following items remain genuinely open:
   caveats", ADR-005 "Accepted (on consolidation)" (see §9.1)
 - **Consolidated ADR docs not on HEAD (§5):** ARCHIVE — master-only
 
-## 9.6 Evidence: Test Verification at HEAD `2f2ffa3`
+## 9.6 Evidence: Test Verification at HEAD `781d4ae`
 
 ```
 $ uv run pytest tests/test_task_complete_gates.py tests/test_task_complete_janus_gates.py tests/test_integration.py tests/plugins/test_janus_sync_plugin.py -q
-[100%] 72 passed in 13.56s
+[100%] 72 passed in 13.44s
 ```
 
 Breakdown:
