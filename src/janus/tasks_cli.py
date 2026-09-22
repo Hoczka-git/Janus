@@ -8,6 +8,7 @@ import sys
 from janus.services.tasks import (
     add_task,
     complete_task,
+    complete_task_via_ingest,
     list_tasks,
     set_task_state,
     set_task_progress,
@@ -185,8 +186,8 @@ def handle_task_complete(args: list[str]) -> None:
     title = " ".join(args)
 
     try:
-        complete_task(title)
-    except ValueError as e:
+        result = complete_task_via_ingest(title)
+    except Exception as e:
         msg = str(e)
         if "Multiple open tasks found with title" in msg or "open tasks matching title" in msg:
             print(
@@ -198,6 +199,20 @@ def handle_task_complete(args: list[str]) -> None:
             )
         else:
             print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.action == "rejected":
+        msg = result.error or ""
+        if "Multiple open tasks found with title" in msg or "open tasks matching title" in msg:
+            print(
+                f"Warning: {msg} Refusing to complete to avoid ambiguity. "
+                f"Use a more specific task ID or line reference, "
+                f"or run 'janus task list' to review and disambiguate "
+                f"the matching entries.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Completed task: {title}")

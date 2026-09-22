@@ -11,7 +11,6 @@ import pytest
 
 from janus.services.measurement_log import (
     MeasurementEntry,
-    append_entry,
     find_entries_since,
     find_last_entry,
     load_entries,
@@ -227,39 +226,5 @@ class TestFindEntriesSince:
 
 
 # ---------------------------------------------------------------------------
-# append_entry
+# append_entry — DELETED (dead code, Path 10 remediation)
 # ---------------------------------------------------------------------------
-
-class TestAppendEntry:
-    def test_appends_to_new_file(self, tmp_path):
-        path = tmp_path / "measurements.jsonl"
-        entry = _entry("2026-09-06")
-        append_entry(path, entry)
-        data = path.read_text().strip()
-        parsed = json.loads(data)
-        assert parsed["date"] == "2026-09-06"
-        assert parsed["metric"] == "weight"
-
-    def test_appends_to_existing_file(self, tmp_path):
-        path = _write_jsonl(tmp_path / "measurements.jsonl", [
-            {"date": "2026-09-05", "metric": "weight", "value": 82.5, "unit": "kg",
-             "goal_title": "G"},
-        ])
-        entry = _entry("2026-09-06", value=81.0)
-        append_entry(path, entry)
-        lines = path.read_text().strip().split("\n")
-        assert len(lines) == 2
-        assert json.loads(lines[1])["value"] == 81.0
-
-    def test_creates_parent_dirs(self, tmp_path):
-        path = tmp_path / "subdir" / "measurements.jsonl"
-        entry = _entry("2026-09-06")
-        append_entry(path, entry)
-        assert path.exists()
-
-    def test_appends_with_collected_at(self, tmp_path):
-        path = tmp_path / "measurements.jsonl"
-        entry = _entry("2026-09-06", collected_at="2026-09-06T07:15:00+02:00")
-        append_entry(path, entry)
-        parsed = json.loads(path.read_text().strip())
-        assert parsed["collected_at"] == "2026-09-06T07:15:00+02:00"

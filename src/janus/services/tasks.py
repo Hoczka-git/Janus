@@ -751,6 +751,31 @@ def complete_janus_task(title: str, evidence: dict | None = None) -> Task:
     return task
 
 
+def complete_task_via_ingest(title: str, evidence: dict | None = None) -> "IngestResult":
+    """Construct a TASK_COMPLETED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    The ``evidence`` dict is passed through to ``complete_janus_task`` via
+    the dispatch helper.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.TASK_COMPLETED,
+        source="cli",
+        timestamp=datetime.now(timezone.utc),
+        task_title=title,
+        evidence=evidence or {},
+    )
+    return ingest_activities([record])[0]
+
+
 def _validate_title(title: str) -> None:
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")

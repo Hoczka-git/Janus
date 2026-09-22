@@ -68,6 +68,7 @@ class ActivityType(StrEnum):
 
     TASK_COMPLETED = "task_completed"
     TASK_UPDATED = "task_updated"
+    GOAL_CREATED = "goal_created"
     GOAL_PROGRESS = "goal_progress"
     GOAL_UPDATED = "goal_updated"
     GOAL_COMPLETED = "goal_completed"
@@ -76,6 +77,8 @@ class ActivityType(StrEnum):
     WORKOUT_ADDED = "workout_added"
     FOLLOWUP_ADDED = "followup_added"
     INBOX_CAPTURED = "inbox_captured"
+    RESEARCH_ARTIFACT = "research_artifact"
+    DECISION_CREATED = "decision_created"
 
 
 # ── ActivityRecord ────────────────────────────────────────────────────────────
@@ -183,10 +186,24 @@ def compute_dedup_key(record: ActivityRecord) -> str:
         return f"{d or record.date or ''}::{record.workout_type or ''}"
 
     if t == ActivityType.FOLLOWUP_ADDED:
-        return record.followup_id or _gen_uuid("fu")
+        # Dedup by followup_id if present, otherwise by title + source
+        if record.followup_id:
+            return record.followup_id
+        return f"fu::{record.captured_text or record.task_title or ''}::{record.source}"
 
     if t == ActivityType.INBOX_CAPTURED:
-        return record.inbox_id or _gen_uuid("ix")
+        # Dedup by inbox_id if present, otherwise by captured_text + source
+        if record.inbox_id:
+            return record.inbox_id
+        return f"ix::{record.captured_text or ''}::{record.source}"
+
+    if t == ActivityType.RESEARCH_ARTIFACT:
+        # Dedup by task_title (slug) + captured_text hash
+        return f"ra::{record.task_title or ''}::{record.captured_text or ''}"
+
+    if t == ActivityType.DECISION_CREATED:
+        # Dedup by task_title (adr_number or title)
+        return f"dc::{record.task_title or ''}::{record.captured_text or ''}"
 
     # GOAL_UPDATED, GOAL_COMPLETED — dedup by goal_title + task_id
     return f"{record.goal_title or ''}::{record.task_id or 'no-task-id'}"
@@ -231,12 +248,15 @@ class IngestConfig:
             "task_updated": "data/tasks.md",
             "goal_progress": "data/goals.md",
             "goal_updated": "data/goals.md",
+            "goal_created": "data/goals.md",
             "goal_completed": "data/goals.md",
             "milestone_completed": "data/goals.md",
             "measurement": "data/measurements.jsonl",
             "workout_added": "data/workouts.md",
             "followup_added": "data/followups.md",
             "inbox_captured": "data/inbox.md",
+            "research_artifact": "data/activities.log",
+            "decision_created": "data/activities.log",
         }
         rel = self.file_paths.get(t, defaults.get(t, "data/activities.log"))
         return PROJECT_ROOT / rel
@@ -386,8 +406,9 @@ def _validate_record(record: ActivityRecord) -> None:
     if record.type not in ActivityType.__members__.values():
         raise ValueError(f"Unknown activity type: {record.type}")
 
-    # GOAL_PROGRESS, GOAL_UPDATED, GOAL_COMPLETED require a goal_title
+    # GOAL_CREATED, GOAL_PROGRESS, GOAL_UPDATED, GOAL_COMPLETED require a goal_title
     if record.type in (
+        ActivityType.GOAL_CREATED,
         ActivityType.GOAL_PROGRESS,
         ActivityType.GOAL_UPDATED,
         ActivityType.GOAL_COMPLETED,
@@ -413,6 +434,24 @@ def _validate_record(record: ActivityRecord) -> None:
     # INBOX_CAPTURED requires captured_text
     if record.type == ActivityType.INBOX_CAPTURED and not record.captured_text:
         raise ValueError("INBOX_CAPTURED requires captured_text")
+
+    # FOLLOWUP_ADDED requires captured_text or task_title
+    if record.type == ActivityType.FOLLOWUP_ADDED and not record.captured_text and not record.task_title:
+        raise ValueError("FOLLOWUP_ADDED requires captured_text or task_title")
+
+    # RESEARCH_ARTIFACT requires a title (task_title) and body (captured_text)
+    if record.type == ActivityType.RESEARCH_ARTIFACT:
+        if not record.task_title:
+            raise ValueError("RESEARCH_ARTIFACT requires task_title")
+        if not record.captured_text:
+            raise ValueError("RESEARCH_ARTIFACT requires captured_text")
+
+    # DECISION_CREATED requires a title (task_title) and body (captured_text)
+    if record.type == ActivityType.DECISION_CREATED:
+        if not record.task_title:
+            raise ValueError("DECISION_CREATED requires task_title")
+        if not record.captured_text:
+            raise ValueError("DECISION_CREATED requires captured_text")
 
     # progress must be 0-100 if present
     if record.progress is not None:
@@ -894,6 +933,7 @@ def _dispatch_record(
         return _dispatch_task(record, file_path, retry_count, backoff)
 
     if t in (
+        ActivityType.GOAL_CREATED,
         ActivityType.GOAL_PROGRESS,
         ActivityType.GOAL_UPDATED,
         ActivityType.GOAL_COMPLETED,
@@ -917,6 +957,12 @@ def _dispatch_record(
 
     if t == ActivityType.TASK_UPDATED:
         return _dispatch_task(record, file_path, retry_count, backoff)
+
+    if t == ActivityType.RESEARCH_ARTIFACT:
+        return _dispatch_research_artifact(record, file_path, retry_count, backoff)
+
+    if t == ActivityType.DECISION_CREATED:
+        return _dispatch_decision(record, file_path, retry_count, backoff)
 
     # Unrecognized type — shouldn't reach here since _validate_record catches it
     return "rejected"
@@ -1107,6 +1153,7 @@ def _serialize_record_line(
                 f"| {record.timestamp.isoformat()}"
             )
         if t in (
+            ActivityType.GOAL_CREATED,
             ActivityType.GOAL_PROGRESS,
             ActivityType.GOAL_UPDATED,
             ActivityType.GOAL_COMPLETED,
@@ -1133,15 +1180,30 @@ def _dispatch_task(
     retry_count: int,
     backoff: float,
 ) -> str:
-    """Route a TASK_COMPLETED / TASK_UPDATED record to tasks service."""
-    from janus.services.tasks import complete_janus_task, set_task_state, set_task_progress
+    """Route a TASK_COMPLETED / TASK_UPDATED record to tasks service.
+
+    For CLI-sourced records (``source="cli"``) the ADR-004 gated
+    ``complete_task`` is used so that CLI completions enforce the completion
+    gates (working-tree clean, diff check, test rerun, safe integration).
+    For all other sources (Hermes sync, etc.) ``complete_janus_task`` is used
+    to support evidence metadata and idempotent re-completion.
+    """
+    from janus.services.tasks import (
+        complete_task,
+        complete_janus_task,
+        set_task_state,
+        set_task_progress,
+    )
 
     title = record.task_title
     if not title:
         raise ValueError(f"Task record requires task_title: {record}")
 
     if record.type == ActivityType.TASK_COMPLETED:
-        complete_janus_task(title=title, evidence=record.evidence)
+        if record.source == "cli":
+            complete_task(title=title)
+        else:
+            complete_janus_task(title=title, evidence=record.evidence)
         return "updated"
     elif record.type == ActivityType.TASK_UPDATED:
         if record.state is not None:
@@ -1173,8 +1235,13 @@ def _dispatch_goal(
             evidence=record.evidence,
         )
         return "updated"
+    elif record.type == ActivityType.GOAL_CREATED:
+        from janus.services.goals import add_goal
+        evidence = record.evidence or {}
+        goal = add_goal(title=title, **evidence)
+        return "created"
     elif record.type == ActivityType.GOAL_UPDATED:
-        kwargs = {}
+        kwargs = dict(record.evidence or {})
         if record.current_value is not None:
             kwargs["current_value"] = record.current_value
         if record.metric_name is not None:
@@ -1273,27 +1340,48 @@ def _dispatch_followup(
     retry_count: int,
     backoff: float,
 ) -> str:
-    """Route a FOLLOWUP_ADDED record through the atomic write gateway."""
-    from janus.models.follow_up import FollowUp
-    from janus.integrations.markdown_followups import _format_followup_line
+    """Route a FOLLOWUP_ADDED record to the followup service.
 
-    fu = FollowUp(
-        id=record.followup_id or _gen_uuid("fu"),
-        title=record.captured_text or record.task_title or "Untitled",
-        note=record.evidence.get("note", "") if record.evidence else "",
-    )
-    line = _format_followup_line(fu) + "\n"
+    Delegates to :func:`janus.services.followup.add_followup` so that all
+    business logic (bidirectional goal linking, validation, etc.) is
+    exercised and the write is protected by ``atomic_io`` through the
+    service layer.
+    """
+    from janus.services.followup import add_followup
 
-    def _append_followup(current: str) -> str:
-        if not current.strip():
-            return line
-        if not current.endswith("\n"):
-            current += "\n"
-        return current + line
+    title = record.captured_text or record.task_title
+    if not title:
+        raise ValueError(f"FOLLOWUP_ADDED requires captured_text or task_title: {record}")
 
-    read_modify_write_with_retry(
-        file_path, _append_followup,
-        max_retries=retry_count, backoff_base=backoff,
+    evidence = record.evidence or {}
+    kwargs = {}
+    if evidence.get("note"):
+        kwargs["note"] = evidence["note"]
+    if evidence.get("priority") is not None:
+        kwargs["priority"] = int(evidence["priority"])
+    if evidence.get("due_date"):
+        from datetime import date as _date
+        try:
+            kwargs["due_date"] = _date.fromisoformat(evidence["due_date"])
+        except (ValueError, TypeError):
+            kwargs["due_date"] = evidence["due_date"]
+    if evidence.get("scheduled_for"):
+        from datetime import date as _date
+        try:
+            kwargs["scheduled_for"] = _date.fromisoformat(evidence["scheduled_for"])
+        except (ValueError, TypeError):
+            kwargs["scheduled_for"] = evidence["scheduled_for"]
+    if evidence.get("created_by"):
+        kwargs["created_by"] = evidence["created_by"]
+    if evidence.get("originating_inbox_id"):
+        kwargs["originating_inbox_id"] = evidence["originating_inbox_id"]
+    if evidence.get("linked_goal_title"):
+        kwargs["linked_goal_title"] = evidence["linked_goal_title"]
+
+    add_followup(
+        title=title,
+        followup_id=record.followup_id,
+        **kwargs,
     )
     return "appended"
 
@@ -1304,28 +1392,32 @@ def _dispatch_inbox(
     retry_count: int,
     backoff: float,
 ) -> str:
-    """Route an INBOX_CAPTURED record through the atomic write gateway."""
-    from janus.models.inbox import InboxItem
-    from janus.integrations.markdown_inbox import _format_inbox_line
+    """Route an INBOX_CAPTURED record to the inbox service.
 
-    item = InboxItem(
-        id=record.inbox_id or _gen_uuid("ix"),
-        captured_text=record.captured_text or "",
-        source=record.source,
-        context=record.evidence.get("context", "") if record.evidence else "",
-    )
-    line = _format_inbox_line(item) + "\n"
+    Delegates to :func:`janus.services.inbox.add_inbox_item` so that all
+    business logic (validation, source checking, etc.) is exercised and
+    the write is protected by ``atomic_io`` through the service layer.
+    """
+    from janus.services.inbox import add_inbox_item
 
-    def _append_inbox(current: str) -> str:
-        if not current.strip():
-            return line
-        if not current.endswith("\n"):
-            current += "\n"
-        return current + line
+    captured_text = record.captured_text
+    if not captured_text:
+        raise ValueError(f"INBOX_CAPTURED requires captured_text: {record}")
 
-    read_modify_write_with_retry(
-        file_path, _append_inbox,
-        max_retries=retry_count, backoff_base=backoff,
+    evidence = record.evidence or {}
+    kwargs = {}
+    if evidence.get("context"):
+        kwargs["context"] = evidence["context"]
+    if evidence.get("linked_goal_title"):
+        kwargs["linked_goal_title"] = evidence["linked_goal_title"]
+    if evidence.get("linked_research_title"):
+        kwargs["linked_research_title"] = evidence["linked_research_title"]
+
+    add_inbox_item(
+        captured_text=captured_text,
+        source=record.source or "cli",
+        inbox_id=record.inbox_id,
+        **kwargs,
     )
     return "appended"
 
@@ -1374,3 +1466,68 @@ def _dispatch_measurement(
         max_retries=retry_count, backoff_base=backoff,
     )
     return "appended"
+
+
+def _dispatch_research_artifact(
+    record: ActivityRecord,
+    file_path: Path,
+    retry_count: int,
+    backoff: float,
+) -> str:
+    """Route a RESEARCH_ARTIFACT record to the research_artifacts service.
+
+    The ``captured_text`` field is expected to contain the full research
+    artifact markdown (frontmatter + sections). It is parsed via
+    ``_parse_artifact_content`` and persisted through the existing
+    ``create_artifact`` / ``update_artifact`` path (which itself uses
+    ``atomic_io``).
+    """
+    from janus.integrations.markdown_research import (
+        _parse_artifact_content,
+        _slugify,
+    )
+    from janus.services.research_artifacts import (
+        create_artifact,
+        update_artifact,
+    )
+
+    body = record.captured_text or ""
+    if not body:
+        raise ValueError(
+            f"RESEARCH_ARTIFACT requires captured_text: {record}"
+        )
+    artifact = _parse_artifact_content(body)
+    try:
+        path = create_artifact(artifact)
+    except ValueError:
+        # Artifact with this slug already exists - update in place.
+        slug = _slugify(artifact.title)
+        update_artifact(artifact, slug=slug)
+        path = None
+    return "created" if path is not None else "updated"
+
+
+def _dispatch_decision(
+    record: ActivityRecord,
+    file_path: Path,
+    retry_count: int,
+    backoff: float,
+) -> str:
+    """Route a DECISION_CREATED record to the decisions service.
+
+    The ``captured_text`` field is expected to contain the full ADR markdown
+    (YAML frontmatter + body). It is parsed via ``_parse_decision_content``
+    and persisted through the existing ``create_decision`` path (which itself
+    uses ``atomic_io``).
+    """
+    from janus.decision_cli import _parse_decision_content
+    from janus.services.decisions import create_decision
+
+    body = record.captured_text or ""
+    if not body:
+        raise ValueError(
+            f"DECISION_CREATED requires captured_text: {record}"
+        )
+    decision = _parse_decision_content(body)
+    create_decision(decision)
+    return "created"

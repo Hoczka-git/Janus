@@ -13,7 +13,6 @@ from janus.integrations.workout_md import (
     find_workouts_by_date_range,
     find_workout_by_id,
     load_workouts,
-    save_workout,
 )
 from janus.services.workout_analytics import (
     compute_exercise_summary,
@@ -300,7 +299,24 @@ def handle_workout_add(args: list[str]) -> None:
             notes=notes,
         )
 
-    save_workout(workout)
+    # Route through the canonical ADR-005 ingestion gate instead of calling
+    # save_workout directly — this adds validation / normalization / dedup.
+    from janus.services.workout_analytics import add_workout_via_ingest
+    result = add_workout_via_ingest(
+        workout_type=workout.workout_type.value,
+        workout_id=workout.id,
+        distance_km=getattr(workout, "distance_km", None),
+        duration_minutes=getattr(workout, "duration_minutes", None),
+        avg_hr_bpm=getattr(workout, "avg_hr_bpm", None),
+        elevation_m=getattr(workout, "elevation_m", None),
+        notes=workout.notes,
+        exercises=getattr(workout, "exercises", None),
+        source=workout.source or "cli",
+        date=workout.date.isoformat() if workout.date else None,
+    )
+    if result.action == "rejected":
+        print(f"Error: workout already exists: {workout.id}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"Added workout: {workout.id}")
     print(f"  Type: {workout.workout_type.value}")

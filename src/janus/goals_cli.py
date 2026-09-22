@@ -8,9 +8,12 @@ from typing import Optional
 
 from janus.services.goals import (
     add_goal,
+    add_goal_via_ingest,
     complete_goal,
+    complete_goal_via_ingest,
     get_goal,
     update_goal_fields,
+    update_goal_via_ingest,
 )
 from janus.services.goal_progress import compute_goal_progress
 from janus.services.milestones import (
@@ -368,7 +371,7 @@ def handle_goal_add(args: list[str]) -> None:
         pass  # minimal goal is OK
 
     try:
-        goal = add_goal(
+        result = add_goal_via_ingest(
             title=title,
             description=description,
             status=status,
@@ -382,9 +385,15 @@ def handle_goal_add(args: list[str]) -> None:
             related_tasks=related_tasks,
             skill_name=skill_name,
         )
-    except ValueError as e:
+    except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+    if result.action == "rejected":
+        print(f"Error: goal already exists: {title!r}", file=sys.stderr)
+        sys.exit(1)
+
+    goal = get_goal(title)
 
     print(f"Added goal: {goal.title}")
     print(f"  Status: {goal.status}")
@@ -524,10 +533,16 @@ def handle_goal_update(args: list[str]) -> None:
         updates["remove_related_task"] = t
 
     try:
-        goal = update_goal_fields(title, **updates)
-    except ValueError as e:
+        result = update_goal_via_ingest(title, **updates)
+    except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+    if result.action == "rejected":
+        print(f"Error: goal not found: {title!r}", file=sys.stderr)
+        sys.exit(1)
+
+    goal = get_goal(title)
 
     print(f"Updated goal: {goal.title}")
     if "current_value" in updates or "target_value" in updates or "start_value" in updates:
@@ -549,10 +564,16 @@ def handle_goal_complete(args: list[str]) -> None:
         sys.exit(1)
     title = " ".join(args)
     try:
-        goal = complete_goal(title)
-    except ValueError as e:
+        result = complete_goal_via_ingest(title)
+    except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+    if result.action == "rejected":
+        print(f"Error: goal not found: {title!r}", file=sys.stderr)
+        sys.exit(1)
+
+    goal = get_goal(title)
     print(f"Completed goal: {goal.title}")
 
 

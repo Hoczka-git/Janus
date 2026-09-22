@@ -9,6 +9,7 @@ decision creation (``create_decision``), and bidirectional linking
 Follows the existing Janus dataclass/service pattern (goals.py,
 knowledge_pipeline.py).
 """
+from __future__ import annotations
 
 import re
 import logging
@@ -288,6 +289,41 @@ def create_decision(decision: Decision) -> Path:
          path=str(adr_path),
          message=f"Created ADR {adr_path.name}")
     return adr_path
+
+
+def create_decision_via_ingest(body: str, *, title: str = "",
+                               source: str = "cli",
+                               evidence: dict | None = None) -> "IngestResult":
+    """Construct a DECISION_CREATED ActivityRecord and route it through
+    the canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    The ``body`` is the full ADR markdown (YAML frontmatter + body).
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.DECISION_CREATED,
+        source=source,
+        timestamp=datetime.now(timezone.utc),
+        task_title=title or _title_from_body(body),
+        captured_text=body,
+        evidence=evidence or {},
+    )
+    return ingest_activities([record])[0]
+
+
+def _title_from_body(body: str) -> str:
+    """Best-effort title extraction from ADR markdown frontmatter."""
+    import re as _re
+    m = _re.match(r"^---\s*\ntitle:\s*(.+)\s*$", body, _re.MULTILINE)
+    if m:
+        return m.group(1).strip()
+    return "Untitled"
 
 
 def _slugify(text: str) -> str:

@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from janus.integrations.atomic_io import atomic_write
+
 logger = logging.getLogger(__name__)
 
 # Marker prefix that makes a completed task "replenish-eligible". Configurable
@@ -438,9 +440,7 @@ def _write_markdown_cursor(file_path: Path, completed_ids: set[str]) -> None:
     """Write the set of pulled item IDs to a .complete sidecar file."""
     cursor_path = Path(str(file_path) + ".complete")
     try:
-        cursor_path.write_text(
-            json.dumps(sorted(completed_ids)),
-        )
+        atomic_write(cursor_path, json.dumps(sorted(completed_ids)))
     except Exception as exc:
         logger.warning("replenish: could not write markdown cursor: %s", exc)
 
@@ -494,7 +494,7 @@ def _complete_markdown_items(
 
     if marked:
         try:
-            file_path.write_text("".join(lines), encoding="utf-8")
+            atomic_write(file_path, "".join(lines))
         except Exception as exc:
             logger.warning("replenish: could not write roadmap file: %s", exc)
 
