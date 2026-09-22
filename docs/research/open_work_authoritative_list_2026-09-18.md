@@ -417,11 +417,10 @@ implementation. The code is authoritative; the mapping table intro is stale but 
 themselves are current. This stale intro is a documentation refinement, not a P1 gap — the
 integration is complete and tested.
 
-<<<<<<< HEAD
 **GAP-006 (ADR-004 "separate agent" claim): CLOSED — fixed in commit `2f2ffa3`**
 
 - **Was:** OPEN — P1, documentation accuracy issue
-- **ADR-004 §Neutral (line 218) at HEAD `893a963`:** The §Neutral c...[truncated]
+- **ADR-004 §Neutral (line 218) at HEAD `893a963`:** The §Neutral consequence at
   reconciliation baseline `893a963` still contained the stale "separate agent" language
   ("Phase 4 requires a separate agent/profile"). This was fixed post-`893a963` by commit
   `2f2ffa3` ("docs: update ADR-004 §Neutral to reflect Option B (no separate agent required)").
@@ -437,7 +436,6 @@ integration is complete and tested.
 ## 9.3 ADR-003: Canonical Review Topology — Current State
 
 - **Status at HEAD `893a963`:** UNCHANGED — still OPEN
->>>>>>> origin/janus/t_4c456b46-reconcile-authoritative-open-work-list-a
 - **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
   (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
   Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
@@ -447,7 +445,6 @@ integration is complete and tested.
 
 ## 9.4 ADR-005: Activity Data Ingestion Layer — Current State
 
-<<<<<<< HEAD
 **GAP-005 (data_protection vs atomic_io): STILL OPEN**
 
 - **Status at HEAD `893a963`:** UNCHANGED
@@ -473,27 +470,6 @@ integration is complete and tested.
 
 After reconciliation against HEAD `893a963` (and subsequent fixes through commit `076b882`),
 the following items remain genuinely open:
-=======
-| Item | 2026-09-18 status | 2026-09-21 status | Notes |
-|------|-------------------|-------------------|-------|
-| tmp_*.py scratch files (6.2) | OPEN — Cleanup | UNCHANGED — still 11 committed files | No cleanup performed since 2026-09-18 |
-| ADR-002 curation gate (6.1 / GAP-001) | OPEN — P1 | UNCHANGED | No Obsidian promotion code exists |
-|| Consolidated ADR docs not on HEAD (§5) | ARCHIVE | UNCHANGED | Still on origin/master, not on HEAD `2f2ffa3` |
-|| ADR-004 §10 "Phase 4 requires separate agent" | Was GAP-006 (P1) | **CLOSED** via commit 2f2ffa3 — §Neutral updated to Option B | Phase 4 IS implemented via Option B, §Neutral now reflects automated step |
-| Roadmap items 113-116 | CLOSED (2dc1b72) | UNCHANGED | Still [x] at HEAD |
-| Product backlog done items | CLOSED (2dc1b72) | UNCHANGED | Still [done] at HEAD |
-
-## 9.4 Consolidated ADR Docs Not on HEAD — Remains ARCHIVE
-
-The two consolidated ADR decision documents (`adr-003-004-005-consolidated-decisions.md`
-from `76fd1cd` and `adr-consolidated-decisions.md` from `c74d1ac`) exist on
-`origin/master` but are NOT on HEAD `2f2ffa3`. This item is unchanged from 2026-09-18
-and should be archived as "available on master only" or back-ported.
-
-## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `2f2ffa3`)
-
-After reconciliation against HEAD `2f2ffa3`, the following items remain genuinely open:
->>>>>>> origin/janus/t_4c456b46-reconcile-authoritative-open-work-list-a
 
 ### P1 (high priority)
 
@@ -527,7 +503,6 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
      (`strength.py:68`, `workout.py:61`, `checklist.py:65`) and `calendar_sync.py` writes
      directly to `Today.md` (line 60) and `FollowUps.md` (line 77) outside atomic_io.
 
-<<<<<<< HEAD
 ### Closed / Resolved / Archived
 
 - **GAP-004 (ADR-004 Phases 3-5):** RESOLVED — all 5 phases implemented (§9.2)
@@ -536,18 +511,6 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
 - **tmp_*.py scratch files:** RESOLVED — no tmp_*.py files present at current HEAD
 - **ADR status fields (§1):** RESOLVED — ADR-003 "Accepted", ADR-004 "Accepted with implementation
   caveats", ADR-005 "Accepted (on consolidation)" (see §9.1)
-=======
-### Cleanup
-
-7. **tmp_*.py scratch files (11 files)**
-   - Committed in `2dc1b72`, still present at HEAD `2f2ffa3`
-   - Effort: Low. Remove from repository.
-
-### Archived (not open, retain for history)
-
-- **GAP-004 (ADR-004 Phases 3-5):** RESOLVED — all 5 phases implemented (§9.2)
-- **Status at HEAD `2f2ffa3`:** UNCHANGED — all three now "Accepted"
->>>>>>> origin/janus/t_4c456b46-reconcile-authoritative-open-work-list-a
 - **Consolidated ADR docs not on HEAD (§5):** ARCHIVE — master-only
 
 ## 9.6 Evidence: Test Verification at HEAD `2f2ffa3`
@@ -573,15 +536,10 @@ test_janus_sync_plugin.py cover other plugin functionality.
 | 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
-<<<<<<< HEAD
-| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (ad...[truncated]
-| 7 | tmp_*.py files | OPEN — Cleanup | **RESOLVED** — no tmp_*.py files present at HEAD `893a963` |
-=======
 || 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 erroneously marked CLOSED in 2026-09-21 (PR #195 did not implement a CI grep gate) |
-| 7 | tmp_*.py files | OPEN — Cleanup | **UNCHANGED** — 11 files still committed |
->>>>>>> origin/janus/t_4c456b46-reconcile-authoritative-open-work-list-a
+|| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (ad...[truncated]
+|| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
+| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (ad...[truncated]
 
 ---
 
