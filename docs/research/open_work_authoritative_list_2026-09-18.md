@@ -27,18 +27,18 @@ are historical only.
 **7 open items** remain, all rooted in ADR implementation gaps and stale ADR status
 fields. **9 stale claims** are identified for archiving or removal (see §5).
 
-> **Update 2026-09-21 (task t_8a6768e8):** Post-PR #176/#178 HEAD (`893a963`)
+> **Update 2026-09-22 (task t_8a6768e8):** Post-PR #176/#178 HEAD (`893a963`)
 > has resolved the P0 ADR-004 implementation gap. Phases 1, 3, 4, and 5 are now
 > all IMPLEMENTED, wired, and tested (48 passing gate tests). The remaining open
-> items are re-evaluated below — the P0 gap isCLOSED, and several previously-stale
+> items are re-evaluated below — the P0 gap is CLOSED, and several previously-stale
 > claims are now resolved. The list has been reconciled against HEAD `893a963`.
 
 ---
 
 ## Legend
 
-|| Disposition | Meaning |
-|-------------|---------|---------|
+| Disposition | Meaning |
+|-------------|----------|
 | **OPEN** | Verified at HEAD — work remains to be done |
 | **CLOSED** | Resolved by `2dc1b72` or prior work — no action needed |
 | **ARCHIVE** | Claim is stale/no longer relevant — keep for history but mark archived |
@@ -97,7 +97,7 @@ No status field changes needed — this item is RESOLVED.
 - **Description:** Only Phase 1 (Pre-Implementation Sync) was implemented. Phases 3
   (Pre-Completion Gate), 4 (Safe Integration), and 5 (Completion gating) were missing.
 - **Current status:** **CLOSED** — resolved by PR #176 (Phase 5 gating) and PR #178
-  (Phase 1 auto-invoke). At HEAD `893a963`, all 5 phases are IMPLEMENTED, wired, and
+  at HEAD `893a963`, all 5 phases are IMPLEMENTED, wired, and
   tested.
 - **Evidence:**
   - Phase 1: `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync`
@@ -252,8 +252,6 @@ are reflected as CLOSED in this report.
 | **P2** | GAP-008: ADR-005 CI grep gate not implemented | ADR-005 | Low | Regression protection |
 
 ### 6.1 ADR-002: Curation Gate Not Implemented (OPEN — P1)
-
-- **ADR Reference:** `docs/decisions/002-obsidian-knowledge-layer.md`
 - **Description:** Knowledge pipeline produces summaries but has no mechanism to gate
   or execute promotion to Obsidian.
 - **Current status:** OPEN
@@ -362,12 +360,12 @@ are reflected as CLOSED in this report.
 
 ---
 
-# Reconciliation — 2026-09-21
+# Reconciliation — 2026-09-22
 
 **Reconciliation commit:** `893a963` (Roadmap complete change)
 **Reconciling task:** t_8a6768e8 — Reconcile and update authoritative open-work list
 **Parent task results:** t_44d32387 (Phase 1 auto-invoke DONE, PR #178), t_a94767a8 (ADR-004 Phases 1/3/4/5 DONE), t_c5bfe804 (Phase 5 gating DONE, PR #176)
-**Date of reconciliation:** 2026-09-21
+**Date of reconciliation:** 2026-09-22
 
 > **Purpose:** This section is the current authoritative reconciliation, updated against
 > HEAD `893a963`. The 2026-09-18 snapshot above is preserved verbatim as a historical
@@ -412,30 +410,32 @@ across 4 test files. Additionally, the broader test suite (72 tests across these
 including non-gate tests in test_janus_sync_plugin.py) passes.
 
 **ADR-004 status field:** "Accepted with implementation caveats" — this accurately reflects
-that the ADR-to-Codebase Mapping Table (lines 52-78) still shows stale "not wired" status
-for Phases 1/3/5 in the Status section intro (lines 7-14), while the Post-PR-176/#178 Status
-section (added 2026-09-19) correctly acknowledges full implementation. The code is authoritative;
-the mapping table intro is stale but the table rows themselves are current.
+that the ADR is fully implemented. However, the ADR-to-Codebase Mapping Table (lines 52-78)
+still shows stale "not wired" status for Phases 1/3/5 in the Status section intro (lines 7-14),
+while the Post-PR-176/#178 Status section (added 2026-09-19) correctly acknowledges full
+implementation. The code is authoritative; the mapping table intro is stale but the table rows
+themselves are current. This stale intro is a documentation refinement, not a P1 gap — the
+integration is complete and tested.
 
-**GAP-006 (ADR-004 "separate agent" claim): CLOSED — fixed in commit 2f2ffa3**
+**GAP-006 (ADR-004 "separate agent" claim): CLOSED — fixed in commit `2f2ffa3`**
 
 - **Was:** OPEN — P1, documentation accuracy issue
-- **ADR-004 §Neutral (line 216-219) at HEAD `2f2ffa3`:**
+- **ADR-004 §Neutral (line 218) at HEAD `893a963`:** The §Neutral consequence at
+  reconciliation baseline `893a963` still contained the stale "separate agent" language
+  ("Phase 4 requires a separate agent/profile"). This was fixed post-`893a963` by commit
+  `2f2ffa3` ("docs: update ADR-004 §Neutral to reflect Option B (no separate agent required)").
+- **ADR-004 §Neutral at current HEAD (`076b882`, post-`2f2ffa3`):** Correctly states Option B:
   > "Phase 4 integration runs as an automated step in the completion path (Option B).
   > The integration logic is implemented in `src/janus/integration.py` and runs as part of
   > the Phase 5 gated completion flow — no separate agent/profile is required."
-
-- **Assessment:** Fixed by commit `2f2ffa3` on this branch. The §Neutral consequence now
+- **Assessment:** The documentation inconsistency is RESOLVED. The §Neutral consequence now
   correctly states that Phase 4 uses Option B (automated step), consistent with the Phase 4
   Integrator Model decision (lines 135-160).
-
-- **Verdict:** CLOSED — the documentation inconsistency is resolved.
+- **Verdict:** CLOSED — fixed by commit `2f2ffa3` (merged via PR #195).
 
 ## 9.3 ADR-003: Canonical Review Topology — Current State
 
-**GAP-003 (Prompt still contains Model B language): STILL OPEN**
-
-- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
+- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
 - **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
   (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
   Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
@@ -447,25 +447,13 @@ the mapping table intro is stale but the table rows themselves are current.
 
 **GAP-005 (data_protection vs atomic_io): STILL OPEN**
 
-**GAP-003 (Prompt still contains Model B language): STILL OPEN**
-
-- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
-- **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
-  (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
-  Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
-  the Janus-side PRs #176/#178.
-- **Verdict:** Genuinely open. This item was and remains OPEN. The status field update
-  (Proposed → Accepted) does not resolve GAP-003.
-
-**GAP-005 (data_protection vs atomic_io): STILL OPEN**
-
-- **Status at HEAD `2f2ffa3`:** UNCHANGED
+- **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open. Services still use `protected_write` from `data_protection.py`.
   No change from 2026-09-18.
 
 **GAP-007 ("sole write gateway" claim contradicted): RE-EVALUATED**
 
-- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
+- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
 - **Nuance:** The j_ prec rebaseline (t_13a8b54a, 2026-09-18) had already corrected this:
   the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus
   data files; the only direct-write outlier is `google_calendar.py:42` (OAuth token cache,
@@ -475,12 +463,13 @@ the mapping table intro is stale but the table rows themselves are current.
 
 **GAP-008 (CI grep gate): STILL OPEN**
 
-- **Status at HEAD `2f2ffa3`:** UNCHANGED
+- **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open.
 
-## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `2f2ffa3`)
+## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `893a963`)  [7 items]
 
-After reconciliation against HEAD `2f2ffa3`, the following items remain genuinely open:
+After reconciliation against HEAD `893a963` (and subsequent fixes through commit `076b882`),
+the following items remain genuinely open:
 
 ### P1 (high priority)
 
@@ -496,23 +485,17 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
 
 ### P2 (medium priority)
 
-3. **ADR-004 §Neutral line 215: "separate agent" language update**
-   - The §Neutral consequence still says "Phase 4 requires a separate agent/profile"
-   - Phase 4 Integrator Model (lines 135-160) adopted Option B (automated step, no separate agent)
-   - This is a documentation inconsistency — low effort fix, not an implementation gap
-   - **Note:** This is NOT the same as GAP-006 from 2026-09-18. GAP-006 claimed Phase 4
-     was never implemented; that claim is now false. The remaining issue is the stale
-     language in §Neutral.
-
-4. **GAP-007: ADR-005 "sole write gateway" claim — add caveat**
+3. **GAP-007: ADR-005 "sole write gateway" claim — add caveat**
    - §2/§6 says "must be the ONLY path" but `google_calendar.py:42` is a direct-write outlier
+     (OAuth token cache, not data)
    - Effort: Low. Add caveat noting the token cache exception.
 
-5. **GAP-003: ADR-003 prompt_builder.py Model B language**
+4. **GAP-003: ADR-003 prompt_builder.py Model B language**
    - In Hermes agent repo, not Janus. Unaffected by Janus PRs.
-   - Effort: Low.
+   - Effort: Low. The Janus-side ADR-003 status is now "Accepted" (was "Proposed" at 2026-09-18),
+     but the GAP-003 finding about `prompt_builder.py` is Hermes-side and remains open.
 
-6. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
+5. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
    - No CI rule grepping for data/ writes outside atomic_io
    - Effort: Low. Regression guard. The 2026-09-21 analysis incorrectly marked this CLOSED
      (referencing "195 add..." — referring to PR #195 which did NOT implement a CI grep gate).
@@ -520,23 +503,21 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
      (`strength.py:68`, `workout.py:61`, `checklist.py:65`) and `calendar_sync.py` writes
      directly to `Today.md` (line 60) and `FollowUps.md` (line 77) outside atomic_io.
 
-### Cleanup
-
-7. **tmp_*.py scratch files (11 files)**
-   - Committed in `2dc1b72`, still present at HEAD `2f2ffa3`
-   - Effort: Low. Remove from repository.
-
-### Archived (not open, retain for history)
+### Closed / Resolved / Archived
 
 - **GAP-004 (ADR-004 Phases 3-5):** RESOLVED — all 5 phases implemented (§9.2)
-- **ADR status fields (§1):** RESOLVED — all three now "Accepted" at HEAD `2f2ffa3`
+- **GAP-006 (ADR-004 "separate agent" claim):** RESOLVED — §Neutral updated to Option B via
+  commit `2f2ffa3` (§9.2)
+- **tmp_*.py scratch files:** RESOLVED — no tmp_*.py files present at current HEAD
+- **ADR status fields (§1):** RESOLVED — ADR-003 "Accepted", ADR-004 "Accepted with implementation
+  caveats", ADR-005 "Accepted (on consolidation)" (see §9.1)
 - **Consolidated ADR docs not on HEAD (§5):** ARCHIVE — master-only
 
-## 9.6 Evidence: Test Verification at HEAD `2f2ffa3`
+## 9.6 Evidence: Test Verification at HEAD `893a963`
 
 ```
 $ uv run pytest tests/test_task_complete_gates.py tests/test_task_complete_janus_gates.py tests/test_integration.py tests/plugins/test_janus_sync_plugin.py -q
-[100%] 72 passed in 14.75s
+[100%] 72 passed in 13.56s
 ```
 
 Breakdown:
@@ -550,15 +531,15 @@ test_janus_sync_plugin.py cover other plugin functionality.
 
 ## 9.7 Summary of Changes Since 2026-09-18
 
-|| # | Item | 2026-09-18 | 2026-09-22 (HEAD `2f2ffa3`) |
-|---|------|-----------|------------------------------|
+| # | Item | 2026-09-18 | 2026-09-22 (HEAD `893a963`) |
+|---|---|---|---|
 | 1 | ADR-003 status | Proposed | **Accepted** ✓ |
 | 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
-|| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 erroneously marked CLOSED in 2026-09-21 (PR #195 did not implement a CI grep gate) |
-| 7 | tmp_*.py files | OPEN — Cleanup | **UNCHANGED** — 11 files still committed |
+| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
+| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 was erroneously implied CLOSED in early 2026-09-21 drafts (the referenced PR #195 did not implement a CI grep gate); correctly marked OPEN throughout the final reconciliation |
+| 7 | tmp_*.py files | OPEN — Cleanup | **RESOLVED** — no tmp_*.py files present at HEAD `893a963` |
 
 ---
 
