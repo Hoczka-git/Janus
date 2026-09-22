@@ -520,6 +520,9 @@ $ uv run pytest tests/test_task_complete_gates.py tests/test_task_complete_janus
 [100%] 72 passed in 13.44s
 ```
 
+(verified live on 2026-09-22 against current HEAD `781d4ae`, not the stale
+`2f2ffa3` run captured earlier)
+
 Breakdown:
 - `tests/test_task_complete_gates.py`: 15 passed (Phase 3 pre-completion gates)
 - `tests/test_task_complete_janus_gates.py`: 7 passed (Phase 5 completion gating)
@@ -536,10 +539,8 @@ test_janus_sync_plugin.py cover other plugin functionality.
 | 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
-|| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-|| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (ad...[truncated]
-|| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (ad...[truncated]
+| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
+| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (addressed further below) ✓ |
 
 ---
 
