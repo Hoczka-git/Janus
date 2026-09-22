@@ -32,6 +32,13 @@ from janus.research_cli import (
     handle_research_list,
     handle_research_link,
     handle_research_promote_finding,
+    handle_research_propose,
+    handle_research_approve,
+    handle_research_reject,
+    handle_research_defer,
+    handle_research_promote,
+    handle_research_show_proposal,
+    handle_research_list_proposals,
     print_research_help,
 )
 from janus.decision_cli import (
@@ -227,6 +234,20 @@ def main() -> None:
                 handle_research_link(filtered[2:])
             elif sub == "promote-finding":
                 handle_research_promote_finding(filtered[2:])
+            elif sub == "propose":
+                handle_research_propose(filtered[2:])
+            elif sub == "approve":
+                handle_research_approve(filtered[2:])
+            elif sub == "reject":
+                handle_research_reject(filtered[2:])
+            elif sub == "defer":
+                handle_research_defer(filtered[2:])
+            elif sub == "promote":
+                handle_research_promote(filtered[2:])
+            elif sub == "show-proposal":
+                handle_research_show_proposal(filtered[2:])
+            elif sub == "list-proposals":
+                handle_research_list_proposals(filtered[2:])
             else:
                 print(f"Unknown research subcommand: {sub}")
                 print_research_help()

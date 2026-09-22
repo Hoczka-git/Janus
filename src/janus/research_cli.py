@@ -6,6 +6,21 @@ from janus.services.research_artifacts import (
     load_all_artifacts,
 )
 from janus.services.artifact_linking import link_artifact_to_goal
+from janus.services.curation_gate import (
+    create_curation_proposal,
+    approve_proposal,
+    reject_proposal,
+    defer_proposal,
+    get_proposal,
+    list_proposals,
+    promote_to_vault,
+)
+from janus.services.curation_gate_error import CurationGateError
+from janus.services.knowledge_pipeline import (
+    validate_artifact,
+    generate_summary,
+    emit_knowledge_gaps_as_attention,
+)
 
 
 def print_research_help() -> None:
@@ -18,6 +33,13 @@ def print_research_help() -> None:
     print("  list                    List all artifacts")
     print("  link <slug> --goal <title>  Link artifact to a goal")
     print("  promote-finding <slug> <idx> --decision <adr>  Link a finding to a decision")
+    print("  propose <slug>          Create a curation proposal for a research artifact")
+    print("  approve <proposal-id>   Approve a curation proposal for vault promotion")
+    print("  reject <proposal-id>    Reject a curation proposal")
+    print("  defer <proposal-id>     Defer a curation proposal")
+    print("  promote <proposal-id>   Promote an approved proposal to the Obsidian vault")
+    print("  show-proposal <proposal-id>  Show a curation proposal's status")
+    print("  list-proposals          List curation proposals (optionally --state)")
     print()
     print("Examples:")
     print("  janus research add research/report.md")
@@ -25,6 +47,9 @@ def print_research_help() -> None:
     print("  janus research list")
     print('  janus research link 2026-08-31-glue-report --goal "GLUE biotech research"')
     print('  janus research promote-finding 2026-08-31-glue-report 1 --decision 005')
+    print('  janus research propose 2026-08-31-glue-report')
+    print('  janus research approve cp-a1b2c3d4')
+    print('  janus research promote cp-a1b2c3d4')
 
 
 def handle_research_add(args: list[str]) -> None:
@@ -118,7 +143,7 @@ def handle_research_show(args: list[str]) -> None:
     if artifact.findings:
         print(f"\n  Findings ({len(artifact.findings)}):")
         for i, f in enumerate(artifact.findings):
-            icon = {"wyzszy": "✓", "sredni": "○", "niski": "!"}.get(f.confidence, "?")
+            icon = {"wyzszy": "+", "sredni": "o", "niski": "!"}.get(f.confidence, "?")
             print(f"    [{icon}] Finding {i+1}: {f.statement}")
             if f.topic:
                 print(f"        Topic: {f.topic}")
@@ -265,3 +290,235 @@ def handle_research_promote_finding(args: list[str]) -> None:
     print(
         f"Linked finding {finding_index} of '{artifact.title}' to decision {adr_number}"
     )
+
+
+# ── Curation gate commands ───────────────────────────────────────────────────
+
+def handle_research_propose(args: list[str]) -> None:
+    """janus research propose <slug> [--approver <name>] [--note <note>]
+
+    Run the knowledge pipeline (validation + summary generation) on a research
+    artifact and create a CurationProposal in pending_approval state.
+    """
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research propose <slug> [--approver <name>] [--note <note>]")
+        print()
+        print("Create a curation proposal for a research artifact.")
+        print("  Runs validation + summary generation, then gates the summary.")
+        return
+
+    slug = args[0]
+    try:
+        artifact = load_artifact(slug)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 1: validate
+    warnings = validate_artifact(artifact)
+    # Step 2: generate summary
+    summary = generate_summary(artifact)
+    # Step 3: create curation proposal (pending_approval)
+    proposal = create_curation_proposal(
+        summary,
+        warnings=[
+            {"category": w.category, "message": w.message,
+             "finding_index": w.finding_index}
+            for w in warnings
+        ],
+    )
+
+    print(f"Created curation proposal: cp-{proposal.proposal_id}")
+    print(f"  Artifact: {artifact.title}")
+    print(f"  State: {proposal.approval_state}")
+    print(f"  Warnings: {len(proposal.warnings)}")
+    print(f"  Knowledge gaps: {len(summary.knowledge_gaps)}")
+    print(f"  Entities: {', '.join(summary.entities) if summary.entities else '(none)'}")
+
+
+def handle_research_approve(args: list[str]) -> None:
+    """janus research approve <proposal-id> [--approver <name>] [--note <note>]"""
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research approve <proposal-id> [--approver <name>] [--note <note>]")
+        return
+
+    proposal_id = args[0]
+    approver = ""
+    note = ""
+    i = 1
+    while i < len(args):
+        if args[i] == "--approver" and i + 1 < len(args):
+            approver = args[i + 1]
+            i += 2
+        elif args[i] == "--note" and i + 1 < len(args):
+            note = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    try:
+        proposal = approve_proposal(proposal_id, approver=approver, note=note)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Approved proposal cp-{proposal.proposal_id}")
+    print(f"  State: {proposal.approval_state}")
+    if proposal.approver:
+        print(f"  Approver: {proposal.approver}")
+    print(f"  Now run: janus research promote {proposal.proposal_id}")
+
+
+def handle_research_reject(args: list[str]) -> None:
+    """janus research reject <proposal-id> [--approver <name>] [--note <note>]"""
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research reject <proposal-id> [--approver <name>] [--note <note>]")
+        return
+
+    proposal_id = args[0]
+    approver = ""
+    note = ""
+    i = 1
+    while i < len(args):
+        if args[i] == "--approver" and i + 1 < len(args):
+            approver = args[i + 1]
+            i += 2
+        elif args[i] == "--note" and i + 1 < len(args):
+            note = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    try:
+        proposal = reject_proposal(proposal_id, approver=approver, note=note)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Rejected proposal cp-{proposal.proposal_id}")
+    print(f"  State: {proposal.approval_state}")
+    if proposal.decision_note:
+        print(f"  Note: {proposal.decision_note}")
+
+
+def handle_research_defer(args: list[str]) -> None:
+    """janus research defer <proposal-id> [--approver <name>] [--note <note>]"""
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research defer <proposal-id> [--approver <name>] [--note <note>]")
+        return
+
+    proposal_id = args[0]
+    approver = ""
+    note = ""
+    i = 1
+    while i < len(args):
+        if args[i] == "--approver" and i + 1 < len(args):
+            approver = args[i + 1]
+            i += 2
+        elif args[i] == "--note" and i + 1 < len(args):
+            note = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    try:
+        proposal = defer_proposal(proposal_id, approver=approver, note=note)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Deferred proposal cp-{proposal.proposal_id}")
+    print(f"  State: {proposal.approval_state}")
+
+
+def handle_research_promote(args: list[str]) -> None:
+    """janus research promote <proposal-id>
+
+    Promote an approved curation proposal to the Obsidian vault.
+    Raises CurationGateError if the proposal is not approved.
+    """
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research promote <proposal-id>")
+        print()
+        print("Promote an approved curation proposal to the Obsidian vault.")
+        print("  The proposal must be in 'approved' state (use 'janus research approve' first).")
+        return
+
+    proposal_id = args[0]
+    try:
+        vault_path = promote_to_vault(proposal_id)
+    except CurationGateError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Promoted proposal cp-{proposal_id} to vault:")
+    print(f"  {vault_path}")
+
+
+def handle_research_show_proposal(args: list[str]) -> None:
+    """janus research show-proposal <proposal-id>"""
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage: janus research show-proposal <proposal-id>")
+        return
+
+    proposal_id = args[0]
+    try:
+        proposal = get_proposal(proposal_id)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"CURATION PROPOSAL: cp-{proposal.proposal_id}")
+    print("=" * 60)
+    print(f"  State: {proposal.approval_state}")
+    print(f"  Summary: {proposal.summary.title}")
+    print(f"  Target: {proposal.summary.target}")
+    print(f"  Warnings: {len(proposal.warnings)}")
+    for w in proposal.warnings:
+        print(f"    - [{w['category']}] {w['message']}")
+    print(f"  Knowledge gaps: {len(proposal.summary.knowledge_gaps)}")
+    if proposal.approver:
+        print(f"  Approver: {proposal.approver}")
+    if proposal.decision_note:
+        print(f"  Note: {proposal.decision_note}")
+    if proposal.vault_path:
+        print(f"  Vault: {proposal.vault_path}")
+    print(f"  Created: {proposal.created_at.isoformat() if proposal.created_at else 'unknown'}")
+    print(f"  Updated: {proposal.updated_at.isoformat() if proposal.updated_at else 'unknown'}")
+
+
+def handle_research_list_proposals(args: list[str]) -> None:
+    """janus research list-proposals [--state <state>]"""
+    state = None
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus research list-proposals [--state <state>]")
+        print()
+        print("List all curation proposals, optionally filtered by state.")
+        print(f"  States: {', '.join(('pending_approval', 'approved', 'rejected', 'deferred', 'vaulted'))}")
+        return
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--state" and i + 1 < len(args):
+            state = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    items = list_proposals(state)
+    if not items:
+        print("No curation proposals.")
+        return
+
+    print(f"Curation proposals ({len(items)}):")
+    print("=" * 60)
+    for p in items:
+        icon = {"pending_approval": "o", "approved": "v", "rejected": "x",
+                "deferred": "-", "vaulted": "+"}.get(p.approval_state, "?")
+        print(f"  [{icon}] cp-{p.proposal_id}  {p.approval_state}")
+        print(f"    Summary: {p.summary.title}")
+        print(f"    Warnings: {len(p.warnings)}")
+        print()

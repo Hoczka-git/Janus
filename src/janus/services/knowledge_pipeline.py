@@ -9,6 +9,11 @@ warnings collected for the curation gate (Step 3).
 Stage 3 bridge: ``emit_knowledge_gaps_as_attention`` converts
 KnowledgeSummary knowledge gaps into attention-item dicts suitable
 for the attention service.
+
+Step 3 bridge: ``create_curation_proposal`` wraps a KnowledgeSummary
+in a CurationProposal entity (pending_approval state), which must be
+explicitly approved before ``promote_to_vault`` writes to the Obsidian
+vault (Step 4).
 """
 
 from datetime import datetime
@@ -28,6 +33,36 @@ class ValidationWarning(NamedTuple):
 
 class PipelineValidationError(ValueError):
     """Fatal validation error — artifact cannot proceed to summary generation."""
+
+
+def create_curation_proposal(
+    summary: KnowledgeSummary,
+    warnings: list[ValidationWarning] | None = None,
+):
+    """Step 2 -> Step 3 bridge: wrap a KnowledgeSummary in a gate.
+
+    Creates a :class:`~janus.models.curation_proposal.CurationProposal` in
+    ``pending_approval`` state from a :class:`KnowledgeSummary` plus its
+    validation warnings.  The proposal must be explicitly approved before
+    ``promote_to_vault`` will write to the Obsidian vault.
+
+    Delegates to :func:`janus.services.curation_gate.create_curation_proposal`
+    (imported lazily to avoid a circular import).
+
+    Args:
+        summary: The KnowledgeSummary IR to gate.
+        warnings: ValidationWarning NamedTuples from Step 1.
+
+    Returns:
+        The persisted CurationProposal.
+    """
+    from janus.services.curation_gate import (
+        create_curation_proposal as _create,
+    )
+    return _create(
+        summary,
+        warnings=[w._asdict() for w in warnings] if warnings else None,
+    )
 
 
 def validate_artifact(artifact: ResearchArtifact) -> list[ValidationWarning]:
