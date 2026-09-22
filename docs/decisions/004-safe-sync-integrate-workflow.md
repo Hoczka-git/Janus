@@ -4,15 +4,21 @@
 
 Accepted with implementation caveats
 
-> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
-> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
-> is wired via `plugins/janus_sync/__init__.py:on_task_claimed` (PR #178). Phases 3+4+5
-> (pre-completion gate, safe integration, completion gating) are wired into
-> `src/janus/services/tasks.py:run_completion_gates` / `complete_task()` (PR #176).
-> See `docs/research/open_work_authoritative_list_2026-09-18.md §9.2` for the full
-> phase-by-phase status. The ADR-to-Codebase Mapping Table below still shows stale
-> "not wired" status for Phases 1/3/5 in the table rows — the code is authoritative;
-> the table rows are pending update (see GAP in §9.2 of the reconciliation).
+|> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
+|> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
+|> is wired via `plugins/janus_sync/__init__.py:on_task_claimed` (PR #178). Phases 3+4+5
+|> (pre-completion gate, safe integration, completion gating) are wired into
+|> `src/janus/services/tasks.py:run_completion_gates` / `complete_task()` (PR #176).
+|> The execution-feedback dispatch path is gated via
+|> `src/janus/services/execution_feedback.py:dispatch_completion` (PR #189).
+|> See `docs/research-findings/adr004_phase_state_findings_t_908a64d3.md` for the full
+|> phase-by-phase verification with file:line evidence. The ADR-to-Codebase Mapping Table
+|> and all section text have been reconciled in full as of PRs #176/#178/#189 — there are
+|> no remaining stale "not wired" or "design gap" claims for Phases 1–5.
+|>
+|> **Open operational item (runtime):** the `janus_sync` plugin (Phase 1 auto-invoke and
+|> execution-feedback gate-block routing) is code-complete but **not loaded** in the
+|> current Hermes install — see §6 (Open Operational Items).
 
 ---
 
@@ -40,13 +46,14 @@ integrated into the completion flow.
 
 ## Decision
 
-Adopt a **three-phase gated workflow** for all coding tasks that produce git-branch
+Adopt a **five-phase gated workflow** for all coding tasks that produce git-branch
 changes, with deterministic fail-stop gates at each phase. `kanban_complete` (the
-Hermes Kanban tool that transitions a task to `done`) is gated on all three phases
-passing. The actual completion path in the Janus domain layer is
-`src/janus/services/tasks.py:complete_task()` — a plain markdown editor with no
-built-in gates; the Phase 3 and Phase 4 gates must be wired as preconditions before
-completion is allowed.
+Hermes Kanban tool that transitions a task to `done`) is gated on Phases 1, 3, and 4
+all passing. The actual completion path in the Janus domain layer is
+`src/janus/services/tasks.py:complete_task()` — now wired with `run_completion_gates()`
+calling all gate checks (Phase 1 re-sync, Phase 3 default checks + contract verification,
+Phase 4 integration) before the markdown checkbox toggle. `CompletionGateError` blocks
+completion with a structured reason code → `kanban_block` routing.
 
 ---
 
@@ -66,16 +73,16 @@ in the Janus domain layer, not in `hermes_cli/kanban_db.py`.
 || **Phase 2** — implementation in worktree | Work in isolated task worktree | Task worktree + branch per task (dispatcher-managed) | Match ||
 || **Phase 3** — pre-completion gate | Clean tree, final sync, re-run tests, `git diff --check` | `src/janus/services/tasks.py:run_completion_gates` (line 287). Checks: `working_tree_clean`, `tests_pass_after_rebase`, `git_diff_check`. Evidence artifact: `pre_completion_report.json` written to `<root>/reports`. | **IMPLEMENTED.** Wired into `complete_task()` (line 527) before markdown flip. PR #176. Tests: `tests/test_task_complete_gates.py`: 15 passed. ||
 || Phase 3 reason codes | Structured fail-stop on gate failure | `src/janus/services/tasks.py` + `plugins/janus_sync/__init__.py:_handle_gate_block` (line 356) | Defined and integrated with completion gating via `CompletionGateError` → `kanban_block`. ||
-||**Phase 4** — safe integration | FF merge → controlled merge → post-merge tests → push → verify remote → rollback | `src/janus/integration.py` — `integrate_branch()` (line 218), `integrate_task()` (line 548) | **IMPLEMENTED.** Full Phase 4 primitive with fast-forward, controlled merge fallback, post-merge test runner, rollback on test failure, push, remote containment check, and `integration_report.json` generation. Reason codes: `INTEGRATION_CONFLICT`, `POST_INTEGRATION_TEST_FAILURE`, `TARGET_PUSH_FAILED`, `TARGET_CONTAINS_CHECK_FAILED`, `TARGET_NOT_INTEGRATED`, `MERGE_FAILED`, `INTEGRATION_SETUP_FAILED`. Tests: `tests/test_integration.py` (15 tests). Integrator model: Option B (automated step in completion path). ||
+| **Phase 4** — safe integration | FF merge → controlled merge → post-merge tests → push → verify remote → rollback | `src/janus/integration.py` — `integrate_branch()` (line 160), `integrate_task()` (line 542) | **IMPLEMENTED.** Full Phase 4 primitive with fast-forward, controlled merge fallback, post-merge test runner, rollback on test failure, push, remote containment check, and `integration_report.json` generation. Reason codes: `INTEGRATION_CONFLICT`, `POST_INTEGRATION_TEST_FAILURE`, `TARGET_PUSH_FAILED`, `TARGET_CONTAINS_CHECK_FAILED`, `TARGET_NOT_INTEGRATED`, `MERGE_FAILED`, `INTEGRATION_SETUP_FAILED`. Tests: `tests/test_integration.py` (15 tests). Integrator model: Option B (automated step in completion path). ||
 ||Phase 4 reason codes (`integration_conflict`, `post_integration_test_failure`, `target_push_failed`) | Structured fail-stop codes | `src/janus/integration.py` (module-level constants, lines 40–52) | Defined and implemented; caller maps to `kanban_block` reason strings. ||
 || **Phase 5** — completion gating | `kanban_complete` gated on Phases 1+3+4, structured metadata + evidence artifacts | `src/janus/services/tasks.py:complete_task()` (line 527) — gated via `run_completion_gates()` before markdown flip. `src/janus/services/execution_feedback.py:686-694` — `complete_janus_task_gated` gates open tasks in git repos. | **IMPLEMENTED.** `complete_task()` now calls `run_completion_gates()` before the markdown checkbox toggle. Evidence artifacts: `pre_completion_report.json`, `integration_report.json`. Structured metadata: commit_sha, target_branch, merge_strategy, tests_passed. Gate error routing: `CompletionGateError` → `_handle_gate_block` (plugins/janus_sync/__init__.py:356) → `kanban_block`. PR #176. Tests: `tests/test_task_complete_janus_gates.py`: 7 passed + `tests/plugins/test_janus_sync_plugin.py`: TestGateBlockRouting — 2 passed. ||
-|| Phase 5 evidence artifacts | `pre_completion_report.json` + `integration_report.json` | `src/janus/services/tasks.py` + `src/janus/integration.py` | Both artifacts generated: `pre_completion_report.json` (Phase 3, line 390), `integration_report.json` (Phase 4, integration.py). ||
+|| Phase 5 evidence artifacts | `pre_completion_report.json` + `integration_report.json` | `src/janus/services/tasks.py` + `src/janus/integration.py` | Both artifacts generated: `pre_completion_report.json` (tasks.py:245/250), `integration_report.json` (tasks.py:482/512). ||
 | Target branch detection | Resolve origin/HEAD → main/master | `src/janus/git_sync.py:detect_target_branch()` (line 123) | Implemented and tested |
-| Sync primitive reuse | Rebase + force-push + conflict detection | `src/janus/git_sync.py:sync_branch()` (line 267) | Available but idle |
-| Contract verification | `janus verify-contract <contract>` | `src/janus/verification.py:run_verification()` (line 1231) and `run_verification_cli()` (line 1319) | Implemented via CLI |
-| Verification runner (recipe-based) | Hermes recipe-based verification | `agent/verify/runner.py` | Available (separate from Janus) |
+|| Sync primitive reuse | Rebase + force-push + conflict detection | `src/janus/git_sync.py:sync_branch()` (line 267) | **IMPLEMENTED & wired.** Auto-invoked on task claim (PR #178); gate-time re-sync (PR #189). Dormant in current Hermes install (§6). |
+|| Contract verification | `janus verify-contract <contract>` | `src/janus/verification.py:run_verification()` (line 2506) and `run_verification_cli()` (line 2482) | Implemented via CLI — 12 check functions dispatched (line 2519–2568). Contract path is opt-in. ||
+| Verification runner (recipe-based) | Hermes recipe-based verification | *Not in Janus repo.* [Superseded] The Janus-side recipe runner is `src/janus/verification.py:run_default_checks_cli()` (line 2482); the Hermes-side recipe-based runner (`agent/verify/runner.py`) lives in the Hermes install, not this repository. ||
 | Repository verification contract | `uv run pytest tests/` | `docs/verification.md` | Documented; the deterministic test re-run after rebase (Phase 3) would invoke this |
-| Merge-reconciler for conflicts | Neutral conflict resolution | `skills/autonomous-ai-agents/merge-reconciler/SKILL.md` | Available; not wired into conflict routing |
+| Merge-reconciler for conflicts | Neutral conflict resolution | `skills/autonomous-ai-agents/merge-reconciler/SKILL.md` | Available in the Hermes install (~/.hermes/skills/); not shipped in the Janus repo. Routing is declarative (`kanban_block` reason codes). [Superseded the original "not present" claim — see PR #176] ||
 
 ### Mapping notes
 
@@ -85,22 +92,46 @@ in the Janus domain layer, not in `hermes_cli/kanban_db.py`.
   Those functions do **not exist** in this repository. `hermes_cli/` is not
   present in the Janus codebase. The actual completion path is
   `src/janus/services/tasks.py:complete_task()`.
-- **Phase 1 primitive is complete but idle.** `sync_branch()` in
-  `src/janus/git_sync.py` implements the full Phase 1 flow (detect → fetch →
-  rebase → force-push) and is covered by `tests/test_git_sync.py`, but no
-  production entrypoint calls it.
-- **Phase 3 is opt-in, not default.** The Janus verifier checks declared contract
-  expectations, not raw working-tree state. The deterministic checks specified in
-  ADR-004 Phase 3 (clean tree, final sync, test re-run after rebase) are not
-  built-in defaults.
-- **Phase 4 is a design gap.** ADR-004 Section 4.4 describes an active
-  integration step with atomic merge + rollback. No code implements this. The
-  design spec `docs/design/sync_integration_workflow_design.md` §4.4 already
-  defines the intended behavior; a `src/janus/integration.py` module is the
-  recommended implementation path.
-- **Phase 5 gating is missing.** `complete_task()` performs a bare markdown edit
-  with no preconditions. Wiring Phases 1, 3, and 4 as gates before completion is
-  the core integration task.
+~~Phase 1 primitive is complete but idle — no production entrypoint calls it.~~ [Superseded by PRs #178/#189] **Phase 1 is fully implemented and auto-invoked on task claim** via
+`plugins/janus_sync/__init__.py:on_task_claimed()` (line 197) → `_run_auto_sync()` (line 238) →
+`sync_branch()` (line 276). The auto-invoke is registered at line 929 and is covered by
+`tests/plugins/test_janus_sync_plugin.py` (TestAutoInvokeOnClaim, 9 tests). PR #178.
+
+**Runtime caveat:** in the current Hermes install the `janus_sync` plugin is **not loaded** — it is
+absent from every `plugins.enabled` list (`~/.hermes/config.yaml`, all profile configs), and the
+Hermes venv `janus.pth` points at a deleted worktree so `import janus` fails in the gateway.
+Auto-invoke is therefore code-complete and tested, but dormant in this install. See §6 (Open Operational
+Items).
+
+~~Phase 3 is opt-in, not default.~~ [Superseded by PR #176] **Phase 3 is implemented and default-on.**
+`run_default_checks()` (`src/janus/verification.py:2330`) runs the three deterministic checks from
+§4.3 — `working_tree_clean` (line 2120), `git_diff_check` (line 1886), and
+`tests_pass_after_rebase` (line 2228) — with `DefaultCheckConfig` defaulting all three to
+`enabled: True` (lines 150–153). These are wired into the completion path via
+`run_completion_gates()` (`src/janus/services/tasks.py:287`, PR #176, 15 tests). The contract
+verification extension (12 check functions dispatched at `verification.py:2519–2568`) remains
+opt-in via a `contracts/<branch>.yaml` file.
+
+~~Phase 4 is a design gap.~~ [Superseded by PR #176] **Phase 4 is fully implemented.**
+`src/janus/integration.py` (563 lines) implements the complete §4.4 sequence:
+`integrate_branch()` (line 160), `integrate_task()` (line 542), with fast-forward then controlled
+merge, conflict → abort + `INTEGRATION_CONFLICT` (line 41), post-merge tests (line 425) →
+rollback (line 458) + `POST_INTEGRATION_TEST_FAILURE` (line 43), push (line 463) →
+`TARGET_PUSH_FAILED` (line 45), remote containment (line 471) → `TARGET_CONTAINS_CHECK_FAILED`
+(line 47), plus `TARGET_NOT_INTEGRATED` (39), `MERGE_FAILED` (49), and
+`INTEGRATION_SETUP_FAILED` (53). Reason codes at module-level constants (lines 39–53). 15 tests
+in `tests/test_integration.py`. PR #176. This is internally consistent with the mapping table
+row above (which already states IMPLEMENTED).
+
+~~Phase 5 gating is missing — complete_task() performs a bare markdown edit with no preconditions.~~
+[Superseded by PRs #176/#189] **Phase 5 gating is fully wired.** `complete_task()`
+(`src/janus/services/tasks.py:527`) calls `run_completion_gates()` (line 559) **before** the
+markdown checkbox toggle (line 564); `CompletionGateError` (class at line 64) carries a structured
+reason code. Evidence artifacts are written: `pre_completion_report.json` (line 245/250) and
+`integration_report.json` (line 482/512). Structured metadata (commit_sha, target_branch,
+merge_strategy, tests_passed, both reports) is emitted on the `service.task.mutated` event
+(line 608–633). PR #176 (15 gate tests + 7 gate-routing tests). The execution-feedback dispatch
+path is covered below in §5.
 
 ### Phase 1 — Pre-Implementation Sync
 
@@ -181,12 +212,20 @@ carries structured metadata (commit SHA, target branch, merge strategy, test res
 evidence artifacts (pre-completion and integration reports). The existing
 `kanban_task_completed` event fires, triggering worktree cleanup and replenishment.
 
-> **Implementation status (Phase 5):** `complete_task()` in `src/janus/services/tasks.py`
-> remains a plain markdown checkbox toggle with no gate checks. Phase 4 integration is
-> invoked by calling `src/janus/integration.py:integrate_task()` from the completion
-> path — the caller inspects `IntegrationResult.success` and maps `result.reason` to
-> `kanban_block` before `kanban_complete` is permitted. Full gating wiring (Phase 5) is
-> the scope of the dependent task `t_4cd8c17f`.
+> **Implementation status (Phase 5):** `complete_task()` in `src/janus/services/tasks.py:527`
+> now calls `run_completion_gates()` (line 559) before the markdown checkbox toggle (line 564),
+> so `kanban_complete` is gated on Phases 1, 3, and 4. `CompletionGateError` carries a structured
+> reason code and is routed to `kanban_block` via `_handle_gate_block`
+> (`plugins/janus_sync/__init__.py:356`). Evidence artifacts
+> (`reports/pre_completion_report.json`, `reports/integration_report.json`) are persisted, and
+> structured metadata (commit_sha, target_branch, merge_strategy, tests_passed, both report paths)
+> is emitted on the `service.task.mutated` event (tasks.py:608–633). PR #176.
+>
+> The **execution-feedback dispatch path** (`src/janus/services/execution_feedback.py:686`)
+> provides a parallel Phase 5 gate: `dispatch_completion()` gates open tasks in git repos by
+> calling `run_completion_gates()` (line 689); a `CompletionGateError` blocks the Kanban task
+> via `_handle_gate_block` (plugins/janus_sync/__init__.py:356) and fires a
+> `janus_sync_gated` event, so a gate failure never silently completes the task. PR #189.
 
 ---
 
@@ -271,6 +310,29 @@ Task branches integrate directly into the target.
 
 ---
 
+## Open Operational Items (§6)
+
+The implementation of all five phases is **code-complete and tested** (PRs #176, #178, #189).
+The following are operational/runtime items — not code gaps:
+
+1. **janus_sync plugin not loaded in the current Hermes install.** The `plugins/janus_sync` module
+   is code-complete but absent from every `plugins.enabled` list in `~/.hermes/config.yaml` and
+   all profile configs. The Hermes venv `janus.pth` points at a deleted worktree
+   (`…/.worktrees/t_4cd8c17f/src`), so `import janus` fails in the gateway venv. Until the plugin
+   is enabled and the venv path is repaired, Phase 1 auto-invoke and gate-block routing via
+   `kanban_block` are dormant at runtime. The Janus-side code, tests, and reason codes are all
+   in place.
+
+2. **No `contracts/` directory in the repo.** The Janus-side contract extension (12 check
+   functions in `src/janus/verification.py`) is opt-in via a `contracts/<branch>.yaml` file.
+   No task has used this path yet, but the capability is implemented and tested.
+
+3. **`reports/` directory is created per-completion.** Evidence artifacts
+   (`pre_completion_report.json`, `integration_report.json`) are written to `<root>/reports/`
+   on the first gated completion. Nothing exists on master until that runs.
+
+---
+
 ## References
 
 - t_891f872c — Survey findings: `docs/research/sync_integration_patterns_findings.md`
@@ -278,10 +340,10 @@ Task branches integrate directly into the target.
 - t_71f70a87 — Sync primitive (child)
 - t_bc8fcd6b — Verification step (child)
 - t_36b3d88f — Integration step (child; superseded — integration completed incrementally through phase-specific tasks t_021f3833, t_4cd8c17f, and others)
-- `merge-reconciler` skill: `skills/autonomous-ai-agents/merge-reconciler/SKILL.md`
+- `merge-reconciler` skill: available in the Hermes install at `~/.hermes/skills/autonomous-ai-agents/merge-reconciler/SKILL.md`; not shipped in the Janus repo.
 - `docs/specs/verification_pipeline_design.md` — multi-stage verification pipeline (Stages 0–6)
-- `src/janus/verification.py` — Janus contract verification (9 check types)
-- `agent/verify/runner.py` — Hermes recipe-based verification runner
+- `src/janus/verification.py` — Janus contract verification (12 check functions; 3 default checks via `run_default_checks()`)
+- `src/janus/verification.py:run_default_checks_cli()` (line 2482) — Janus-side CLI recipe runner. [`agent/verify/runner.py` — Hermes-side recipe runner, lives in the Hermes install, not this repo]
 - `docs/verification.md` — Repository verification contract (`uv run pytest tests/`)
 - ADR-001 — Hermes and Janus System Model (two-layer architecture)
 - ADR-003 — Canonical Review Topology (Model A: Native Review Lane)
