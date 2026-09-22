@@ -435,7 +435,7 @@ the mapping table intro is stale but the table rows themselves are current.
 
 **GAP-003 (Prompt still contains Model B language): STILL OPEN**
 
-- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
+- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
 - **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
   (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
   Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
@@ -447,42 +447,36 @@ the mapping table intro is stale but the table rows themselves are current.
 
 **GAP-005 (data_protection vs atomic_io): STILL OPEN**
 
-- **Status at HEAD `893a963`:** UNCHANGED
+**GAP-003 (Prompt still contains Model B language): STILL OPEN**
+
+- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
+- **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
+  (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
+  Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
+  the Janus-side PRs #176/#178.
+- **Verdict:** Genuinely open. This item was and remains OPEN. The status field update
+  (Proposed → Accepted) does not resolve GAP-003.
+
+**GAP-005 (data_protection vs atomic_io): STILL OPEN**
+
+- **Status at HEAD `2f2ffa3`:** UNCHANGED
 - **Verdict:** Genuinely open. Services still use `protected_write` from `data_protection.py`.
   No change from 2026-09-18.
 
 **GAP-007 ("sole write gateway" claim contradicted): RE-EVALUATED**
 
-- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
+- **Status at HEAD `2f2ffa3`:** UNCHANGED — still OPEN
 - **Nuance:** The j_ prec rebaseline (t_13a8b54a, 2026-09-18) had already corrected this:
   the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus
   data files; the only direct-write outlier is `google_calendar.py:42` (OAuth token cache,
   not data). The claim is substantially accurate but the §2/§6 text still says "must be the
   ONLY path" which is technically contradicted by the google_calendar outlier. Still worth
-  a caveat note, but less severe than the original "contradicted" framing.
+  a caveat note in §9.4, but less severe than the original "contradicted" framing.
 
 **GAP-008 (CI grep gate): STILL OPEN**
 
-- **Status at HEAD `893a963`:** UNCHANGED
+- **Status at HEAD `2f2ffa3`:** UNCHANGED
 - **Verdict:** Genuinely open.
-
-## 9.5 Other Items from 2026-09-18 — Status at HEAD `2f2ffa3`
-
-| Item | 2026-09-18 status | 2026-09-21 status | Notes |
-|------|-------------------|-------------------|-------|
-| tmp_*.py scratch files (6.2) | OPEN — Cleanup | UNCHANGED — still 11 committed files | No cleanup performed since 2026-09-18 |
-| ADR-002 curation gate (6.1 / GAP-001) | OPEN — P1 | UNCHANGED | No Obsidian promotion code exists |
-| Consolidated ADR docs not on HEAD (§5) | ARCHIVE | UNCHANGED | Still on origin/master, not on HEAD `893a963` |
-|| ADR-004 §10 "Phase 4 requires separate agent" | Was GAP-006 (P1) | **CLOSED** via commit 2f2ffa3 — §Neutral updated to Option B | Phase 4 IS implemented via Option B, §Neutral now reflects automated step |
-| Roadmap items 113-116 | CLOSED (2dc1b72) | UNCHANGED | Still [x] at HEAD |
-| Product backlog done items | CLOSED (2dc1b72) | UNCHANGED | Still [done] at HEAD |
-
-## 9.4 Consolidated ADR Docs Not on HEAD — Remains ARCHIVE
-
-The two consolidated ADR decision documents (`adr-003-004-005-consolidated-decisions.md`
-from `76fd1cd` and `adr-consolidated-decisions.md` from `c74d1ac`) exist on
-`origin/master` but are NOT on HEAD `893a963`. This item is unchanged from 2026-09-18
-and should be archived as "available on master only" or back-ported.
 
 ## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `2f2ffa3`)
 
@@ -535,10 +529,10 @@ After reconciliation against HEAD `2f2ffa3`, the following items remain genuinel
 ### Archived (not open, retain for history)
 
 - **GAP-004 (ADR-004 Phases 3-5):** RESOLVED — all 5 phases implemented (§9.2)
-- **ADR status fields (§1):** RESOLVED — all three now "Accepted" at HEAD `893a963`
+- **ADR status fields (§1):** RESOLVED — all three now "Accepted" at HEAD `2f2ffa3`
 - **Consolidated ADR docs not on HEAD (§5):** ARCHIVE — master-only
 
-## 9.6 Evidence: Test Verification at HEAD `893a963`
+## 9.6 Evidence: Test Verification at HEAD `2f2ffa3`
 
 ```
 $ uv run pytest tests/test_task_complete_gates.py tests/test_task_complete_janus_gates.py tests/test_integration.py tests/plugins/test_janus_sync_plugin.py -q
@@ -568,4 +562,4 @@ test_janus_sync_plugin.py cover other plugin functionality.
 
 ---
 
-*End of reconciliation — 2026-09-21.*
+*End of reconciliation — 2026-09-22.*
