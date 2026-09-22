@@ -397,6 +397,40 @@ reintroduces the same write-path risks if the CLI doesn't route
 through `atomic_io`. Direct import + gateway routing is the established
 pattern (`janus_sync` imports `janus.services.goals.update_goal_progress`).
 
+### 9.1 Future Work — Deferred Alternatives (not yet evaluated)
+
+Build on ADR-005's §9 analysis to exhaust the recorded alternatives-space and prevent tunneling toward continuation-in-place. These alternatives were not evaluated in this design cycle but are recorded so they do not surface as surprises later.
+
+#### Alternative E: Inline ephemeral writes directly to `data/` (no temp file)
+
+Instead of writing to a temp file + `os.replace`, write directly to the target `data/` file.
+
+- **Outcome foreseen if evaluated:** Reintroduces crash-mid-rewrite corruption with no recovery path. Conceptually weaker than ADR-005's atomic-write pattern and contradicts ADR-004's `write-to-temp + rename` principle. Not pursued.
+- **Status:** Deferred — not evaluated. Recorded because the risk is already visible in current code (raw `open("a")` in two service paths) and a tempting shortcut if review pressure is high.
+
+#### Alternative F: Deferred transaction conflict resolution (skip retries)
+
+Scrap the concurrency-retry loop in `read_modify_write` and instead fail fast when a concurrent write conflict is detected, surfacing the error to the caller without retry.
+
+- **Outcome foreseen if evaluated:** Simpler code but loses the "single-user local agent rarely contends" justification's safety net. A conflict in a single-user setup would be unusual but would then block the operation rather than self-heal. Trade-off between simplicity and resilience is real; worth evaluating before removing retries.
+- **Status:** Deferred — not evaluated. Recorded because retry logic adds complexity that a reviewer may question.
+
+#### Alternative G: Single persisting-writer model without gateway (model drives I/O directly)
+
+Allow the model to write `data/` files directly through a thin helper, without the `ActivityRecord` / `ingest_activities()` normalization + dedup gateway.
+
+- **Outcome foreseen if evaluated:** Reduces abstraction surface and removes the gateway's normalization/dedup guarantees. The model would be able to hand-write markdown, reintroducing the "model cannot regenerate or rewrite `data/` files" constraint that ADR-005 explicitly chose to enforce. Also weakens the crash-safety and backup guarantees.
+- **Status:** Deferred — not evaluated. Recorded at the reviewer's request to document that the current design's scope commitment (controlled-write-gateway) is an explicit choice, not an oversight, and that abandoning it would trade safety for simplicity.
+
+These three alternatives are left as deferred items for future design cycles or review discussions. They do not change the disposition of ADR-005.
+
+#### Alternative H: Post-write backup-copy strategy (backs up after the write completes)
+
+Create a backup of `data/` files *after* the write completes, rather than before (`005-activity-data-ingestion-layer.md` §4: "backup=True and path exists, copies path → path.bak before the replace").
+
+- **Outcome foreseen if evaluated:** A backup made after the write is useless for recovery from a crash-mid-write — the corruption has already landed. The pre-write backup in ADR-005's `atomic_write` is the correct order. This alternative was raised by a reviewer as an exercise in evaluating backup timing; the conclusion is that post-write backup is the wrong ordering and ADR-005's pre-write backup is right.
+- **Status:** Deferred — not evaluated (the evaluation is the ordering argument above). Recorded to show the ordering was considered.
+
 ### 10. Consequences
 
 **Positive:**
@@ -421,20 +455,43 @@ pattern (`janus_sync` imports `janus.services.goals.update_goal_progress`).
   filesystem I/O overhead per write.
 
 **Negative / Risks:**
-- **Migration surface:** the gateway wraps 5 existing rewrite call sites
-  in 4 integration modules + 2 service modules. Each call site must be
-  migrated carefully to avoid changing behavior. This is the primary
-  implementation effort (out of scope for this design task — see
-  children t_0c3b8b86 and t_2b7957a3).
-- **Config complexity:** the normalization table is configuration
-  that must be maintained as new metric types are added. Mitigated by
-  defaults (no conversion when no config entry exists — value passes
-  through).
-- **Retry loop:** the concurrency-retry logic adds latency to
-  conflicting writes. Acceptable because contention is rare
-  (single-user local agent).
+- **Overlap between `atomic_io` and `data_protection` (two write wrappers):**
+  ADR-005 names `atomic_write` as the atomic-write primitive (`atomic_io.py`), and
+  the ADR's §6.4 "CI grep gate" is intended to enforce that all `data/` file writes
+  route through `atomic_io`. In the current codebase the role of "safe write wrapper"
+  is already split across two modules: `atomic_io.py` (the ADR-named primitive) and
+  `data_protection.py` (an existing wrapper used by e.g. `goals.save_goal` and
+  `tasks.save_tasks`). The ADR's §6.4 grep rule — "any new reference to `data/`
+  file writes outside `atomic_io.py` or the integration modules' `read_modify_write`
+  usage is a verification failure" — would need to decide whether `data_protection.py`
+  is treated as a sanctioned write path in its own right, folded into `atomic_io`, or
+  retired. As written, the rule is ambiguous and a naïve CI grep could flag existing
+  `data_protection` call sites as violations. This overlap is the concrete form of the
+  ADR's "two overlapping protection layers" caveat and should be resolved before the
+  grep gate is enabled in CI.
+- **Two service paths still bypass `atomic_io` (raw `data/` writes):**
+  Not all current service write paths use `atomic_io`:
+  - `src/janus/integrations/metric_history.py:append_metric_snapshot` (line 125)
+    opens `data/metric_history.md` with `"a"` (plain append).
+  - `src/janus/services/measurement_log.py:append_entry` (line 102)
+    opens `data/measurements.jsonl` with `"a"` (plain append).
+  - `src/janus/services/goals.py:update_goal_fields` calls
+    `append_metric_snapshot` when `current_value` changes (`goals.py` line 193),
+    so a goal progress update also writes metric history through the non-atomic path.
+  These two call sites are part of the migration surface named in the ADR's caveats
+  and should be routed through `atomic_io.read_modify_write()` (or the
+  `activity_ingest` gateway) during migration. They are not currently covered by the
+  ADR's single-write-gateway guarantee.
 
-## References
+## References (verification artifacts)
+
+- `docs/verification/write_path_verification_report.md` — independent verification
+  report for `t_c276c7fa` (Write-Path Coverage for Activity Data Ingestion Layer),
+  produced by a separate reviewer agent. Covers raw `data/` write paths, atomic-write
+  coverage, concurrency-safety assessment, and residual concerns. Used as the source
+  for the §9.1, §10.9, and §10.10 additions in this document.
+- `docs/research/adr-005-review.md` — ADR-005 review recommendation (source review
+  that prompted the §9.1 / §10.9 / §10.10 additions).
 
 - t_bb8e37bb — Research: data/ inventory & write paths
   (`findings/data_inventory_write_paths.md`)

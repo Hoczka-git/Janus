@@ -53,7 +53,12 @@ remains a separate decision if/when desired.
 ## ADR-005 — Activity Data Ingestion Layer
 
 - **File:** `docs/decisions/005-activity-data-ingestion-layer.md`
-- **Status:** Accepted (on consolidation)
+- **Status:** Accepted (on consolidation). Review findings
+  (`docs/research/adr-005-review.md`) integrated as §9.1, §9.2, §10.9, and §10.10
+  (deferred alternatives E–H). Service migration caveat remains open (`tasks.py`,
+  `goals.py`, `milestones.py` still use `data_protection.py`, not `atomic_io`;
+  `metric_history.append_metric_snapshot` and `measurement_log.append_entry` write
+  raw to `data/`).
 - **Recommendation source:** `docs/research/adr-005-review.md`
 
 **Decision:** The controlled-write-gateway design (normalize → validate → dedup
