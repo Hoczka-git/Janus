@@ -48,6 +48,7 @@ from janus.models.strategic_summary import (
 )
 from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
+from janus.models.curation_proposal import CurationProposal, APPROVAL_STATES
 from janus.models.metric_snapshot import MetricSnapshot
 
 __all__ = [
@@ -78,5 +79,6 @@ __all__ = [
     "MetricSnapshot",
     "InboxItem",
     "FollowUp",
+    "CurationProposal",
     "RecentActivityEntry",
 ]
