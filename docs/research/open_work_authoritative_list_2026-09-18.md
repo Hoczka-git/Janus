@@ -65,20 +65,27 @@ No status field changes needed — this item is RESOLVED.
 
 ## 2. ADR-003: Canonical Review Topology
 
-### GAP-003: Prompt still contains Model B language (OPEN)
+### GAP-003: Prompt still contains Model B language — **RESOLVED**
 
 - **ADR Reference:** `docs/decisions/003-canonical-review-topology.md` §1 Required Change #1
-- **Description:** `prompt_builder.py` `KANBAN_GUIDANCE` still contains "pre-created review,
+- **Description:** `prompt_builder.py` `KANBAN_GUIDANCE` contained "pre-created review,
   QA, or release child" language, introducing Model B ambiguity.
-- **Current status:** OPEN — confirmed at the Hermes agent repo.
+- **Current status:** **RESOLVED** — applied in the Hermes agent repo.
 - **Evidence linking to HEAD:**
-  - `agent/prompt_builder.py:322` (Hermes agent repo) contains: `"pre-created review, QA, or release child depends on your task, call "`
-  - This is in the `KANBAN_GUIDANCE` constant (Hermes agent repo)
-  - The ADR's §1 lists the required change at line 95: "Patch `prompt_builder.py` to
-    remove the Model B language from `KANBAN_GUIDANCE`."
-  - The ADR itself (at `docs/decisions/003-canonical-review-topology.md:95`) is
-    unchanged at HEAD — it still describes the patch as required.
-- **Recommended next step:** Edit `agent/prompt_builder.py` to remove the "pre-created review, QA, or release child" paragraph and replace with the Model A-only guidance per ADR §2.
+  - Commit `5c275ad8b` (Sep 16, PR #29): "ADR-003: remove Model B pre-created-child
+    language from KANBAN_GUIDANCE" — replaces the "pre-created review, QA, or release
+    child" sentence with Model A-only guidance (`kanban_request_review`).
+  - `agent/prompt_builder.py` at HEAD: `KANBAN_GUIDANCE` line 322 reads
+    "When this same task needs review before it is final, call
+    `kanban_request_review(summary=..., metadata=..., reviewer=<optional-profile>)`."
+  - Grep for `pre-created|review child|review-child|same-card|release child|sticky-blocking|Model B`
+    in `prompt_builder.py` returns zero matches.
+  - Test `test_worker_guidance_distinguishes_same_card_and_downstream_review`
+    (tests/hermes_cli/test_kanban_review_surfaces.py) asserts Model A phrasing is
+    present and Model B language is absent — 9 assertions, all passing; 31 total
+    kanban review tests pass.
+- **Note:** The fix lives in the Hermes agent repo (not Janus). No change was needed
+  in the Janus worktree.
 
 ### ADR-003 implementation itself (CLOSED)
 
@@ -248,7 +255,7 @@ are reflected as CLOSED in this report.
 | **P1** | GAP-005: Services still use data_protection instead of atomic_io | ADR-005 | High | Two write surfaces (data_protection + atomic_io) contradict "sole gateway" |
 | **P1** | GAP-001: ADR-002 curation gate not implemented | ADR-002 | Medium | Blocks end-to-end knowledge pipeline |
 | **P1** | GAP-007: ADR-005 "sole gateway" claim contradicted by code | ADR-005 | Medium | Documentation accuracy |
-| **P2** | GAP-003: Prompt still contains Model B language | ADR-003 | Low | Model B ambiguity in worker prompt |
+| **P2** | GAP-003: Prompt Model B language removed (RESOLVED) | ADR-003 | Low | Resolved in Hermes agent repo commit `5c275ad8b` |
 | **P2** | GAP-008: ADR-005 CI grep gate not implemented | ADR-005 | Low | Regression protection |
 
 ### 6.1 ADR-002: Curation Gate Not Implemented (OPEN — P1)
@@ -340,7 +347,8 @@ are reflected as CLOSED in this report.
 1. **Remove `tmp_*.py` files** — 11 scratch files committed by 2dc1b72 should be deleted
 
 ### This week
-2. **Patch prompt_builder.py** — remove Model B language (ADR-003 GAP-003)
+2. **Patch prompt_builder.py** — ~~remove Model B language (ADR-003 GAP-003)~~ ✅ RESOLVED
+   (commit `5c275ad8b` in Hermes agent repo, Sep 16)
 3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
    and `adr-consolidated-decisions.md` exist on master (`76fd1cd`, `c74d1ac`) but not
    on HEAD. Back-port to HEAD or document as master-only.
@@ -435,13 +443,19 @@ integration is complete and tested.
 
 ## 9.3 ADR-003: Canonical Review Topology — Current State
 
-- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
+- **Status at HEAD `893a963`:** GAP-003 finding RESOLVED (Hermes-side fix in commit `5c275ad8b`)
 - **Evidence:** `docs/decisions/003-canonical-review-topology.md` Status is now "Accepted"
   (was "Proposed" at 2026-09-18), but the GAP-003 finding about `prompt_builder.py`
   Model B language is in the Hermes agent repo, not the Janus repo, and is unaffected by
   the Janus-side PRs #176/#178.
-- **Verdict:** Genuinely open. This item was and remains OPEN. The status field update
-  (Proposed → Accepted) does not resolve GAP-003.
+- **Verdict:** GAP-003 finding about `prompt_builder.py` is **RESOLVED** — commit
+  `5c275ad8b` (Sep 16, PR #29) removed the Model B "pre-created review, QA, or release
+  child" language from `KANBAN_GUIDANCE` and replaced it with Model A-only guidance
+  (`kanban_request_review`). Grep for stale language returns zero matches; the test
+  `test_worker_guidance_distinguishes_same_card_and_downstream_review` (31 total
+  kanban review tests) passes. The Janus-side ADR-003 status (Proposed -> Accepted)
+  does not resolve the Hermes-side GAP-003 finding — that was resolved by the
+  Hermes-side fix.
 
 ## 9.4 ADR-005: Activity Data Ingestion Layer — Current State
 
@@ -490,10 +504,11 @@ the following items remain genuinely open:
      (OAuth token cache, not data)
    - Effort: Low. Add caveat noting the token cache exception.
 
-4. **GAP-003: ADR-003 prompt_builder.py Model B language**
+4. **GAP-003: ADR-003 prompt_builder.py Model B language — RESOLVED**
    - In Hermes agent repo, not Janus. Unaffected by Janus PRs.
    - Effort: Low. The Janus-side ADR-003 status is now "Accepted" (was "Proposed" at 2026-09-18),
-     but the GAP-003 finding about `prompt_builder.py` is Hermes-side and remains open.
+     but the GAP-003 finding about `prompt_builder.py` is Hermes-side and is RESOLVED —
+     commit `5c275ad8b` (Sep 16, PR #29) removed the Model B language.
 
 5. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
    - No CI rule grepping for data/ writes outside atomic_io
@@ -540,8 +555,9 @@ test_janus_sync_plugin.py cover other plugin functionality.
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
 | 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (addressed further below) ✓ |
+| 6 | GAP-001, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (addressed further below) ✓ |
+| 7 | GAP-003 (prompt Model B language) | OPEN | **RESOLVED** — Hermes-side fix `5c275ad8b` (PR #29) removed Model B language from `KANBAN_GUIDANCE`; 0 grep matches, 31 kanban review tests pass ✓ |
 
 ---
 
-*End of reconciliation — 2026-09-22.*
+*End of reconciliation — 2026-09-22. GAP-003 closed by Hermes-side fix (5c275ad8b, PR #29).*

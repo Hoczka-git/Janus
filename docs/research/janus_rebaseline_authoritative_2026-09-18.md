@@ -147,7 +147,7 @@ This is the single source of truth after reconciling all prior reports against H
 | **P0** | Vault versioning not executed (no `.git` in HermesVault) | Implicit (ADR-002) | Low | Blocks GAP-001, data at risk (16 notes, ~40KB) |
 | **P1** | GAP-001: ADR-002 curation gate not implemented (no human approval before Obsidian promotion) | ADR-002 | Medium | Blocks end-to-end knowledge pipeline |
 | **P1** | GAP-006: ADR-004 status update — document needs to reflect Phases 3-5 are still open, not completed | ADR-004 | Low | Documentation accuracy |
-| **P2** | GAP-003: ADR-003 prompt patch (`prompt_builder.py` Model B language) | ADR-003 | Low | Model B ambiguity in worker prompt (in Hermes repo, not Janus) |
+| **P2** | GAP-003: ADR-003 prompt patch (`prompt_builder.py` Model B language) | ADR-003 | Low | **RESOLVED** — Hermes repo commit `5c275ad8b` (PR #29) removed Model B language; 0 grep matches, 31 tests pass |
 | **P2** | GAP-005: ADR-005 CI grep gate for `data/` write patterns | ADR-005 | Low | Regression protection for write gateway |
 
 ### D. Data Layer Follow-ups (user-routed or integrator action)
