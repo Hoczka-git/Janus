@@ -417,34 +417,19 @@ for Phases 1/3/5 in the Status section intro (lines 7-14), while the Post-PR-176
 section (added 2026-09-19) correctly acknowledges full implementation. The code is authoritative;
 the mapping table intro is stale but the table rows themselves are current.
 
-**GAP-006 (ADR-004 "separate agent" claim): RE-EVALUATED — PARTIALLY RESOLVED**
+**GAP-006 (ADR-004 "separate agent" claim): CLOSED — fixed in commit 2f2ffa3**
 
 - **Was:** OPEN — P1, documentation accuracy issue
-- **ADR-004 §Neutral (line 215-217) at HEAD `893a963`:**
-  > "Phase 4 requires a separate agent/profile. The integration step must be performed
-  > by someone other than the implementor. The exact profile assignment is deferred to
-  > the implementation task (t_36b3d88f; superseded — integration completed incrementally
-  > through phase-specific tasks)."
+- **ADR-004 §Neutral (line 216-219) at HEAD `2f2ffa3`:**
+  > "Phase 4 integration runs as an automated step in the completion path (Option B).
+  > The integration logic is implemented in `src/janus/integration.py` and runs as part of
+  > the Phase 5 gated completion flow — no separate agent/profile is required."
 
-- **Assessment:** The Phase 4 Integrator Model decision (lines 135-160) adopted **Option B**
-  (automated step in completion path), explicitly choosing NOT to require a separate agent.
-  The Neutral consequence at line 215 still lists "Phase 4 requires a separate agent/profile"
-  as a Neutral consequence, which is now misleading — Option B means NO separate agent is
-  required. The parenthetical "(t_36b3d88f; superseded — integration completed incrementally
-  through phase-specific tasks)" acknowledges the incremental path but the main clause still
-  frames a separate agent as required.
+- **Assessment:** Fixed by commit `2f2ffa3` on this branch. The §Neutral consequence now
+  correctly states that Phase 4 uses Option B (automated step), consistent with the Phase 4
+  Integrator Model decision (lines 135-160).
 
-- **Verdict:** NOT fully resolved. The ADR body still contains language that implies a
-  separate agent is required (§Neutral, line 215), even though the design decision (§Phase 4
-  Integrator Model, lines 135-160) explicitly chose Option B which does NOT use a separate
-  agent. This is a documentation inconsistency worth fixing — the "separate agent" language
-  in §Neutral should be updated to reflect that integration runs as an automated step via
-  `src/janus/integration.py`. However, this is a documentation refinement, not an open
-  implementation gap — Phase 4 IS implemented.
-
-- **Disposition:** Re-classify from "GAP-006: separate agent claim inaccurate (OPEN — P1)"
-  to "ADR-004 §Neutral line 215: update 'separate agent' language to reflect Option B
-  (automated step)." This is a low-effort documentation fix, not a P1 gap.
+- **Verdict:** CLOSED — the documentation inconsistency is resolved.
 
 ## 9.3 ADR-003: Canonical Review Topology — Current State
 
@@ -488,7 +473,7 @@ the mapping table intro is stale but the table rows themselves are current.
 | tmp_*.py scratch files (6.2) | OPEN — Cleanup | UNCHANGED — still 11 committed files | No cleanup performed since 2026-09-18 |
 | ADR-002 curation gate (6.1 / GAP-001) | OPEN — P1 | UNCHANGED | No Obsidian promotion code exists |
 | Consolidated ADR docs not on HEAD (§5) | ARCHIVE | UNCHANGED | Still on origin/master, not on HEAD `893a963` |
-| ADR-004 §10 "Phase 4 requires separate agent" | Was GAP-006 (P1) | Re-evaluated §9.2 — documentation inconsistency, low effort | Phase 4 IS implemented via Option B |
+|| ADR-004 §10 "Phase 4 requires separate agent" | Was GAP-006 (P1) | **CLOSED** via commit 2f2ffa3 — §Neutral updated to Option B | Phase 4 IS implemented via Option B, §Neutral now reflects automated step |
 | Roadmap items 113-116 | CLOSED (2dc1b72) | UNCHANGED | Still [x] at HEAD |
 | Product backlog done items | CLOSED (2dc1b72) | UNCHANGED | Still [done] at HEAD |
 
@@ -499,9 +484,9 @@ from `76fd1cd` and `adr-consolidated-decisions.md` from `c74d1ac`) exist on
 `origin/master` but are NOT on HEAD `893a963`. This item is unchanged from 2026-09-18
 and should be archived as "available on master only" or back-ported.
 
-## 9.5 Current Genuinely Open Work (2026-09-21, HEAD `893a963`)
+## 9.5 Current Genuinely Open Work (2026-09-22, HEAD `2f2ffa3`)
 
-After reconciliation against HEAD `893a963`, the following items remain genuinely open:
+After reconciliation against HEAD `2f2ffa3`, the following items remain genuinely open:
 
 ### P1 (high priority)
 
@@ -535,7 +520,11 @@ After reconciliation against HEAD `893a963`, the following items remain genuinel
 
 6. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
    - No CI rule grepping for data/ writes outside atomic_io
-   - Effort: Low. Regression guard.
+   - Effort: Low. Regression guard. The 2026-09-21 analysis incorrectly marked this CLOSED
+     (referencing "195 add..." — referring to PR #195 which did NOT implement a CI grep gate).
+     Confirmed still OPEN: `protected_write` is still used in multiple services
+     (`strength.py:68`, `workout.py:61`, `checklist.py:65`) and `calendar_sync.py` writes
+     directly to `Today.md` (line 60) and `FollowUps.md` (line 77) outside atomic_io.
 
 ### Cleanup
 
@@ -567,14 +556,14 @@ test_janus_sync_plugin.py cover other plugin functionality.
 
 ## 9.7 Summary of Changes Since 2026-09-18
 
-| # | Item | 2026-09-18 | 2026-09-21 (HEAD `893a963`) |
+|| # | Item | 2026-09-18 | 2026-09-22 (HEAD `2f2ffa3`) |
 |---|------|-----------|------------------------------|
 | 1 | ADR-003 status | Proposed | **Accepted** ✓ |
 | 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
-| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **Re-evaluated** — Phase 4 IS implemented via Option B; remaining issue is §Neutral stale language (doc fix, not P1 gap) |
-| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open |
+|| 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
+| 6 | GAP-001, GAP-003, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 erroneously marked CLOSED in 2026-09-21 (PR #195 did not implement a CI grep gate) |
 | 7 | tmp_*.py files | OPEN — Cleanup | **UNCHANGED** — 11 files still committed |
 
 ---
