@@ -1,9 +1,11 @@
 """CLI command handlers for 'janus goal list', 'janus goal show',
-'janus goal add', 'janus goal update', and 'janus goal complete'.
+'janus goal add', 'janus goal update', 'janus goal complete',
+'janus goal audit'.
 """
 
-from datetime import date
+import json
 import sys
+from datetime import date
 from typing import Optional
 
 from janus.services.goals import (
@@ -657,6 +659,7 @@ Commands:
   complete <title>                Mark a goal as completed
   next <title>                    Print the derived next action for a goal
   health [<title>]                Show health assessment for goals
+  audit [--json]                  Run Goal Integrity Audit
   skills                          List all tracked skills with evidence counts
   set-skill <title> --skill NAME  Set the skill for a goal
   set-skill <title> --clear       Clear the skill from a goal
@@ -1456,4 +1459,73 @@ def _print_health_detail(assessment) -> None:
             print(f"  {marker} [{s.score:3d}] {s.signal}: {s.reason}")
     else:
         print("  Signals: none (healthy)")
+
+
+def handle_goal_audit(args: list[str]) -> None:
+    """janus goal audit [--json]
+    Run a deterministic Goal Integrity Audit and print the results.
+
+    Without --json: human-readable summary (spec sec 9).
+    With --json: machine-readable JSON report (spec sec 10).
+
+    Exit code is non-zero when one or more error-severity issues are found
+    (spec sec 11). Warnings alone do not cause failure.
+    """
+    from janus.integrations.markdown_goals import load_goals
+    from janus.integrations.markdown_tasks import load_tasks
+    from janus.services.goal_integrity import audit_goal_integrity
+    from datetime import datetime
+
+    as_json = "--json" in args
+
+    goals = load_goals()
+    tasks = load_tasks() if goals else []
+    now = datetime.now().astimezone()
+
+    report = audit_goal_integrity(goals=goals, tasks=tasks, now=now)
+
+    if as_json:
+        print(json.dumps(report.to_dict(), indent=2, default=str))
+    else:
+        _print_audit_report(report)
+
+    if report.has_errors:
+        sys.exit(1)
+
+
+def _print_audit_report(report) -> None:
+    """Render a GoalIntegrityReport in human-readable form (spec sec 9)."""
+    print("Goal Integrity Audit")
+    print("=" * 60)
+    print(f"Goals checked: {report.goals_checked}")
+    print(f"Tasks checked: {report.tasks_checked}")
+    print()
+
+    if report.issues:
+        print("Issues:")
+        by_code: dict[str, list] = {}
+        for issue in report.issues:
+            by_code.setdefault(issue.code, []).append(issue)
+        for code in sorted(by_code):
+            severity_marker = "X" if by_code[code][0].severity == "error" else "!"
+            count = len(by_code[code])
+            print(f"  {severity_marker} {code:<32} {count}")
+        print()
+
+        print("Details:")
+        for issue in report.issues:
+            marker = "X" if issue.severity == "error" else "!"
+            goal_str = f"goal={issue.goal_id}" if issue.goal_id else ""
+            task_str = f"task={issue.task_id}" if issue.task_id else ""
+            locator = ", ".join(p for p in (goal_str, task_str) if p)
+            print(f"  {marker} {issue.code} ({locator}): {issue.message}")
+        print()
+    else:
+        print("No issues found.")
+        print()
+
+    print("Summary:")
+    print(f"  Errors:   {report.error_count}")
+    print(f"  Warnings: {report.warning_count}")
+    print(f"  Info:     {report.info_count}")
 
