@@ -69,7 +69,11 @@ def isolated_data_dir(tmp_path, monkeypatch):
 
     # Redirect downstream service file paths
     import janus.services.tasks as tasks_mod
+    import janus.services.followup as followup_mod
+    import janus.services.inbox as inbox_mod
     import janus.integrations.markdown_goals as goals_md
+    import janus.integrations.markdown_followups as followups_md
+    import janus.integrations.markdown_inbox as inbox_md
     import janus.integrations.metric_history as mh
 
     tasks_path = data_dir / "tasks.md"
@@ -83,6 +87,10 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(tasks_mod, "TASKS_PATH", tasks_path)
     monkeypatch.setattr(goals_md, "GOALS_PATH", goals_path)
     monkeypatch.setattr(mh, "METRIC_HISTORY_PATH", metric_history_path)
+    monkeypatch.setattr(followup_mod, "FOLLOWUPS_PATH", followups_path)
+    monkeypatch.setattr(followups_md, "FOLLOWUPS_PATH", followups_path)
+    monkeypatch.setattr(inbox_mod, "INBOX_PATH", inbox_path)
+    monkeypatch.setattr(inbox_md, "INBOX_PATH", inbox_path)
 
     return {
         "data_dir": data_dir,
@@ -263,15 +271,16 @@ class TestComputeDedupKey:
         assert key == "2026-09-05::strength"
 
     def test_followup_added_generates_id(self):
-        """FOLLOWUP_ADDED without followup_id generates a 'fu-' prefixed uuid."""
-        key = compute_dedup_key(self._rec(type=ActivityType.FOLLOWUP_ADDED))
-        assert key.startswith("fu-")
-        assert len(key) > 3
+        """FOLLOWUP_ADDED without followup_id generates a deterministic key from title + source."""
+        key = compute_dedup_key(self._rec(type=ActivityType.FOLLOWUP_ADDED, captured_text="Test followup"))
+        assert key.startswith("fu::")
+        assert "Test followup" in key
 
     def test_inbox_captured_generates_id(self):
-        """INBOX_CAPTURED without inbox_id generates an 'ix-' prefixed uuid."""
+        """INBOX_CAPTURED without inbox_id generates a deterministic key from text + source."""
         key = compute_dedup_key(self._rec(type=ActivityType.INBOX_CAPTURED, captured_text="hi"))
-        assert key.startswith("ix-")
+        assert key.startswith("ix::")
+        assert "hi" in key
 
     def test_goal_updated_key(self):
         """GOAL_UPDATED keys by (goal_title, task_id)."""

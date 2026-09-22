@@ -5,6 +5,7 @@ from datetime import date
 
 from janus.services.followup import (
     add_followup,
+    add_followup_via_ingest,
     get_followup,
     list_followups,
     set_followup_state,
@@ -123,14 +124,26 @@ def handle_followup_add(args: list[str]) -> None:
         print(f"Invalid priority: {priority!r}. Must be 1-5.", file=sys.stderr)
         sys.exit(1)
 
-    fu = add_followup(
+    result = add_followup_via_ingest(
         title=title,
-        due_date=due_date,
-        scheduled_for=scheduled_for,
-        priority=priority,
         note=note,
+        due_date=due_date.isoformat() if due_date else None,
+        scheduled_for=scheduled_for.isoformat() if scheduled_for else None,
+        priority=priority,
     )
-    print(f"Follow-up created: '{fu.title}' ({fu.id})")
+    if result.action == "rejected":
+        print(f"Error: follow-up already exists: {title!r}", file=sys.stderr)
+        sys.exit(1)
+
+    # Re-read the created follow-up to report its id
+    from janus.services.followup import list_followups
+    matches = [f for f in list_followups() if f.title.strip() == title.strip()]
+    fu = matches[-1] if matches else None
+
+    if fu:
+        print(f"Follow-up created: '{fu.title}' ({fu.id})")
+    else:
+        print(f"Follow-up created: '{title}'")
 
 
 def handle_followup_show(args: list[str]) -> None:

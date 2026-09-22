@@ -3,6 +3,7 @@
 Title is the persistence identity and is immutable in MVP.
 No delete_goal — goals can be set to inactive.
 """
+from __future__ import annotations
 
 import logging
 
@@ -74,6 +75,60 @@ def add_goal(
          message=f"Goal '{title}' added")
 
     return goal
+
+
+def add_goal_via_ingest(title: str, **kwargs) -> "IngestResult":
+    """Construct a GOAL_UPDATED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    ``kwargs`` are passed through as the record's ``evidence`` dict, which
+    the gateway's ``_dispatch_goal`` reads to populate goal fields.  This
+    wrapper is used by CLI handlers so that writes pass through
+    validation / normalization / deduplication in addition to atomic I/O.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.GOAL_CREATED,
+        source="cli",
+        timestamp=datetime.now(timezone.utc),
+        goal_title=title,
+        evidence=kwargs,
+    )
+    return ingest_activities([record])[0]
+
+
+def update_goal_via_ingest(title: str, **kwargs) -> "IngestResult":
+    """Construct a GOAL_UPDATED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    ``kwargs`` mirror the field names accepted by ``update_goal_fields``
+    (``description``, ``status``, ``metric_name``, etc.) and are passed
+    through as the record's ``evidence`` dict, which
+    ``_dispatch_goal`` reads to apply updates.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.GOAL_UPDATED,
+        source="cli",
+        timestamp=datetime.now(timezone.utc),
+        goal_title=title,
+        evidence=kwargs,
+    )
+    return ingest_activities([record])[0]
 
 
 def get_goal(title: str) -> Goal:
@@ -214,6 +269,28 @@ def complete_goal(title: str) -> Goal:
     Raises ValueError if goal not found.
     """
     return update_goal_fields(title, status="completed")
+
+
+def complete_goal_via_ingest(title: str) -> "IngestResult":
+    """Construct a GOAL_COMPLETED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.GOAL_COMPLETED,
+        source="cli",
+        timestamp=datetime.now(timezone.utc),
+        goal_title=title,
+        evidence={},
+    )
+    return ingest_activities([record])[0]
 
 
 def update_goal_progress(

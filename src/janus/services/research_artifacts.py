@@ -6,6 +6,8 @@ details are in the integration layer.
 
 Follows the existing Janus dataclass/service pattern (goals.py, decisions.py).
 """
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -38,6 +40,43 @@ def create_artifact(artifact: ResearchArtifact) -> Path:
          operation="create",
          message=f"Created research artifact '{path.stem}'")
     return path
+
+
+def create_artifact_via_ingest(body: str, *, title: str = "", source: str = "cli",
+                               evidence: dict | None = None) -> "IngestResult":
+    """Construct a RESEARCH_ARTIFACT ActivityRecord and route it through
+    the canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    The ``body`` is the full research artifact markdown (frontmatter +
+    sections).  ``title`` is used solely for the record's ``task_title``
+    field (the canonical title is parsed from the body itself).
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    record = ActivityRecord(
+        type=ActivityType.RESEARCH_ARTIFACT,
+        source=source,
+        timestamp=datetime.now(timezone.utc),
+        task_title=title or _slugify_title_from_body(body),
+        captured_text=body,
+        evidence=evidence or {},
+    )
+    return ingest_activities([record])[0]
+
+
+def _slugify_title_from_body(body: str) -> str:
+    """Best-effort title extraction from markdown frontmatter."""
+    import re
+    m = re.match(r"^---\s*\ntitle:\s*(.+)\s*$", body, re.MULTILINE)
+    if m:
+        return m.group(1).strip()
+    return "Untitled"
 
 
 def load_artifact(slug: str) -> ResearchArtifact:

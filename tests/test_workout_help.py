@@ -49,7 +49,7 @@ class TestLeafHelp:
         """janus workout add --help prints help, does not attempt to save."""
         from janus.workout_cli import handle_workout_add
         from unittest.mock import patch
-        with patch("janus.workout_cli.save_workout") as mock_save:
+        with patch("janus.services.workout_analytics.add_workout_via_ingest") as mock_ingest:
             handle_workout_add(["--help"])
         out = capsys.readouterr().out
         assert "Usage: janus workout add" in out
@@ -57,7 +57,7 @@ class TestLeafHelp:
         assert "--sets" in out
         assert "--distance" in out
         assert "--duration" in out
-        assert mock_save.call_count == 0
+        assert mock_ingest.call_count == 0
 
     def test_workout_show_help(self, capsys):
         """janus workout show --help prints help, does not attempt to load."""

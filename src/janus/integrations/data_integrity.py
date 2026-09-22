@@ -665,36 +665,40 @@ def protected_append(path: Path, content: str, *, written_by: str = "unknown") -
     For append-only files, we still use atomic write to prevent corruption
     on crash: read current content, append, write atomically.
 
+    The ``config.enabled`` flag controls the *policy* layer (locking, backup
+    rotation, post-write verification) but never falls back to a non-atomic
+    write — the atomic I/O primitive is always used (ADR-005 Amendment 01).
+
     Returns the number of bytes written.
     """
     config = get_config()
 
-    if not config.enabled:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as f:
-            f.write(content)
-            f.flush()
-            import os
+    # Always use atomic_io for the write primitive, regardless of config.enabled.
+    from janus.integrations.atomic_io import read_modify_write
 
-            os.fsync(f.fileno())
-        return len(content.encode("utf-8"))
+    def _append(cur: str) -> str:
+        return cur + content
 
-    with file_lock(path):
-        if path.exists():
-            old_content = path.read_text(encoding="utf-8")
-        else:
-            old_content = ""
-        new_content = old_content + content
-        backup_path = backup_previous(path)
-        atomic_write(path, new_content, backup=True)
-        bytes_written = len(new_content.encode("utf-8"))
-        if config.verify_after_write:
-            if not post_write_verify(path, new_content):
-                if backup_path is not None and backup_path.exists():
-                    shutil.copy2(str(backup_path), str(path))
-                raise DataCorruptionError(
-                    f"Post-write verification failed for {path}"
-                )
+    if config.enabled:
+        with file_lock(path):
+            # Compute expected content for post-write verification
+            old_content = path.read_text(encoding="utf-8") if path.exists() else ""
+            expected = old_content + content
+            read_modify_write(path, _append, backup=True)
+            bytes_written = len(content.encode("utf-8"))
+            if config.verify_after_write:
+                backup_path = backup_previous(path)
+                if not post_write_verify(path, expected):
+                    if backup_path is not None and backup_path.exists():
+                        shutil.copy2(str(backup_path), str(path))
+                    raise DataCorruptionError(
+                        f"Post-write verification failed for {path}"
+                    )
+    else:
+        # Degraded mode: still use atomic_io for the write, but skip
+        # policy-layer features (locking, backup, verification).
+        read_modify_write(path, _append)
+        bytes_written = len(content.encode("utf-8"))
 
     return bytes_written
 

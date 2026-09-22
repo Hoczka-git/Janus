@@ -52,26 +52,34 @@ def handle_research_add(args: list[str]) -> None:
         print(f"Error: file not found: {path}", file=sys.stderr)
         sys.exit(1)
 
-    from janus.integrations.markdown_research import RESEARCH_DIR, _parse_artifact
-    from janus.integrations.markdown_research import save_artifact as _save_artifact, _slugify
+    from janus.integrations.markdown_research import RESEARCH_DIR, _parse_artifact_content
+    from janus.services.research_artifacts import create_artifact_via_ingest
 
-    # Parse the file into a ResearchArtifact
+    # Route through the canonical ADR-005 ingestion gate instead of calling
+    # save_artifact directly — this adds validation / normalization / dedup.
     file_path = __import__("pathlib").Path(path)
+    body = file_path.read_text(encoding="utf-8")
     try:
-        artifact = _parse_artifact(file_path)
+        result = create_artifact_via_ingest(body, title=file_path.stem)
     except Exception as exc:
-        print(f"Error: failed to parse artifact: {exc}", file=sys.stderr)
+        print(f"Error: failed to ingest artifact: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    # The ingestion gate normalizes the body and persists via create_artifact
+    # / update_artifact (which use atomic_io).  Re-read the persisted artifact
+    # to report its title, slug and findings to the user.
+    from janus.services.research_artifacts import load_artifact
+    from janus.integrations.markdown_research import _slugify
+    artifact = _parse_artifact_content(body)
+    slug = _slugify(artifact.title)
     try:
-        created_path = _save_artifact(artifact)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Created research artifact: {artifact.title}")
-    print(f"  Slug: {created_path.stem}")
-    print(f"  Findings: {len(artifact.findings)}")
+        persisted = load_artifact(slug)
+    except ValueError:
+        persisted = artifact
+    created_path = RESEARCH_DIR / f"{slug}.md"
+    print(f"Created research artifact: {persisted.title}")
+    print(f"  Slug: {slug}")
+    print(f"  Findings: {len(persisted.findings)}")
 
 
 def handle_research_show(args: list[str]) -> None:

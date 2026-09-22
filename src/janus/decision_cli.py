@@ -10,7 +10,6 @@ from pathlib import Path
 
 from janus.models.decision import Decision, VALID_DECISION_STATUSES
 from janus.services.decisions import (
-    create_decision,
     link_decision_to_goal,
     link_finding_to_decision as _link_finding_to_decision,
     get_decision,
@@ -121,11 +120,17 @@ def handle_decision_propose(args: list[str]) -> None:
         sys.exit(1)
 
     try:
-        adr_path = create_decision(decision)
-    except ValueError as e:
+        body = path.read_text(encoding="utf-8")
+        from janus.services.decisions import create_decision_via_ingest
+        # Route through the canonical ADR-005 ingestion gate instead of
+        # calling create_decision directly — this adds validation,
+        # normalization and deduplication.
+        result = create_decision_via_ingest(body, title=path.stem)
+    except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    adr_path = result.file_path
     print(f"Created ADR: ADR-{decision.adr_number}: {decision.title}")
     print(f"  Path: {adr_path}")
 

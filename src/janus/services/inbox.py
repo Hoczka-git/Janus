@@ -1,4 +1,5 @@
 """Inbox service for Janus — CRUD and triage operations."""
+from __future__ import annotations
 
 import logging
 import uuid
@@ -26,6 +27,7 @@ def add_inbox_item(
     context: str = "",
     linked_goal_title: str = "",
     linked_research_title: str = "",
+    inbox_id: str | None = None,
 ) -> InboxItem:
     """Validate, create, append to data/inbox.md, return it."""
     if not captured_text or not captured_text.strip():
@@ -33,7 +35,7 @@ def add_inbox_item(
     if source not in ("telegram", "cli", "manual", "research", "email", "other"):
         raise ValueError(f"Invalid source: {source!r}")
 
-    item_id = "ix-" + uuid.uuid4().hex[:8]
+    item_id = inbox_id if inbox_id else ("ix-" + uuid.uuid4().hex[:8])
     item = InboxItem(
         id=item_id,
         captured_text=captured_text.strip(),
@@ -50,6 +52,41 @@ def add_inbox_item(
          message=f"Inbox item '{item_id}' added")
 
     return item
+
+
+def add_inbox_item_via_ingest(
+    captured_text: str,
+    source: str = "cli",
+    context: str = "",
+    linked_goal_title: str = "",
+    linked_research_title: str = "",
+) -> "IngestResult":
+    """Construct an INBOX_CAPTURED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    ``captured_text`` is passed as the record's ``captured_text`` field,
+    which the gateway's ``_dispatch_inbox`` writes through ``atomic_io``.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    evidence = {}
+    if context:
+        evidence["context"] = context
+    record = ActivityRecord(
+        type=ActivityType.INBOX_CAPTURED,
+        source=source,
+        timestamp=datetime.now(timezone.utc),
+        inbox_id=None,
+        captured_text=captured_text,
+        evidence=evidence,
+    )
+    return ingest_activities([record])[0]
 
 
 def triage_item(inbox_id: str, triage_state: str, triage_note: str = "") -> InboxItem:

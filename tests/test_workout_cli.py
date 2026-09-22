@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from janus.models.workout import Exercise, RunningWorkout, Set, StrengthWorkout, WorkoutType
+from janus.services.activity_ingest import IngestResult
 from janus.workout_cli import (
     _format_set_weight,
     _generate_id,
@@ -156,10 +157,16 @@ class TestFormatSetWeight:
 # ---------------------------------------------------------------------------
 
 class TestWorkoutAddCLI:
+    def _mock_ingest_ok(self):
+        """Return a mock IngestResult with action='created' (non-rejected)."""
+        return IngestResult(
+            record_id="test", accepted=True, wrote=True,
+            file_path="data/test.md", action="created",
+        )
+
     def test_add_strength_minimal(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "strength",
                 "--exercise", "Back Squat",
@@ -172,8 +179,7 @@ class TestWorkoutAddCLI:
 
     def test_add_running_minimal(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "running",
                 "--distance", "5.0",
@@ -185,8 +191,7 @@ class TestWorkoutAddCLI:
 
     def test_add_running_with_optional(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "running",
                 "--distance", "10.0",
@@ -202,8 +207,7 @@ class TestWorkoutAddCLI:
 
     def test_add_strength_with_date(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "strength",
                 "--exercise", "Bench Press",
@@ -217,8 +221,7 @@ class TestWorkoutAddCLI:
 
     def test_add_strength_with_source(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "strength",
                 "--exercise", "Deadlift",
@@ -231,8 +234,7 @@ class TestWorkoutAddCLI:
 
     def test_add_running_with_date(self, capsys, monkeypatch):
         monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
-        with patch("janus.workout_cli.save_workout") as mock_save:
-            mock_save.return_value = None
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()):
             handle_workout_add([
                 "--type", "running",
                 "--distance", "5.0",

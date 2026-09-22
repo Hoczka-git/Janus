@@ -7,6 +7,7 @@ Zakres:
 - running summary (distance, duration, pace, HR, longest run)
 - exercise summary (count, latest sets, highest weight, progression)
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -232,3 +233,60 @@ def compute_exercise_summary(
         )
 
     return result
+
+
+def add_workout_via_ingest(
+    workout_type: str,
+    *,
+    workout_id: str | None = None,
+    distance_km: float | None = None,
+    duration_minutes: float | None = None,
+    avg_hr_bpm: float | None = None,
+    elevation_m: float | None = None,
+    notes: str | None = None,
+    exercises: list | None = None,
+    source: str = "cli",
+    date: str | None = None,
+) -> "IngestResult":
+    """Construct a WORKOUT_ADDED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    All workout-specific fields are mapped to the corresponding
+    :class:`ActivityRecord` attributes (``workout_type``, ``distance_km``,
+    etc.) so that the gateway's ``_dispatch_workout`` can reconstruct the
+    full Workout object and persist it atomically.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    from janus.models.workout import WorkoutType
+
+    # Validate workout_type early (mirrors the dispatch helper's expectation)
+    WorkoutType(workout_type)
+
+    evidence = {}
+    if notes is not None:
+        evidence["notes"] = notes
+    if exercises is not None:
+        evidence["exercises"] = exercises
+    if date is not None:
+        evidence["date"] = date
+
+    record = ActivityRecord(
+        type=ActivityType.WORKOUT_ADDED,
+        source=source,
+        timestamp=datetime.now(timezone.utc),
+        workout_id=workout_id,
+        workout_type=workout_type,
+        distance_km=distance_km,
+        duration_minutes=duration_minutes,
+        avg_hr_bpm=avg_hr_bpm,
+        elevation_m=elevation_m,
+        evidence=evidence,
+    )
+    return ingest_activities([record])[0]

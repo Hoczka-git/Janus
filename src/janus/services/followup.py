@@ -1,4 +1,5 @@
 """Follow-up service for Janus — CRUD and lifecycle operations."""
+from __future__ import annotations
 
 import logging
 import uuid
@@ -29,8 +30,13 @@ def add_followup(
     created_by: str = "cli",
     originating_inbox_id: str | None = None,
     linked_goal_title: str = "",
+    followup_id: str | None = None,
 ) -> FollowUp:
-    """Validate, create, append to data/followups.md, return it."""
+    """Validate, create, append to data/followups.md, return it.
+
+    If ``followup_id`` is provided, it is used as the follow-up's id
+    instead of generating a new UUID.
+    """
     if not title or not title.strip():
         raise ValueError("title must not be empty")
     if priority not in PRIORITIES:
@@ -46,7 +52,7 @@ def add_followup(
         except ValueError:
             raise ValueError(f"Invalid scheduled_for: {scheduled_for}")
 
-    fu_id = "fu-" + uuid.uuid4().hex[:8]
+    fu_id = followup_id if followup_id else ("fu-" + uuid.uuid4().hex[:8])
     fu = FollowUp(
         id=fu_id,
         title=title.strip(),
@@ -78,6 +84,37 @@ def add_followup(
             )
 
     return fu
+
+
+def add_followup_via_ingest(
+    title: str,
+    note: str = "",
+    **kwargs,
+) -> "IngestResult":
+    """Construct a FOLLOWUP_ADDED ActivityRecord and route it through the
+    canonical ADR-005 ingestion gate (``ingest_activities``).
+
+    ``kwargs`` are passed through as the record's ``evidence`` dict, which
+    the gateway's ``_dispatch_followup`` reads to populate follow-up fields.
+
+    Returns the :class:`IngestResult` from the ingestion gate.
+    """
+    from datetime import datetime, timezone
+    from janus.services.activity_ingest import (
+        ActivityRecord,
+        ActivityType,
+        ingest_activities,
+    )
+    evidence = {"note": note, **kwargs} if note else dict(kwargs)
+    record = ActivityRecord(
+        type=ActivityType.FOLLOWUP_ADDED,
+        source="cli",
+        timestamp=datetime.now(timezone.utc),
+        followup_id=None,
+        captured_text=title,
+        evidence=evidence,
+    )
+    return ingest_activities([record])[0]
 
 
 def get_followup(fu_id: str) -> FollowUp:
