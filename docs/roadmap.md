@@ -121,3 +121,7 @@ existing design and planning artifacts in this repository.
 - [x] Add `janus goal audit --json` output and exit-code semantics
 - [x] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
+- [ ] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
+- [ ] Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review.
+- [ ] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+- [ ] Expose deterministic goal next-action derivation through `janus goal next <title>` and integrate it into user-facing reviews.
