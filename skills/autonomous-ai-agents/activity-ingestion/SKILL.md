@@ -35,7 +35,9 @@ should be persisted to Janus `data/` — for example:
   outcomes, and surface failures to the user.
 - **Janus (`activity_ingest.py`):** validate, normalize (units, timestamps,
   text), de-duplicate (key + tolerance + policy), route to the correct
-  service/integration function, and write through `atomic_io` / `data_protection`.
+  service/integration function, and write through `atomic_io` /
+  `data_integrity` (backup rotation, conflict detection, regeneration
+  gating).
 - **Never:** write to `data/` files directly. Never construct markdown for
   `data/` files by hand. Always go through `ActivityRecord` → `ingest_activities()`.
 
@@ -256,7 +258,7 @@ service or integration function (ADR-005 §5):
 | `MEASUREMENT` | `janus.integrations.metric_history.append_metric_snapshot` → atomic append to `data/metric_history.md` |
 
 All writes go through `atomic_io` (write-to-temp + `os.replace`) and, for
-full-rewrite paths, through `data_protection` (backup rotation, conflict
+full-rewrite paths, through `data_integrity` (backup rotation, conflict
 detection, regeneration gating).
 
 ## File Path Mapping
@@ -443,7 +445,7 @@ Before declaring the ingestion layer healthy, confirm:
 - `src/janus/services/activity_ingest.py` — the implementation (single source of truth
   for the API surface and rules codified above).
 - `src/janus/integrations/atomic_io.py` — atomic write primitive.
-- `src/janus/integrations/data_protection.py` — backup, conflict detection,
+- `src/janus/integrations/data_integrity.py` — backup, conflict detection,
   regeneration gating.
 - `config/config.example.toml` — example `[data_ingestion]` configuration.
 - ADR-001 (Hermes and Janus System Model), ADR-004 (Safe Sync-and-Integrate

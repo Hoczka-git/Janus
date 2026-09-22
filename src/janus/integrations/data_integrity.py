@@ -2,7 +2,7 @@
 
 This module is the canonical home for the *integrity* (verification / repair /
 backup / policy) surface that used to live in the legacy
-``data_protection.py``.  It is intentionally kept separate from
+``data_protection.py`` (now deleted).  It is intentionally kept separate from
 ``atomic_io``:
 
 * ``atomic_io``  — low-level write primitive (write-to-temp + ``os.replace``)
@@ -16,10 +16,9 @@ backup / policy) surface that used to live in the legacy
 (``data_integrity`` → ``atomic_io``), which keeps the write primitive free of
 policy coupling (ADR-005 Amendment 01).
 
-``data_protection.py`` is now a thin re-export shim (emitted with a
-``DeprecationWarning``) that surfaces these symbols under their legacy import
-paths so existing callers and tests continue to work during the deprecation
-window.  New code should import directly from ``atomic_io`` and
+``data_protection.py`` was the legacy home; it has been deleted once all
+callers migrated (ADR-005 Amendment 01. deprecation criteria met in
+2026-09-22). New code should import directly from ``atomic_io`` and
 ``data_integrity`` (and model-driven writes from
 ``activity_ingest.ingest_activities``).
 """

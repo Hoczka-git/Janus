@@ -38,14 +38,15 @@ import yaml
 # ──────────────────────────────────────────────────────────────────────
 # Modules excluded from the data-write-path grep gates.
 #
-# These are the deprecated/shim homes (``data_protection`` re-export shim and
-# ``data_integrity`` which owns the legacy ``protected_write``/``protected_append``
-# definitions and their internal ``atomic_write``/``backup_previous`` calls).
-# The gates must not flag the policy layer itself — they exist to catch stray
-# *caller* sites that bypass ``atomic_io``.  (ADR-005 Amendment 01.)
-# ──────────────────────────────────────────────────────────────────────
+# These are the policy-layer homes (``data_integrity`` owns the legacy
+# ``protected_write``/``protected_append`` definitions and their internal
+# ``atomic_write``/``backup_previous`` calls) and the primitive
+# (``atomic_io``).  The gates must not flag these modules themselves — they
+# exist to catch stray *caller* sites that bypass ``atomic_io``.
+# (ADR-005 Amendment 01; ``data_protection.py`` was deleted once all writers
+# migrated to ``atomic_io`` / ``data_integrity``.)
 _WRITE_PATH_EXCEPTIONS: frozenset[str] = frozenset(
-    {"atomic_io.py", "data_protection.py", "data_integrity.py"}
+    {"atomic_io.py", "data_integrity.py"}
 )
 
 

@@ -188,10 +188,16 @@ created:
 
 **Deprecation criteria for `data_protection`:** all 18 documented write paths
 from `findings/data_inventory_write_paths.md` route through `atomic_io`; the
-`[data_protection]` config table is empty/default in `config/config.toml`;
-and `janus data verify` / `repair_file` functionality has moved to
+`[data_ingestion]` config table is empty/default in `config/config.toml`;
+and `janus data verify` / `repair_file` functionality moved to
 `data_integrity.py`. At that point `data_protection.py` is deleted and the
 grep gate becomes a hard `git rm`-enforced prohibition.
+
+**Status: criteria met (2026-09-22).** All 7 legacy `protected_write` callers
+migrated to `atomic_io` / `data_integrity` (PR #204); the `[data_protection]`
+config table was merged into `[data_ingestion]`; `repair_file`,
+`verify_file_integrity`, `protected_write`, and `protected_append` live in
+`data_integrity.py`. `data_protection.py` has been deleted.
 
 ## Consequences
 

@@ -4,6 +4,13 @@ Covers ADR-005 Amendment 01 acceptance criterion 3: the verification
 pipeline's grep gate must assert that ``data_protection.py`` contains no
 ``os.replace`` call site, while ``atomic_io.py`` (the sole write primitive)
 retains exactly one.
+
+After the deprecation-removal of ``data_protection.py`` (all writers migrated
+to ``atomic_io`` / ``data_integrity``), the gate on that file is superseded:
+``atomic_io.py`` is the sole allowed call site, and the
+``check_data_write_path`` / ``check_data_file_write_gates`` grep gates (which
+exclude ``atomic_io.py`` and ``data_integrity.py`` from caller checks) are the
+enforcement for the single-choke-point invariant.
 """
 from __future__ import annotations
 
@@ -61,26 +68,29 @@ class TestFindOsReplaceCalls:
 class TestCheckNoOsReplaceOnRealRepo:
     """The actual repo files after ADR-005 Amendment 01 delegation."""
 
-    def test_data_protection_has_no_os_replace(self) -> None:
-        contract = _contract_with(["src/janus/integrations/data_protection.py"])
-        result = check_no_os_replace(contract)
-        assert result.passed, result.details
-        assert result.failed_items == 0
-
     def test_atomic_io_has_the_one_os_replace(self) -> None:
         # atomic_io.py is the sole allowed call site — NOT listed as forbidden.
-        # Listing it as forbidden would FAIL the gate (proving the gate works).
         atomic_io = REPO_ROOT / "src/janus/integrations/atomic_io.py"
         assert _find_os_replace_calls(atomic_io) == [334]
 
     def test_forbidden_atomic_io_would_fail(self) -> None:
+        # Listing the true call site as forbidden must FAIL — proves the gate works.
         contract = _contract_with(["src/janus/integrations/atomic_io.py"])
         result = check_no_os_replace(contract)
         assert not result.passed
         assert result.failed_items == 1
 
-    def test_forbidden_data_protection_passes_now(self) -> None:
-        contract = _contract_with(["src/janus/integrations/data_protection.py"])
+    def test_data_protection_module_is_deleted(self) -> None:
+        """data_protection.py has been removed; the gate no longer needs to
+        list it because there is nothing to scan. ``data_integrity.py`` is the
+        policy layer and delegates to ``atomic_io`` (no os.replace of its own)."""
+        deleted_path = REPO_ROOT / "src/janus/integrations/data_protection.py"
+        assert not deleted_path.exists()
+
+    def test_data_integrity_has_no_os_replace(self) -> None:
+        """The policy layer (data_integrity.py) must not contain os.replace;
+        it delegates all atomic replacement to atomic_io."""
+        contract = _contract_with(["src/janus/integrations/data_integrity.py"])
         result = check_no_os_replace(contract)
-        assert result.passed
-        assert result.total_items == 1
+        assert result.passed, result.details
+        assert result.failed_items == 0
