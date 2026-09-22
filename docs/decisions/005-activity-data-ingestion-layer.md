@@ -455,33 +455,46 @@ Create a backup of `data/` files *after* the write completes, rather than before
   filesystem I/O overhead per write.
 
 **Negative / Risks:**
-- **Overlap between `atomic_io` and `data_protection` (two write wrappers):**
-  ADR-005 names `atomic_write` as the atomic-write primitive (`atomic_io.py`), and
-  the ADR's §6.4 "CI grep gate" is intended to enforce that all `data/` file writes
-  route through `atomic_io`. In the current codebase the role of "safe write wrapper"
-  is already split across two modules: `atomic_io.py` (the ADR-named primitive) and
-  `data_protection.py` (an existing wrapper used by e.g. `goals.save_goal` and
-  `tasks.save_tasks`). The ADR's §6.4 grep rule — "any new reference to `data/`
-  file writes outside `atomic_io.py` or the integration modules' `read_modify_write`
-  usage is a verification failure" — would need to decide whether `data_protection.py`
-  is treated as a sanctioned write path in its own right, folded into `atomic_io`, or
-  retired. As written, the rule is ambiguous and a naïve CI grep could flag existing
-  `data_protection` call sites as violations. This overlap is the concrete form of the
-  ADR's "two overlapping protection layers" caveat and should be resolved before the
-  grep gate is enabled in CI.
-- **Two service paths still bypass `atomic_io` (raw `data/` writes):**
-  Not all current service write paths use `atomic_io`:
-  - `src/janus/integrations/metric_history.py:append_metric_snapshot` (line 125)
-    opens `data/metric_history.md` with `"a"` (plain append).
-  - `src/janus/services/measurement_log.py:append_entry` (line 102)
-    opens `data/measurements.jsonl` with `"a"` (plain append).
-  - `src/janus/services/goals.py:update_goal_fields` calls
-    `append_metric_snapshot` when `current_value` changes (`goals.py` line 193),
-    so a goal progress update also writes metric history through the non-atomic path.
-  These two call sites are part of the migration surface named in the ADR's caveats
-  and should be routed through `atomic_io.read_modify_write()` (or the
-  `activity_ingest` gateway) during migration. They are not currently covered by the
-  ADR's single-write-gateway guarantee.
+- **Migration surface.** Five service writers must be refactored. Each
+  refactor is small (replace read/write with `read_modify_write`), but
+  there are five of them, and each touches a different file format.
+  Regression risk is real; each refactor needs its own test.
+- **Append-only files are excluded.** `metric_history.md` and
+  `measurements.jsonl` are not covered by the gateway. They remain
+  append-only with no atomicity guarantee beyond what the filesystem
+  provides for appends. If these files need atomicity in the future,
+  a separate ADR is required.
+- **CI grep gate is a blunt instrument.** The `verify_write_paths()`
+  check is a static scan — it can produce false positives (e.g. a test
+  that writes to a temp file under `data/`) and false negatives (e.g.
+  a write path hidden behind an indirect call). It is a gate, not a
+  guarantee.
+- **Single choke point = single point of failure.** If `atomic_io.py`
+  has a bug, all writes are affected. Mitigation: the module is small
+  (~200 lines), pure I/O, and has its own tests.
+- **Performance.** `read_modify_write` reads the entire file into memory
+  on every write. For the current file sizes (all < 1 MB), this is
+  negligible. If any file grows large, a streaming or partial-write
+  strategy will be needed — that is a future concern, not a current
+  blocker.
+- **Resolved: `data_protection.py` overlap.** `data_protection.py` was
+  the older write-wrapper module and created an ambiguous two-wrapper
+  situation with `atomic_io`. The migration removed all `data_protection`
+  call sites; `data_protection.py` was deleted. After migration the
+  codebase has a single write-wrapper module (`atomic_io`), and the CI
+  grep gate no longer faces an ambiguous split. The ADR's original
+  caveat about "two overlapping protection layers" is now resolved —
+  there is one gateway, one grep rule, no ambiguity.
+- **Resolved: service write-path bypass.** Three service paths previously
+  bypassed `atomic_io` with raw `open(..., "a")` calls:
+  `metric_history.append_metric_snapshot` (data/metric_history.md),
+  `measurement_log.append_entry` (data/measurements.jsonl), and
+  `goals.update_goal_fields` (which called `append_metric_snapshot` on
+  progress change). All three were migrated: `metric_history.py` now
+  uses `read_modify_write`, and `measurement_log.py` is read-only
+  (consumers call `metric_history` for persistence). No service write
+  path opens a `data/` file with a raw `open()` or `write_text()` call
+  outside `atomic_io` or its `read_modify_write` wrapper.
 
 ## References (verification artifacts)
 
