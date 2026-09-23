@@ -620,16 +620,26 @@ Janus deliberately keeps its persistent state simple.
 data/
 ├── tasks.md
 ├── goals.md
-└── workouts.md
+├── workouts.md
+├── inbox.md
+├── followups.md
+└── research.md
 ```
+
+The `data/` directory is created at runtime and is gitignored — the repository
+tracks no runtime state, only the format conventions and the code that
+reads/writes it.
 
 The current core data files contain:
 
-| File               | Purpose                                    |
-| ------------------ | ------------------------------------------ |
-| `data/tasks.md`    | Open and completed tasks                   |
-| `data/goals.md`    | Long-term goals, metrics and related tasks |
-| `data/workouts.md` | Strength and running activity              |
+| File              | Purpose                                              |
+| ------------------ | ---------------------------------------------------- |
+| `data/tasks.md`    | Open and completed tasks                             |
+| `data/goals.md`    | Long-term goals, metrics and related tasks           |
+| `data/workouts.md` | Strength and running activity                        |
+| `data/inbox.md`    | Inbox items pending triage                           |
+| `data/followups.md`| Follow-up items linked to decisions or actions       |
+| `data/research.md` | Research findings, artifacts and knowledge summaries |
 
 The data is human-readable and can be inspected directly without Janus.
 
@@ -670,13 +680,24 @@ This file-backed approach makes the system:
 
 # Verification
 
-Janus includes an implementation-contract verification pipeline.
+The repository is verified by running the full test suite:
 
 ```bash
-uv run janus verify-contract contract.yaml
+uv run pytest tests/
 ```
 
-A contract can verify things such as:
+Exit code 0 means all checks pass. See `docs/verification.md` for the
+verification contract, success criteria, CI configuration, and the
+pre-completion checklist enforced before reporting a task complete.
+
+The `src/janus/verification.py` module additionally provides a
+contract-based verification pipeline (`ContractVerifier`) that can check:
+
+```python
+from janus.verification import ContractVerifier
+verifier = ContractVerifier.load("contract.yaml")
+verifier.verify(Path("."))
+```
 
 * required files
 * immutable files
@@ -795,8 +816,12 @@ uv sync
 Run Janus:
 
 ```bash
-uv run janus --help
+uv run janus
 ```
+
+With no arguments Janus prints usage and available commands. Use
+`janus <command>` with no subcommand for usage on that command group
+(e.g. `janus task`, `janus goal`, `janus inbox`).
 
 ---
 
@@ -814,12 +839,23 @@ Source layout:
 
 ```text
 src/janus/
-├── __init__.py
-├── today.py
-├── weekly.py
+├── __init__.py            # CLI entry point (janus)
+├── _log.py
+├── logging_config.py
+├── today.py               # daily briefing
+├── weekly.py              # weekly review
+├── telegram_weekly_cli.py
 ├── tasks_cli.py
 ├── workout_cli.py
 ├── goals_cli.py
+├── inbox_cli.py
+├── followup_cli.py
+├── research_cli.py
+├── decision_cli.py
+├── status_cli.py
+├── strategic_cli.py
+├── git_sync.py            # safe sync-and-integrate (ADR-004)
+├── integration.py
 ├── verification.py
 ├── integrations/
 ├── models/
@@ -832,27 +868,65 @@ scripts/
 tests/
 ```
 
+### CLI commands
+
+Janus exposes a flat command tree. Each group supports a `--help`-style usage
+summary when invoked with no subcommand.
+
+```text
+janus today                 Daily briefing
+janus telegram              Send daily briefing to Telegram
+janus telegram-weekly       Send weekly review to Telegram
+janus task add|list|state|progress|complete
+janus workout add|show|summary
+janus goal list|show|add|update|complete|milestone|project|next|health|audit|skills|set-skill
+janus weekly                Weekly review
+janus status                Strategic status summary
+janus inbox list|pending|triage
+janus followup list|add|show|update|complete|convert-to-task
+janus research add|show|list|link|promote-finding
+janus decision propose|link-finding|link-goal|list|show
+```
+
 The `models/` layer contains domain concepts such as:
 
 * `Task`
 * `Goal`
+* `Milestone`
+* `Project`
 * `Workout`
 * `Event`
 * `AttentionItem`
 * `DailyBriefing`
+* `WeeklyReview`
 * `Source`
 * `Finding`
 * `ResearchArtifact`
 * `KnowledgeSummary`
+* `Decision`
+* `FollowUp`
+* `MetricSnapshot`
+* `RecommendedAction`
+* `GoalSignal`
+* `GoalHealthAssessment`
+* `GoalIntegrityReport`
 
 The `services/` layer contains domain logic for:
 
-* briefing
-* goals
-* tasks
-* workouts
-* weekly review
-* knowledge/research processing
+* briefing (daily / weekly)
+* goals (progress, health, integrity audit, skill tracking)
+* tasks (parsing, persistence, completion, placement, overload)
+* workouts (analytics, progression)
+* projects (hierarchy, progress)
+* milestones
+* planning (next-action derivation, milestone task inference)
+* research / knowledge pipeline (findings, artifacts, knowledge summaries)
+* decisions and follow-ups
+* attention (ranking, recommendations)
+* evidence propagation / execution feedback
+* measurement collection and log
+* activity data ingestion (calendar free/busy, replenishment)
+* git sync (ADR-004 sync primitive)
 
 ---
 
@@ -972,6 +1046,36 @@ It is the closed feedback loop between:
 
 ---
 
+# Contribution guidelines
+
+Janus is an active personal-infrastructure project. To contribute:
+
+1. **Verify the repository** — run `uv run pytest tests/` from the repository
+   root and confirm a green exit code before opening a change. See
+   `docs/verification.md` for the full verification contract.
+2. **Use the safe sync-and-integrate workflow** (ADR-004). Branches are kept
+   linear and fast-forward-friendly via rebase. See
+   `docs/design/sync_integration_workflow_design.md`.
+3. **Keep state human-readable** — persistent data files use plain Markdown so
+   they remain inspectable without Janus. Follow the existing file-backed
+   format conventions under `src/janus/integrations/`.
+4. **Close the loop** — implementation should produce evidence (tests, changed
+   files, verification output) that feeds back into strategic state.
+5. **Do not commit local credentials.** The following must remain untracked:
+   `credentials.json`, `token.json`, `config/config.toml`, and any `.env*` file
+   (except `.env.example`).
+
+Design decisions are recorded as ADRs in `docs/decisions/` and design
+specifications in `docs/design/`. New work that touches architecture should
+reference or update the relevant document.
+
+---
+
 # License
 
-See the repository for the current license information.
+The Janus source repository does not currently ship a `LICENSE` file. Until an
+explicit license is added, treat the project as **all-rights-reserved** and do
+not copy, redistribute, or build on it without the author's permission.
+
+The underlying [Hermes agent system](https://github.com/NousResearch/hermes-agent)
+and its dependencies carry their own licenses.

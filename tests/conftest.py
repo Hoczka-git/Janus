@@ -13,7 +13,10 @@ set containing "Prepare training plan" — mirroring the content of the real
 behave as if the production file existed with that content.
 """
 
+from __future__ import annotations
+
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -59,3 +62,13 @@ def _tasks_md_for_stall(monkeypatch):
         "janus.services.attention._load_all_task_titles",
         lambda _path: {"Prepare training plan"},
     )
+
+
+@pytest.fixture
+def another_path(tmp_path: Path) -> Path:
+    """A second tmp path for vault-resolution tests that need to override env.
+
+    Unlike ``tmp_path``, this is a simple Path the test can mkdir and pass
+    to ``_resolve_vault`` alongside a different ``JANUS_OBSIDIAN_VAULT``.
+    """
+    return tmp_path / "alt_vault"

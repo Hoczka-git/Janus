@@ -686,7 +686,7 @@ class TestKnowledgeCliSurface:
         from janus.knowledge_cli import print_knowledge_help
         print_knowledge_help()
         captured = capsys.readouterr()
-        assert "research" in captured.out
+        assert "artifact" in captured.out
         assert "knowledge promote" in captured.out
         assert "--vault" in captured.out
 
