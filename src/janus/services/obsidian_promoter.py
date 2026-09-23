@@ -233,6 +233,10 @@ def promote_to_obsidian(
     dest.write_text(proposal.note_content, encoding="utf-8")
     now = datetime.now(timezone.utc)
 
+    # Transition the proposal to VAULTED state so that the promotion is
+    # reflected in the proposal's lifecycle (immutable: returns a new instance).
+    vaulted_proposal = proposal.vaulted()
+
     return {
         "slug": proposal.slug,
         "promoted": True,
@@ -240,6 +244,7 @@ def promote_to_obsidian(
         "path": str(dest),
         "action": "promote_to_obsidian",
         "promoted_at": now.isoformat(),
+        "vaulted_proposal": vaulted_proposal,
     }
 
 

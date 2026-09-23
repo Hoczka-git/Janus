@@ -1,305 +1,909 @@
-"""Tests for the human curation gate (knowledge pipeline Step 3).
+"""Tests for the knowledge summary pipeline — curation gate and promotion.
 
-Covers:
-  1. Promotion blocked when approval is pending (CurationGateError raised).
-  2. Promotion allowed after explicit approval (vault file written).
-  3. Rejection path handling (state transition + terminal guard).
-  4. Existing pipeline stages still function (validation, summary, gaps).
+Covers the curation gate (Step 3) and Obsidian promotion (Step 4-5) layers:
+the CurationProposal model, state transitions, note rendering, vault
+resolution, and end-to-end promotion flow.
+
+See: docs/guides/knowledge_summary_obsidian_pipeline_design.md
+     docs/specs/research_knowledge_pipeline_specification.md
 """
 
-from datetime import datetime, timezone
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
-from janus.models.research_artifact import Finding, ResearchArtifact, Source
-from janus.services.curation_gate import (
-    approve_proposal,
-    create_curation_proposal,
-    defer_proposal,
-    get_proposal,
-    list_proposals,
-    promote_to_vault,
-    reject_proposal,
+from janus.models.curation_proposal import (
+    CurationGateError,
+    CurationGateState,
+    CurationProposal,
+    StaleStateError,
 )
-from janus.services.curation_gate_error import CurationGateError
+from janus.models.knowledge_summary import (
+    KnowledgeSummary,
+    TopicBlock,
+)
+from janus.models.research_artifact import (
+    CONFIDENCE_LEVELS,
+    Finding,
+    ResearchArtifact,
+    Source,
+)
 from janus.services.knowledge_pipeline import (
-    emit_knowledge_gaps_as_attention,
-    generate_summary,
     validate_artifact,
+    generate_summary,
+)
+from janus.services.obsidian_promoter import (
+    propose_note_content,
+    curate_proposal,
+    expire_stale_proposals,
+    promote_to_obsidian,
+    persist_promotion_record,
+    load_record,
+    _resolve_vault,
+    _is_vault_unconfigured,
 )
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# =============================================================================
+# Helpers
+# =============================================================================
 
-def _src(url="https://example.com/a", title="A", stype="web",
-         accessed=None) -> Source:
-    return Source(url=url, title=title, source_type=stype, accessed_at=accessed)
-
-
-def _finding(stmt, topic="", confidence="sredni", sources=None) -> Finding:
-    return Finding(
-        statement=stmt, topic=topic, confidence=confidence,
-        sources=sources or [_src()],
-    )
+def _mk_source(url: str = "https://example.com",
+               title: str = "Example",
+               source_type: str = "web") -> Source:
+    return Source(url=url, title=title,
+                  accessed_at=datetime.now(timezone.utc),
+                  source_type=source_type)
 
 
-def _sample_summary() -> KnowledgeSummary:
-    """A minimal KnowledgeSummary suitable for curation."""
-    return KnowledgeSummary(
-        target="TEST",
-        title="Test Summary for Curation",
-        summary_text="A test summary.",
-        conclusions="Test conclusions.",
-        topic_blocks=[
-            TopicBlock(
-                topic="t1",
-                findings=[_finding("Claim A", confidence="wyzszy")],
-                composite_confidence="wyzszy",
-            ),
-        ],
-    )
+def _mk_finding(statement: str,
+                topic: str = "test",
+                confidence: str = "wyzszy",
+                url: str = "https://example.com") -> Finding:
+    return Finding(statement=statement, topic=topic,
+                   confidence=confidence, sources=[_mk_source(url=url)])
 
 
-def _sample_artifact() -> ResearchArtifact:
+def _mk_artifact(title: str = "Test",
+                 target: str = "research",
+                 summary: str = "Test summary",
+                 conclusions: str = "Test conclusions",
+                 findings: list[Finding] | None = None,
+                 version: int = 1,
+                 ) -> ResearchArtifact:
     return ResearchArtifact(
-        title="Test Artifact",
-        target="TEST",
-        summary="A test artifact.",
-        conclusions="Conclusions here.",
-        findings=[
-            _finding("Claim A", topic="t1", confidence="wyzszy"),
-        ],
+        title=title,
+        summary=summary,
+        conclusions=conclusions,
+        findings=findings or [_mk_finding(f"Finding for {title}")],
+        version=version,
+        target=target,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
 
-@pytest.fixture
-def isolated_proposals(tmp_path, monkeypatch):
-    """Redirect all curation persistence + vault writes to a temp dir."""
-    proposals_file = tmp_path / "curation_proposals.md"
-    vault_dir = tmp_path / "vault"
-    monkeypatch.setattr(
-        "janus.integrations.markdown_curation.PROPOSALS_PATH", proposals_file
-    )
-    monkeypatch.setattr(
-        "janus.services.curation_gate.VAULT_DIR", vault_dir
-    )
-    return proposals_file
-
-
-# ── 1. Promotion blocked when approval is pending ────────────────────────────
-
-class TestPromotionBlockedWhenPending:
-    def test_pending_raises_gate_error(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        assert proposal.approval_state == "pending_approval"
-
-        with pytest.raises(CurationGateError) as exc_info:
-            promote_to_vault(proposal.proposal_id)
-
-        assert exc_info.value.approval_state == "pending_approval"
-        assert "must be 'approved'" in str(exc_info.value)
-        # No vault file should exist.
-        from janus.services.curation_gate import VAULT_DIR
-        assert not VAULT_DIR.exists()
-
-    def test_rejected_raises_gate_error(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        rejected = reject_proposal(proposal.proposal_id, approver="test-user")
-        assert rejected.approval_state == "rejected"
-
-        with pytest.raises(CurationGateError):
-            promote_to_vault(proposal.proposal_id)
-
-    def test_deferred_raises_gate_error(self, isolated_proposals):
-        proposal = create_curation_proposal(_summary_with_gaps())
-        deferred = defer_proposal(proposal.proposal_id, approver="test-user", note="later")
-        assert deferred.approval_state == "deferred"
-
-        with pytest.raises(CurationGateError):
-            promote_to_vault(proposal.proposal_id)
-
-
-def _summary_with_gaps() -> KnowledgeSummary:
+def _mk_summary(title: str = "Test",
+                target: str = "research",
+                topic_blocks: list[TopicBlock] | None = None,
+                knowledge_gaps: list[str] | None = None,
+                ) -> KnowledgeSummary:
+    tb = topic_blocks or [
+        TopicBlock(topic="test", findings=[
+            _mk_finding(f"Finding for {title}"),
+        ]),
+    ]
     return KnowledgeSummary(
-        target="GAP",
-        title="Summary With Gaps",
-        summary_text="Has gaps.",
-        conclusions="Some conclusions.",
-        topic_blocks=[
-            TopicBlock(
-                topic="low",
-                findings=[_finding("Weak claim", confidence="niski")],
-                composite_confidence="niski",
-            ),
-        ],
+        title=title,
+        target=target,
+        summary_text=f"Summary for {title}",
+        conclusions=f"Conclusions for {title}",
+        topic_blocks=tb,
+        knowledge_gaps=knowledge_gaps or [],
+        generated_at=datetime.now(timezone.utc),
     )
 
 
-# ── 2. Promotion allowed after explicit approval ─────────────────────────────
-
-class TestPromotionAllowedAfterApproval:
-    def test_approved_promotes_to_vault(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        assert proposal.approval_state == "pending_approval"
-
-        approved = approve_proposal(proposal.proposal_id, approver="alice", note="Looks good")
-        assert approved.approval_state == "approved"
-        assert approved.approver == "alice"
-
-        vault_path = promote_to_vault(proposal.proposal_id)
-        assert vault_path.exists()
-        content = vault_path.read_text()
-        assert "Test Summary for Curation" in content
-        assert "## Conclusions" in content
-        assert "## Topic Blocks" in content
-        assert "[[TEST]]" in content  # entity wikilink
-
-    def test_promoted_state_is_vaulted(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        approve_proposal(proposal.proposal_id)
-        promote_to_vault(proposal.proposal_id)
-
-        loaded = get_proposal(proposal.proposal_id)
-        assert loaded.approval_state == "vaulted"
-        assert loaded.vault_path
-
-    def test_vaulted_is_terminal(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        approve_proposal(proposal.proposal_id)
-        promote_to_vault(proposal.proposal_id)
-
-        # Cannot reject a vaulted proposal.
-        with pytest.raises(ValueError, match="terminal state"):
-            reject_proposal(proposal.proposal_id)
+def _mk_proposal(slug: str = "test-proposal",
+                 state: CurationGateState = CurationGateState.PENDING,
+                 ) -> CurationProposal:
+    now = datetime.now(timezone.utc)
+    return CurationProposal(
+        slug=slug,
+        artifact_title="Test Artifact",
+        target="research",
+        note_content="# Test Artifact\n\nSome note content.",
+        finding_indices=(0,),
+        source_path=None,
+        decision_adr="ADR-002",
+        created_at=now,
+        expires_at=now + timedelta(hours=1),
+        state=state,
+    )
 
 
-# ── 3. Rejection path handling ───────────────────────────────────────────────
+# =============================================================================
+# Phase 3: Curation Gate — State Transitions
+# =============================================================================
 
-class TestRejectionPath:
-    def test_reject_transitions_to_rejected(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        rejected = reject_proposal(proposal.proposal_id, approver="bob", note="Too speculative")
-        assert rejected.approval_state == "rejected"
-        assert rejected.approver == "bob"
-        assert "Too speculative" in rejected.decision_note
+class TestCurationGateStateTransitions:
+    """CurationProposal transitions: approve / reject / cancel / expire."""
 
-    def test_rejected_cannot_be_approved(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        reject_proposal(proposal.proposal_id)
-        with pytest.raises(ValueError, match="terminal state"):
-            approve_proposal(proposal.proposal_id)
+    def test_approve_transitions_pending_to_approved(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        approved = p.approve()
+        assert approved.state == CurationGateState.APPROVED
+        assert p.state == CurationGateState.PENDING  # original unchanged
 
-    def test_rejected_cannot_be_rejected_again(self, isolated_proposals):
-        proposal = create_curation_proposal(_sample_summary())
-        reject_proposal(proposal.proposal_id)
-        with pytest.raises(ValueError, match="terminal state"):
-            reject_proposal(proposal.proposal_id)
+    def test_reject_transitions_pending_to_rejected(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        rejected = p.reject(reason="not needed")
+        assert rejected.state == CurationGateState.REJECTED
 
-    def test_pending_then_defer_then_terminal(self, isolated_proposals):
-        proposal = create_curation_proposal(_summary_with_gaps())
-        deferred = defer_proposal(proposal.proposal_id, note="needs more data")
-        assert deferred.approval_state == "deferred"
-        with pytest.raises(ValueError, match="terminal state"):
-            defer_proposal(proposal.proposal_id)
+    def test_cancel_transitions_pending_to_cancelled(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        cancelled = p.cancel()
+        assert cancelled.state == CurationGateState.CANCELLED
 
+    def test_expire_transitions_pending_to_expired(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        expired = p.expire()
+        assert expired.state == CurationGateState.EXPIRED
 
-# ── 4. Existing pipeline stages still function ───────────────────────────────
+    def test_approve_from_non_pending_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot approve proposal in state approved"):
+            p.approve()
 
-class TestExistingPipelineStages:
-    """Regression: validation, summary generation, gap attention still work."""
+    def test_reject_from_approved_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot reject proposal in state approved"):
+            p.reject()
 
-    def test_validate_artifact_runs(self):
-        warnings = validate_artifact(_sample_artifact())
-        assert isinstance(warnings, list)
+    def test_cancel_from_approved_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot cancel proposal in state approved"):
+            p.cancel()
 
-    def test_generate_summary_runs(self):
-        summary = generate_summary(_sample_artifact())
-        assert isinstance(summary, KnowledgeSummary)
-        assert summary.target == "TEST"
+    def test_approve_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.approve()
+        assert p.state == CurationGateState.PENDING
 
-    def test_gap_attention_runs(self):
-        summary = generate_summary(_sample_artifact())
-        items = emit_knowledge_gaps_as_attention(summary)
-        assert isinstance(items, list)
+    def test_reject_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.reject()
+        assert p.state == CurationGateState.PENDING
 
-    def test_full_loop_without_vault_promotion(self, isolated_proposals):
-        """Artifact -> summary -> curation proposal -> pending -> gate blocks."""
-        # Artifact with a low-confidence finding so validate_artifact
-        # produces a validation warning.
-        artifact = ResearchArtifact(
-            title="Test Artifact",
-            target="TEST",
-            summary="A test artifact.",
-            conclusions="Conclusions here.",
-            findings=[
-                _finding("Claim A", topic="t1", confidence="wyzszy"),
-                _finding("Risky claim", topic="t2", confidence="niski"),
-            ],
+    def test_cancel_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.cancel()
+        assert p.state == CurationGateState.PENDING
+
+    def test_expire_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.expire()
+        assert p.state == CurationGateState.PENDING
+
+    def test_content_hash_is_deterministic(self) -> None:
+        p1 = _mk_proposal(slug="alpha")
+        p2 = _mk_proposal(slug="alpha")
+        assert p1.content_hash == p2.content_hash
+
+    def test_content_hash_changes_with_content(self) -> None:
+        p1 = CurationProposal(
+            slug="test", artifact_title="T", target="r",
+            note_content="# A\n", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
-        warnings = validate_artifact(artifact)
-        summary = generate_summary(artifact)
-        proposal = create_curation_proposal(
-            summary,
-            warnings=[
-                {"category": w.category, "message": w.message,
-                 "finding_index": w.finding_index}
-                for w in warnings
-            ],
+        p2 = CurationProposal(
+            slug="test", artifact_title="T", target="r",
+            note_content="# B\n", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
-        assert proposal.approval_state == "pending_approval"
-        assert len(proposal.warnings) == len(warnings)
+        assert p1.content_hash != p2.content_hash
 
-        # Gate blocks until explicitly approved.
-        with pytest.raises(CurationGateError):
-            promote_to_vault(proposal.proposal_id)
+    def test_is_conflicting_matches_same_slug_both_pending(self) -> None:
+        a = _mk_proposal(slug="same")
+        b = _mk_proposal(slug="same")
+        assert a.is_conflicting_with(b)
+        assert b.is_conflicting_with(a)
+
+    def test_is_conflicting_returns_false_when_different_slug(self) -> None:
+        a = _mk_proposal(slug="alpha")
+        b = _mk_proposal(slug="beta")
+        assert not a.is_conflicting_with(b)
+
+    def test_is_conflicting_returns_false_when_one_not_pending(self) -> None:
+        a = _mk_proposal(slug="same", state=CurationGateState.APPROVED)
+        b = _mk_proposal(slug="same", state=CurationGateState.PENDING)
+        assert not a.is_conflicting_with(b)
+        assert not b.is_conflicting_with(a)
+
+    def test_is_terminal_true_for_approved(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        assert p.is_terminal is True  # APPROVED is terminal in is_terminal; promote_to_vault still works
+
+    def test_is_terminal_true_for_rejected(self) -> None:
+        p = _mk_proposal(state=CurationGateState.REJECTED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_cancelled(self) -> None:
+        p = _mk_proposal(state=CurationGateState.CANCELLED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_expired(self) -> None:
+        p = _mk_proposal(state=CurationGateState.EXPIRED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_vaulted(self) -> None:
+        p = _mk_proposal(state=CurationGateState.VAULTED)
+        assert p.is_terminal
+
+    def test_is_terminal_false_for_pending(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        assert not p.is_terminal
+
+    def test_expiry_window_positive_defaults_to_one_hour(self) -> None:
+        p = _mk_proposal()
+        delta = p.expires_at - p.created_at
+        assert timedelta(0) < delta <= timedelta(hours=2)
+
+    def test_from_summary_builds_valid_proposal(self) -> None:
+        summary = _mk_summary(title="Test Company", target="research")
+        p = CurationProposal.from_summary(summary, source_path=None, ttl_seconds=3600)
+        assert p.slug == "test-company"
+        assert p.artifact_title == "Test Company"
+        assert p.target == "research"
+        assert CurationGateState.PENDING == p.state
+        assert p.note_content
+        assert len(p.note_content) > 0
+        assert p.content_hash
+
+    def test_from_summary_with_finding_indices(self) -> None:
+        tb1 = TopicBlock(topic="t1", findings=[_mk_finding("f1"), _mk_finding("f2")])
+        tb2 = TopicBlock(topic="t2", findings=[_mk_finding("f3")])
+        summary = _mk_summary(title="T", target="r",
+                              topic_blocks=[tb1, tb2])
+        p = CurationProposal.from_summary(summary, finding_indices=(0, 2),
+                                          source_path=None)
+        assert p.finding_indices == (0, 2)
+
+    def test_from_summary_default_indices_all_blocks(self) -> None:
+        tb1 = TopicBlock(topic="t1", findings=[_mk_finding("f1")])
+        tb2 = TopicBlock(topic="t2", findings=[_mk_finding("f2")])
+        summary = _mk_summary(title="T", target="r",
+                              topic_blocks=[tb1, tb2])
+        p = CurationProposal.from_summary(summary, source_path=None)
+        assert len(p.finding_indices) == 2
+
+    def test_from_summary_sets_creates_and_expires(self) -> None:
+        summary = _mk_summary(title="Test", target="research")
+        before = datetime.now(timezone.utc)
+        p = CurationProposal.from_summary(summary, source_path=None, ttl_seconds=3600)
+        after = datetime.now(timezone.utc)
+        assert before <= p.created_at <= after
+        assert p.expires_at == p.created_at + timedelta(seconds=3600)
 
 
-# ── Persistence round-trip ───────────────────────────────────────────────────
+# =============================================================================
+# Phase 3: curate_proposal dispatcher
+# =============================================================================
 
-class TestPersistence:
-    def test_proposal_persisted_and_reloadable(self, isolated_proposals):
-        original = create_curation_proposal(_sample_summary())
-        approve_proposal(original.proposal_id, approver="carol")
+class TestCurateProposalDispatcher:
+    """curate_proposal maps string actions onto Proposal transitions."""
 
-        # Load from disk.
-        loaded = get_proposal(original.proposal_id)
-        assert loaded.approval_state == "approved"
-        assert loaded.approver == "carol"
-        assert loaded.summary.target == "TEST"
-        assert loaded.summary.title == "Test Summary for Curation"
+    def test_approve_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "approve")
+        assert out.state == CurationGateState.APPROVED
 
-    def test_list_proposals_filter(self, isolated_proposals):
-        p1 = create_curation_proposal(_sample_summary())
-        p2 = create_curation_proposal(_summary_with_gaps())
-        reject_proposal(p2.proposal_id)
+    def test_reject_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "reject")
+        assert out.state == CurationGateState.REJECTED
 
-        pending = list_proposals("pending_approval")
-        rejected = list_proposals("rejected")
-        assert len(pending) == 1
-        assert pending[0].proposal_id == p1.proposal_id
-        assert len(rejected) == 1
-        assert rejected[0].proposal_id == p2.proposal_id
+    def test_cancel_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "cancel")
+        assert out.state == CurationGateState.CANCELLED
 
-    def test_list_proposals_invalid_state(self, isolated_proposals):
-        with pytest.raises(ValueError, match="Invalid state filter"):
-            list_proposals("bogus")
+    def test_unknown_action_raises_curation_gate_error(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        with pytest.raises(CurationGateError,
+                           match="Unknown curation action"):
+            curate_proposal(p, "bogus")
 
-    def test_get_unknown_proposal(self, isolated_proposals):
-        with pytest.raises(ValueError, match="not found"):
-            get_proposal("d5e3f9a1")
+    def test_approve_preserves_immutability(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = curate_proposal(p, "approve")
+        assert p.state == CurationGateState.PENDING
 
 
-# ── CurationProposal model validation ────────────────────────────────────────
+# =============================================================================
+# Phase 3: expire_stale_proposals
+# =============================================================================
 
-class TestCurationProposalModel:
-    def test_invalid_approval_state(self):
-        from janus.models.curation_proposal import CurationProposal
-        from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
+class TestExpireStaleProposals:
+    """expire_stale_proposals ages out past-TTL PENDING proposals."""
+
+    def test_expires_pending_past_ttl(self) -> None:
+        now = datetime.now(timezone.utc)
+        past = now - timedelta(hours=1)
+        p = CurationProposal(
+            slug="x", artifact_title="X", target="r",
+            note_content="# x", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=past, expires_at=now,
+        )
+        out = expire_stale_proposals([p])
+        assert out[0].state == CurationGateState.EXPIRED
+
+    def test_keeps_pending_within_ttl(self) -> None:
+        now = datetime.now(timezone.utc)
+        future = now + timedelta(hours=1)
+        p = CurationProposal(
+            slug="x", artifact_title="X", target="r",
+            note_content="# x", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=now, expires_at=future,
+        )
+        out = expire_stale_proposals([p])
+        assert out[0].state == CurationGateState.PENDING
+
+    def test_keeps_terminal_unchanged(self) -> None:
+        now = datetime.now(timezone.utc)
+        for st in (CurationGateState.APPROVED, CurationGateState.REJECTED,
+                   CurationGateState.CANCELLED, CurationGateState.EXPIRED):
+            p = CurationProposal(
+                slug="x", artifact_title="X", target="r",
+                note_content="# x", finding_indices=(),
+                source_path=None, decision_adr="ADR-002",
+                created_at=now, expires_at=now,
+                state=st,
+            )
+            out = expire_stale_proposals([p])
+            assert out[0].state == st
+
+    def test_is_pure_no_mutation(self) -> None:
+        now = datetime.now(timezone.utc)
+        past = now - timedelta(hours=1)
+        p = CurationProposal(
+            slug="x", artifact_title="X", target="r",
+            note_content="# x", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=past, expires_at=now,
+        )
+        original_state = p.state
+        _ = expire_stale_proposals([p])
+        assert p.state == original_state
+
+
+# =============================================================================
+# Phase 4: promote_to_obsidian — Vault Resolution
+# =============================================================================
+
+class TestPromoteToObsidianVaultResolution:
+    """Vault resolution and unconfigured-path handling."""
+
+    def test_promote_requires_approved_proposal(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(p)
+
+    def test_promote_approved_raises_if_vault_unconfigured(
+        self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("JANUS_OBSIDIAN_VAULT", raising=False)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(CurationGateError, match="Obsidian vault path is not configured"):
+            promote_to_obsidian(p)
+
+    def test_promote_with_valid_vault_path(
+        self, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        # The promoter writes to Knowledge/ subdirectory — we need it to exist
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        report = promote_to_obsidian(p)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+
+    def test_promote_with_explicit_vault_override(
+        self, tmp_path: Path) -> None:
+        vault = tmp_path / "custom_vault" / "Knowledge"
+        vault.mkdir(parents=True, exist_ok=True)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p, vault_path=vault.parent)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+        assert vault.parent in Path(report["path"]).parents
+
+    def test_promote_rejects_rejected_proposal(self) -> None:
+        p = _mk_proposal(state=CurationGateState.REJECTED)
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(p)
+
+    def test_promote_rejects_cancelled_proposal(self) -> None:
+        p = _mk_proposal(state=CurationGateState.CANCELLED)
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(p)
+
+
+# =============================================================================
+# Phase 4: propose_note_content — Deterministic Rendering
+# =============================================================================
+
+class TestProposeNoteContent:
+    """propose_note_content produces deterministic Obsidian markdown."""
+
+    def test_contains_frontmatter(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert body.startswith("---")
+        assert "created:" in body
+        assert "target:" in body
+        assert "version:" in body
+        assert "confidence:" in body
+        # Frontmatter section should have at least 3 lines
+        fm_section = body.split("---", 2)[1]
+        assert fm_section.count("\n") >= 3
+
+    def test_contains_title_heading(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "# FC" in body
+
+    def test_contains_topic_heading(self) -> None:
+        summary = _mk_summary(title="pipeline", target="pipeline")
+        body = propose_note_content(summary)
+        # _mk_summary hardcodes topic block topic to "test" regardless of title/target.
+        assert "## test" in body
+        assert "### test" in body
+
+    def test_contains_finding_statements(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "Finding for FC" in body
+
+    def test_contains_conclusions_section(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "Conclusions:" in body
+
+    def test_contains_source_urls_when_present(self) -> None:
+        tb = TopicBlock(topic="t", findings=[
+            Finding(statement="Established", topic="t", confidence="wyzszy",
+                    sources=[_mk_source(url="https://example.com/paper")]),
+        ])
         summary = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(topic="t", findings=[_finding("A")])],
+            title="FC", target="test", summary_text="S",
+            conclusions="C", topic_blocks=[tb], generated_at=datetime.now(timezone.utc),
         )
-        with pytest.raises(ValueError, match="Invalid approval_state"):
-            CurationProposal(proposal_id="cp-x", summary=summary,
-                             approval_state="bogus")
+        body = propose_note_content(summary)
+        assert "https://example.com/paper" in body
+
+    def test_contains_knowledge_gaps_section_when_gaps_exist(self) -> None:
+        summary = _mk_summary(
+            title="FC", target="test",
+            knowledge_gaps=["Gap one", "Gap two"],
+        )
+        body = propose_note_content(summary)
+        assert "## Knowledge gaps" in body
+        assert "Gap one" in body
+        assert "Gap two" in body
+
+    def test_no_gaps_shows_empty_message(self) -> None:
+        summary = _mk_summary(title="FC", target="test", knowledge_gaps=[])
+        body = propose_note_content(summary)
+        assert "No knowledge gaps identified." in body
+
+    def test_contains_entities_wikilinks(self) -> None:
+        summary = _mk_summary(title="FC", target="test",
+                              topic_blocks=[
+                                  TopicBlock(topic="t", findings=[
+                                      _mk_finding("Roche partnership", confidence="wyzszy"),
+                                  ]),
+                              ])
+        summary.entities = ["GLUE", "Roche"]
+        body = propose_note_content(summary)
+        assert "[[GLUE]]" in body
+        assert "[[Roche]]" in body
+
+    def test_deterministic_same_summary_same_output(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        a = propose_note_content(summary)
+        b = propose_note_content(summary)
+        assert a == b
+
+    def test_different_summaries_produce_different_output(self) -> None:
+        s1 = _mk_summary(title="A", target="test")
+        s2 = _mk_summary(title="B", target="test")
+        assert propose_note_content(s1) != propose_note_content(s2)
+
+
+# =============================================================================
+# Phase 3 (downstream): CurationProposal.from_summary
+# =============================================================================
+
+class TestFromSummaryFindingIndices:
+    """CurationProposal.from_summary finding_indices selection."""
+
+    def test_default_indices_cover_all_blocks(self) -> None:
+        tb1 = TopicBlock(topic="a", findings=[_mk_finding("fa", topic="a")])
+        tb2 = TopicBlock(topic="b", findings=[_mk_finding("fb", topic="b")])
+        summary = KnowledgeSummary(
+            title="T", target="r", summary_text="S", conclusions="C",
+            topic_blocks=[tb1, tb2], generated_at=datetime.now(timezone.utc),
+        )
+        p = CurationProposal.from_summary(summary, source_path=None)
+        assert p.finding_indices == (0, 1)
+
+    def test_explicit_indices_subset(self) -> None:
+        tb1 = TopicBlock(topic="a", findings=[_mk_finding("fa", topic="a")])
+        tb2 = TopicBlock(topic="b", findings=[_mk_finding("fb", topic="b")])
+        summary = KnowledgeSummary(
+            title="T", target="r", summary_text="S", conclusions="C",
+            topic_blocks=[tb1, tb2], generated_at=datetime.now(timezone.utc),
+        )
+        p = CurationProposal.from_summary(summary, finding_indices=(0,), source_path=None)
+        assert p.finding_indices == (0,)
+
+
+# =============================================================================
+# Phase 4 (downstream): Validation warnings feed the curate gate
+# =============================================================================
+
+class TestValidationToCurationBridge:
+    """validate_artifact surfaces low-confidence findings for the gate."""
+
+    def test_niski_finding_produces_warning(self) -> None:
+        art = _mk_artifact(findings=[
+            _mk_finding("Low confidence finding", confidence="niski"),
+        ])
+        warnings = validate_artifact(art)
+        low_conf = [w for w in warnings if w.category == "low_confidence"]
+        assert len(low_conf) == 1
+        assert "niski" in low_conf[0].message
+
+    def test_no_low_confidence_warnings_when_all_high(self) -> None:
+        art = _mk_artifact(findings=[
+            _mk_finding("Solid finding", confidence="wyzszy"),
+        ])
+        warnings = validate_artifact(art)
+        low_conf = [w for w in warnings if w.category == "low_confidence"]
+        assert len(low_conf) == 0
+
+    def test_empty_summary_completeness_warning(self) -> None:
+        art = _mk_artifact(summary="", conclusions="",
+                           findings=[_mk_finding("F")])
+        warnings = validate_artifact(art)
+        completeness = [w for w in warnings if w.category == "completeness"]
+        assert len(completeness) >= 1
+
+
+# =============================================================================
+# Phase 2 (downstream): generate_summary feeds the promoter
+# =============================================================================
+
+class TestGenerateSummaryToPromoterBridge:
+    """generate_summary output is renderable by propose_note_content."""
+
+    def test_summary_roundtrips_to_note(self) -> None:
+        art = _mk_artifact(
+            title="Roundtrip Co", target="research",
+            summary="Research on Roundtrip",
+            conclusions="Roundtrip conclusions",
+            findings=[
+                _mk_finding("Established fact", confidence="wyzszy"),
+                _mk_finding("Tentative finding", confidence="sredni"),
+            ],
+        )
+        warnings = validate_artifact(art)
+        summary = generate_summary(art, warnings=warnings)
+        note = propose_note_content(summary)
+        assert "Roundtrip Co" in note
+        assert "Established fact" in note
+        assert "Tentative finding" in note
+
+
+# =============================================================================
+# Phase 4: Persistence Bridge — promotion records
+# =============================================================================
+
+class TestPersistPromotionRecord:
+    """persist_promotion_record writes audit JSON; load_record reads it back."""
+
+    def test_persist_writes_json(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="persist-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        assert rec is not None
+        assert rec.name == "persist-test.json"
+        data = json.loads(rec.read_text())
+        assert data["slug"] == "persist-test"
+        assert data["target"] == "research"
+        assert data["state"] == "approved"
+        assert data["promoted"] is True
+
+    def test_load_record_returns_dict(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="load-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        loaded = load_record(rec)
+        assert loaded["slug"] == "load-test"
+        assert loaded["target"] == "research"
+
+    def test_load_record_file_not_found_returns_none(self, tmp_path: Path) -> None:
+        missing = tmp_path / "missing.json"
+        assert load_record(missing) is None
+
+    def test_persist_creates_dir(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="mkdir-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "deep" / "nested" / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": False, "path": None, "promoted_at": None},
+            record_dir=rec_dir,
+        )
+        assert rec is not None
+        assert rec.parent.exists()
+
+
+# =============================================================================
+# Phase 4: Vault Resolution Helpers
+# =============================================================================
+
+class TestVaultResolution:
+    """_resolve_vault and _is_vault_unconfigured honour the env flag."""
+
+    def test_unconfigured_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("JANUS_OBSIDIAN_VAULT", raising=False)
+        assert _is_vault_unconfigured() is True
+
+    def test_configured_path_exists_returns_false(self, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        assert _is_vault_unconfigured() is False
+
+    def test_configured_path_missing_returns_true(self, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+        missing = tmp_path / "does-not-exist"
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(missing))
+        assert _is_vault_unconfigured() is True
+
+    def test_resolve_vault_with_env(self, tmp_path: Path,
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = _resolve_vault(None)
+        assert vault == tmp_path
+
+    def test_resolve_vault_with_arg_overrides_env(self, tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch,
+                                                    another_path) -> None:
+        another_path.mkdir(exist_ok=True)
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = _resolve_vault(another_path)
+        assert vault == another_path
+
+    def test_resolve_vault_arg_nonexistent_returns_none(self, tmp_path: Path) -> None:
+        nonexistent = tmp_path / "nope"
+        assert _resolve_vault(nonexistent) is None
+
+
+# =============================================================================
+# Phase 4: Promotion Report is JSON-serializable
+# =============================================================================
+
+class TestPromotionReportSerializable:
+    """promote_to_obsidian reports survive JSON round-trips."""
+
+    def test_report_json_roundtrip(self, monkeypatch: pytest.MonkeyPatch,
+                                    tmp_path: Path) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        p = _mk_proposal(slug="json-test", state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p)
+        # Report must be JSON-serializable (excluding the non-serializable vaulted_proposal)
+        serializable = {k: v for k, v in report.items() if k != "vaulted_proposal"}
+        payload = json.dumps(serializable, default=str)
+        restored = json.loads(payload)
+        assert restored["slug"] == "json-test"
+        assert restored["promoted"] is True
+        assert restored["action"] == "promote_to_obsidian"
+
+
+# =============================================================================
+# Phase 5: CLI Surface
+# =============================================================================
+
+class TestKnowledgeCliSurface:
+    """janus knowledge promote is dispatched and surfaces a proposal."""
+
+    def test_knowledge_help_prints_usage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from janus.knowledge_cli import print_knowledge_help
+        print_knowledge_help()
+        captured = capsys.readouterr()
+        assert "artifact" in captured.out
+        assert "knowledge promote" in captured.out
+        assert "--vault" in captured.out
+
+
+# =============================================================================
+# Phase 5: End-to-end — promotion_records data directory lifecycle
+# =============================================================================
+
+class TestPromotionRecordsDataDirectory:
+    """Phase 5: promotion_records dir is created, records are written/read."""
+
+    def test_records_dir_created_on_first_persist(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="dir-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "knowledge" / "promotion_records"
+        rec = persist_promotion_record(
+            p, {"promoted": False, "path": None, "promoted_at": None},
+            record_dir=rec_dir,
+        )
+        assert rec is not None
+        assert rec.parent.exists()
+        assert rec.parent.name == "promotion_records"
+
+    def test_multiple_records_coexist(self, tmp_path: Path) -> None:
+        rec_dir = tmp_path / "records"
+        now = datetime.now(timezone.utc)
+        for slug in ("alpha", "beta", "gamma"):
+            p = CurationProposal(
+                slug=slug, artifact_title=slug.upper(), target="research",
+                note_content=f"# {slug}\n", finding_indices=(),
+                source_path=None, decision_adr="ADR-002",
+                created_at=now, expires_at=now + timedelta(hours=1),
+                state=CurationGateState.APPROVED,
+            )
+            persist_promotion_record(
+                p, {"promoted": True, "path": None, "promoted_at": now.isoformat()},
+                record_dir=rec_dir,
+            )
+        files = sorted(rec_dir.glob("*.json"))
+        assert len(files) == 3
+        assert {f.stem for f in files} == {"alpha", "beta", "gamma"}
+
+    def test_record_contains_content_hash_for_audit(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="audit-hash", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        data = json.loads(rec.read_text())
+        assert data["content_hash"] == p.content_hash
+        assert len(data["content_hash"]) == 64
+
+
+# =============================================================================
+# Phase 5: Full pipeline end-to-end
+# =============================================================================
+
+class TestFullPipelineE2E:
+    """The full pipeline: artifact → validate → generate → propose → curate → promote."""
+
+    def test_e2e_generate_summary_to_promote_note(self) -> None:
+        art = _mk_artifact(
+            title="E2E Company",
+            target="research",
+            summary="E2E summary text",
+            conclusions="E2E conclusions",
+            findings=[
+                _mk_finding("Finding one", confidence="wyzszy"),
+                _mk_finding("Finding two", confidence="sredni"),
+                _mk_finding("Finding three", confidence="niski"),
+            ],
+        )
+        warnings = validate_artifact(art)
+        summary = generate_summary(art, warnings=warnings)
+        note = propose_note_content(summary)
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                 source_path=None)
+        assert proposal.artifact_title == "E2E Company"
+        assert proposal.target == "research"
+        assert len(proposal.finding_indices) == 3
+        assert note.startswith("---")
+        assert "# E2E Company" in note
+        assert "Finding one" in note
+        assert "Finding two" in note
+        assert "Finding three" in note
+        # knowledge gaps
+        assert "## Knowledge gaps" in note
+
+    def test_e2e_curation_gate_then_promote(self, tmp_path: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        art = _mk_artifact(
+            title="E2E Promote",
+            target="research",
+            summary="E2E summary",
+            conclusions="E2E conclusions",
+            findings=[_mk_finding("Promotable finding")],
+        )
+        warnings = validate_artifact(art)
+        summary = generate_summary(art, warnings=warnings)
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                 source_path=None)
+        # Curate
+        curated = curate_proposal(proposal, "approve")
+        assert curated.state == CurationGateState.APPROVED
+        # Promote
+        report = promote_to_obsidian(curated)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+        # Verify file exists
+        path = Path(report["path"])
+        assert path.exists()
+        content = path.read_text()
+        assert "E2E Promote" in content
+        assert "Promotable finding" in content
+
+    def test_e2e_pending_proposal_cannot_be_promoted(self) -> None:
+        art = _mk_artifact(title="Pending", target="research",
+                           summary="S", conclusions="C",
+                           findings=[_mk_finding("F")])
+        summary = generate_summary(art, warnings=validate_artifact(art))
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                 source_path=None)
+        assert proposal.state == CurationGateState.PENDING
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(proposal)
+
+    def test_e2e_rejected_proposal_cannot_be_promoted(self) -> None:
+        proposal = _mk_proposal(state=CurationGateState.PENDING)
+        rejected = curate_proposal(proposal, "reject")
+        assert rejected.state == CurationGateState.REJECTED
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(rejected)
+
+    def test_e2e_promoted_writes_audit_record(self, tmp_path: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        rec_dir = tmp_path / "records"
+
+        proposal = _mk_proposal(slug="audit-e2e", state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(proposal)
+        record = persist_promotion_record(proposal, report, record_dir=rec_dir)
+        assert record.exists()
+        data = json.loads(record.read_text())
+        assert data["content_hash"] == proposal.content_hash
+        assert data["promoted"] is True
+
+    def test_e2e_promote_writes_to_knowledge_subdir(self, tmp_path: Path,
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        p = _mk_proposal(slug="subdir-test", state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p)
+        path = Path(report["path"])
+        # File must be inside Knowledge/ subdirectory of the vault.
+        assert path.parent.name == "Knowledge"
+        assert path.parent.parent == tmp_path
+        assert path.name == "subdir-test.md"
