@@ -56,7 +56,7 @@ def _has_upcoming_milestone_or_deadline(goal: Goal, today: date) -> bool:
     goal_dl = _parse_deadline(goal.deadline)
     if goal_dl is not None and goal_dl > today:
         return True
-    from janus.services.attention import _milestone_objs
+    from janus.domain.planning import milestone_objs as _milestone_objs
     for m in _milestone_objs(goal):
         if m.status in ("completed", "skipped"):
             continue
