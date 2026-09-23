@@ -10,9 +10,9 @@ from janus._log import emit
 from janus.models.attention import AttentionItem
 from janus.models.event import Event
 from janus.models.goal import Goal
-from janus.models.milestone import Milestone
 from janus.models.task import Task
 from janus.models.follow_up import FollowUp
+from janus.domain.planning import milestone_objs as _milestone_objs
 
 logger = logging.getLogger(__name__)
 
@@ -48,20 +48,6 @@ def _load_all_task_titles(tasks_path: Path) -> set[str]:
                 if title:
                     titles.add(title)
     return titles
-
-
-def _milestone_objs(goal: Goal) -> list[Milestone]:
-    """Construct ordered Milestone objects from goal.milestones dicts.
-
-    Filters out any legacy ``related_tasks`` key for backward compatibility
-    with old data files (task membership is now derived dynamically).
-    """
-    mss = []
-    for d in goal.milestones:
-        filtered = {k: v for k, v in dict(d).items() if k != "related_tasks"}
-        mss.append(Milestone(**filtered))
-    mss.sort(key=lambda m: m.order)
-    return mss
 
 
 # ── Inactivity window constants ────────────────────────────────────────────
