@@ -34,6 +34,7 @@ from janus.research_cli import (
     handle_research_promote_finding,
     print_research_help,
 )
+from janus.knowledge_cli import print_knowledge_help, knowledge_main
 from janus.decision_cli import (
     handle_decision_list,
     handle_decision_show,
@@ -234,6 +235,11 @@ def main() -> None:
             else:
                 print(f"Unknown research subcommand: {sub}")
                 print_research_help()
+        elif command == "knowledge":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_knowledge_help()
+                return
+            knowledge_main(filtered[1:])
         elif command == "decision":
             if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
                 print_decision_help()

@@ -266,16 +266,33 @@ Steps 1, 2, 4, 5 are deterministic. Step 3 is a human decision point.
 
 ## 8. Recommended Implementation Sequence
 
-| Phase | Deliverable | Depends On | Test Level |
-|-------|------------|------------|------------|
-| **1** | `models/source.py`, `models/finding.py`, `models/research_artifact.py` | — | Unit (pure dataclasses + validation) |
-| **2** | `models/knowledge_summary.py` — `KnowledgeSummary` + `TopicBlock` | Phase 1 | Unit |
-| **3** | `services/knowledge_pipeline.py` — Step 1 (validation) + Step 2 (summary generation) | Phase 1, 2 | Unit + integration (deterministic generation) |
-| **4** | `services/obsidian_promoter.py` — Step 4 (frontmatter + wikilinks + write) | Phase 2 | Unit + temp-dir integration |
-| **5** | CLI: `janus knowledge promote <artifact-path>` — runs Steps 1-3, renders curation proposal | Phase 3, 4 | CLI test |
-| **6** | Step 5 (update handling) — diff + patch + changelog | Phase 4 | Unit + integration |
-| **7** | CLI: `janus knowledge update <target>` — incremental update flow | Phase 6 | CLI test |
-| **8** | Integration with `companies/<TICKER>/` reports as artifact sources | Phase 3 | End-to-end |
+| Phase | Deliverable | Depends On | Test Level | Status |
+|-------|------------|------------|------------|:------:|
+| **1** | `models/source.py`, `models/finding.py`, `models/research_artifact.py` | — | Unit (pure dataclasses + validation) | DONE |
+| **2** | `models/knowledge_summary.py` — `KnowledgeSummary` + `TopicBlock` | Phase 1 | Unit | DONE |
+| **3** | `services/knowledge_pipeline.py` — Step 1 (validation) + Step 2 (summary generation) | Phase 1, 2 | Unit + integration (deterministic generation) | DONE |
+| **3b** | `models/curation_proposal.py` — `CurationProposal` + `CurationGateState` enum, immutable transitions, `from_summary` factory | Phase 2 | Unit | DONE |
+| **3-5** | `services/obsidian_promoter.py` — note rendering, curator dispatcher, vault promotion, audit records | Phase 2 | Unit + temp-dir integration | DONE |
+| **5** | CLI: `janus knowledge promote <artifact-path>` — runs Steps 1-3, renders curation proposal, promotes with `--yes` | Phase 3, 4 | CLI test | DONE |
+| **6** | Step 5 (update handling) — diff + patch + changelog | Phase 4 | Unit + integration | TODO |
+| **7** | CLI: `janus knowledge update <target>` — incremental update flow | Phase 6 | CLI test | TODO |
+| **8** | Integration with `companies/<TICKER>/` reports as artifact sources | Phase 3 | End-to-end | TODO |
+
+**Curation gate state machine:**
+
+    PENDING ──approve──► APPROVED ──promote──► VAULTED
+         │                       │
+         │ reject                │ reject
+         ▼                       ▼
+     REJECTED                  REJECTED
+         │                       │
+         └──── cancel ──► CANCELLED ◄──┘
+         │ expire ──► EXPIRED
+
+- `promote_to_obsidian` raises `CurationGateError` unless the proposal is `APPROVED`.
+- Unapproved, rejected, or cancelled proposals cannot be promoted to the vault.
+- `expires_at` TTL (default 1 hour) age out stale PENDING proposals via
+  `expire_stale_proposals`.
 
 Each phase is independently testable. Phases 1-3 are pure domain logic (no I/O). Phases 4+ touch the filesystem.
 
@@ -283,11 +300,9 @@ Each phase is independently testable. Phases 1-3 are pure domain logic (no I/O).
 
 ## 9. Minimal Next Steps
 
-1. **Create Phase 1 models** — three dataclasses (`Source`, `Finding`, `ResearchArtifact`) with `__post_init__` validation. This is pure Python with no I/O. Test by constructing the GLUE example from Section 6.2 of the artifact design.
-2. **Create Phase 2 models** — `KnowledgeSummary` + `TopicBlock`. Add composite confidence calculation. Test with multi-finding, mixed-confidence fixture.
-3. **Build Step 1 + 2 service** — validation + summary generation. Test end-to-end with GLUE artifact fixture, verify deterministic output.
-
 These three steps form a self-contained, fully testable foundation. After Phase 3, the pipeline can generate `KnowledgeSummary` IR from any `ResearchArtifact` — the Obsidian write path can be built and tested independently on top.
+
+Phases 3b-5 (curation gate + promotion pipeline) are now **implemented**. Remaining work is update handling (Phases 6-7) and `companies/` integration (Phase 8).
 
 ---
 
