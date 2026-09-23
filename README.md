@@ -691,12 +691,18 @@ verification contract, success criteria, CI configuration, and the
 pre-completion checklist enforced before reporting a task complete.
 
 The `src/janus/verification.py` module additionally provides a
-contract-based verification pipeline (`ContractVerifier`) that can check:
+contract-based verification pipeline that can check:
 
 ```python
-from janus.verification import ContractVerifier
-verifier = ContractVerifier.load("contract.yaml")
-verifier.verify(Path("."))
+from janus.verification import ImplementationContract, run_verification
+
+contract = ImplementationContract.load("contract.yaml")
+report = run_verification("contract.yaml")
+
+if report.is_pass:
+    print("OK")
+else:
+    print(report.to_dict())
 ```
 
 * required files
