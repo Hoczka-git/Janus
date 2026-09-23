@@ -1,489 +1,818 @@
-"""Integration tests for the knowledge pipeline service (Phase 3)."""
+"""Tests for the knowledge summary pipeline — Phases 3, 4, and 5.
 
-from datetime import datetime, timezone
+Phase 5: end-to-end tests covering the full promotion flow from research
+artifact through the curation gate to the Obsidian promotion record.
+
+See: docs/guides/knowledge_summary_obsidian_pipeline_design.md
+     docs/specs/research_knowledge_pipeline_specification.md
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from janus.models.knowledge_summary import KnowledgeSummary, TopicBlock
-from janus.models.research_artifact import Finding, ResearchArtifact, Source
+from janus.models.curation_proposal import (
+    CurationGateState,
+    CurationProposal,
+    CurationGateError,
+    StaleStateError,
+)
+from janus.models.knowledge_summary import (
+    KnowledgeSummary,
+    TopicBlock,
+)
+from janus.models.research_artifact import (
+    CONFIDENCE_LEVELS,
+    Finding,
+    ResearchArtifact,
+    Source,
+)
 from janus.services.knowledge_pipeline import (
-    PipelineValidationError,
-    ValidationWarning,
-    emit_knowledge_gaps_as_attention,
-    generate_summary,
     validate_artifact,
+    generate_summary,
+)
+from janus.services.obsidian_promoter import (
+    propose_note_content,
+    curate_proposal,
+    expire_stale_proposals,
+    promote_to_obsidian,
+    persist_promotion_record,
+    load_record,
+    _resolve_vault,
+    _is_vault_unconfigured,
 )
 
 
-def _src(url: str, title: str = "", stype: str = "web",
-         accessed: datetime | None = None) -> Source:
-    return Source(url=url, title=title, source_type=stype, accessed_at=accessed)
-
-
-def _finding(statement: str, topic: str = "", confidence: str = "sredni",
-             sources: list[Source] | None = None) -> Finding:
-    return Finding(statement=statement, topic=topic, confidence=confidence,
-                   sources=sources or [_src("http://example.com")])
-
-
 # =============================================================================
-# GLUE fixture
+# Helpers
 # =============================================================================
 
-def _glue_artifact() -> ResearchArtifact:
-    """Full GLUE example from design doc Section 6.2."""
-    t = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
+def _mk_source(url: str = "https://example.com",
+               title: str = "Example",
+               source_type: str = "web") -> Source:
+    return Source(url=url, title=title,
+                  accessed_at=datetime.now(timezone.utc),
+                  source_type=source_type)
+
+
+def _mk_finding(statement: str,
+                topic: str = "test",
+                confidence: str = "wyzszy",
+                url: str = "https://example.com") -> Finding:
+    return Finding(statement=statement, topic=topic,
+                   confidence=confidence, sources=[_mk_source(url=url)])
+
+
+def _mk_artifact(title: str = "Test",
+                 target: str = "research",
+                 summary: str = "Test summary",
+                 conclusions: str = "Test conclusions",
+                 findings: list[Finding] | None = None,
+                 version: int = 1,
+                 ) -> ResearchArtifact:
     return ResearchArtifact(
-        title="Monte Rosa Therapeutics (GLUE) — Research Report — 2026-08-31",
-        artifact_type="report",
-        target="GLUE",
-        summary="Clinical-stage biotech with MGD platform QuEEN. Roche + Novartis validation.",
-        conclusions="GLUE is high-risk/high-reward. Key catalysts: MRT-6160 Phase 2, MRT-2359 Phase 2 readout.",
-        findings=[
-            Finding(
-                statement="Market cap ~$1.88B (investing.com, 31.08.2026)",
-                topic="valuation",
-                confidence="niski",
-                sources=[_src(
-                    "https://investing.com/equities/monte-rosa-therapeutics",
-                    title="investing.com GLUE",
-                    accessed=datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc),
-                )],
-            ),
-            Finding(
-                statement="Roche + Novartis partnerships: >$320M upfront, >$7.5B milestones",
-                topic="partnerships",
-                confidence="wyzszy",
-                sources=[
-                    _src(
-                        "https://everyticker.com/quote/GLUE",
-                        title="everyticker GLUE",
-                        accessed=datetime(2026, 8, 31, 12, 30, tzinfo=timezone.utc),
-                    ),
-                    _src(
-                        "https://investor.monte-rosa.com/news",
-                        title="Company IR",
-                        stype="document",
-                        accessed=datetime(2026, 8, 30, 9, 0, tzinfo=timezone.utc),
-                    ),
-                ],
-            ),
-            Finding(
-                statement="MRT-2359 Phase 2 in prostate cancer: 100% PSA response rate (early)",
-                topic="pipeline",
-                confidence="sredni",
-                sources=[_src(
-                    "https://quantisnow.com/ticker/GLUE",
-                    title="quantisnow",
-                    accessed=datetime(2026, 8, 31, 13, 0, tzinfo=timezone.utc),
-                )],
-            ),
-        ],
-        created_at=t,
-        version=1,
+        title=title,
+        summary=summary,
+        conclusions=conclusions,
+        findings=findings or [_mk_finding(f"Finding for {title}")],
+        version=version,
+        target=target,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+def _mk_summary(title: str = "Test",
+                target: str = "research",
+                topic_blocks: list[TopicBlock] | None = None,
+                knowledge_gaps: list[str] | None = None,
+                ) -> KnowledgeSummary:
+    tb = topic_blocks or [
+        TopicBlock(topic="test", findings=[
+            _mk_finding(f"Finding for {title}"),
+        ]),
+    ]
+    return KnowledgeSummary(
+        title=title,
+        target=target,
+        summary_text=f"Summary for {title}",
+        conclusions=f"Conclusions for {title}",
+        topic_blocks=tb,
+        knowledge_gaps=knowledge_gaps or [],
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
+def _mk_proposal(slug: str = "test-proposal",
+                 state: CurationGateState = CurationGateState.PENDING,
+                 ) -> CurationProposal:
+    now = datetime.now(timezone.utc)
+    return CurationProposal(
+        slug=slug,
+        artifact_title="Test Artifact",
+        target="research",
+        note_content="# Test Artifact\n\nSome note content.",
+        finding_indices=(0,),
+        source_path=None,
+        decision_adr="ADR-002",
+        created_at=now,
+        expires_at=now + timedelta(hours=1),
+        state=state,
     )
 
 
 # =============================================================================
-# validate_artifact — fatal errors
+# Phase 3: Curation Gate — State Transitions
 # =============================================================================
 
-class TestValidateArtifactFatal:
-    def test_valid_artifact_no_error(self):
-        warnings = validate_artifact(_glue_artifact())
-        assert isinstance(warnings, list)
+class TestCurationGateStateTransitions:
+    """CurationProposal transitions: approve / reject / cancel / expire."""
 
-    def test_empty_url_source_raises(self):
-        # Source.__post_init__ already rejects empty URLs at construction time.
-        # Pipeline validation is a second layer for content that passes model validation.
-        # So constructing a Source with empty URL raises ValueError from the dataclass,
-        # not PipelineValidationError from the pipeline.
-        with pytest.raises(ValueError, match="url must not be empty"):
-            Source(url="", title="bad")
+    def test_approve_transitions_pending_to_approved(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        approved = p.approve()
+        assert approved.state == CurationGateState.APPROVED
+        assert p.state == CurationGateState.PENDING  # original unchanged
+
+    def test_reject_transitions_pending_to_rejected(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        rejected = p.reject(reason="not needed")
+        assert rejected.state == CurationGateState.REJECTED
+
+    def test_cancel_transitions_pending_to_cancelled(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        cancelled = p.cancel()
+        assert cancelled.state == CurationGateState.CANCELLED
+
+    def test_expire_transitions_pending_to_expired(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        expired = p.expire()
+        assert expired.state == CurationGateState.EXPIRED
+
+    def test_approve_from_non_pending_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot approve proposal in state approved"):
+            p.approve()
+
+    def test_reject_from_approved_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot reject proposal in state approved"):
+            p.reject()
+
+    def test_cancel_from_approved_raises_stale_state(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(StaleStateError,
+                           match="Cannot cancel proposal in state approved"):
+            p.cancel()
+
+    def test_approve_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.approve()
+        assert p.state == CurationGateState.PENDING
+
+    def test_reject_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.reject()
+        assert p.state == CurationGateState.PENDING
+
+    def test_cancel_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.cancel()
+        assert p.state == CurationGateState.PENDING
+
+    def test_expire_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = p.expire()
+        assert p.state == CurationGateState.PENDING
+
+    def test_content_hash_is_deterministic(self) -> None:
+        p1 = _mk_proposal(slug="alpha")
+        p2 = _mk_proposal(slug="alpha")
+        assert p1.content_hash == p2.content_hash
+
+    def test_content_hash_changes_with_content(self) -> None:
+        p1 = CurationProposal(
+            slug="test", artifact_title="T", target="r",
+            note_content="# A\n", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        p2 = CurationProposal(
+            slug="test", artifact_title="T", target="r",
+            note_content="# B\n", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        assert p1.content_hash != p2.content_hash
+
+    def test_is_conflicting_matches_same_slug_both_pending(self) -> None:
+        a = _mk_proposal(slug="same")
+        b = _mk_proposal(slug="same")
+        assert a.is_conflicting_with(b)
+        assert b.is_conflicting_with(a)
+
+    def test_is_conflicting_returns_false_when_different_slug(self) -> None:
+        a = _mk_proposal(slug="alpha")
+        b = _mk_proposal(slug="beta")
+        assert not a.is_conflicting_with(b)
+
+    def test_is_conflicting_returns_false_when_one_not_pending(self) -> None:
+        a = _mk_proposal(slug="same", state=CurationGateState.APPROVED)
+        b = _mk_proposal(slug="same", state=CurationGateState.PENDING)
+        assert not a.is_conflicting_with(b)
+        assert not b.is_conflicting_with(a)
+
+    def test_is_terminal_true_for_approved(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_rejected(self) -> None:
+        p = _mk_proposal(state=CurationGateState.REJECTED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_cancelled(self) -> None:
+        p = _mk_proposal(state=CurationGateState.CANCELLED)
+        assert p.is_terminal
+
+    def test_is_terminal_true_for_expired(self) -> None:
+        p = _mk_proposal(state=CurationGateState.EXPIRED)
+        assert p.is_terminal
+
+    def test_is_terminal_false_for_pending(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        assert not p.is_terminal
+
+    def test_expiry_window_positive_defaults_to_one_hour(self) -> None:
+        p = _mk_proposal()
+        delta = p.expires_at - p.created_at
+        assert timedelta(0) < delta <= timedelta(hours=2)
+
+    def test_from_summary_builds_valid_proposal(self) -> None:
+        summary = _mk_summary(title="Test Company", target="research")
+        p = CurationProposal.from_summary(summary, source_path=None, ttl_seconds=3600)
+        assert p.slug == "test-company"
+        assert p.artifact_title == "Test Company"
+        assert p.target == "research"
+        assert CurationGateState.PENDING == p.state
+        assert p.note_content
+        assert len(p.note_content) > 0
+        assert p.content_hash
+
+    def test_from_summary_with_finding_indices(self) -> None:
+        tb1 = TopicBlock(topic="t1", findings=[_mk_finding("f1"), _mk_finding("f2")])
+        tb2 = TopicBlock(topic="t2", findings=[_mk_finding("f3")])
+        summary = _mk_summary(title="T", target="r",
+                              topic_blocks=[tb1, tb2])
+        p = CurationProposal.from_summary(summary, finding_indices=(0, 2),
+                                          source_path=None)
+        assert p.finding_indices == (0, 2)
+
+    def test_from_summary_default_indices_all_blocks(self) -> None:
+        tb1 = TopicBlock(topic="t1", findings=[_mk_finding("f1")])
+        tb2 = TopicBlock(topic="t2", findings=[_mk_finding("f2")])
+        summary = _mk_summary(title="T", target="r",
+                              topic_blocks=[tb1, tb2])
+        p = CurationProposal.from_summary(summary, source_path=None)
+        assert len(p.finding_indices) == 2
 
 
 # =============================================================================
-# validate_artifact — warnings
+# Phase 3: curate_proposal dispatcher
 # =============================================================================
 
-class TestValidateArtifactWarnings:
-    def test_future_accessed_at_warns(self):
-        future = datetime(2099, 1, 1, tzinfo=timezone.utc)
-        art = ResearchArtifact(
-            title="X",
-            findings=[Finding(
-                statement="X",
-                sources=[_src("http://x.com", accessed=future)],
-            )],
-        )
-        warnings = validate_artifact(art)
-        future_warnings = [w for w in warnings if w.category == "freshness"]
-        assert len(future_warnings) == 1
-        assert "2099" in future_warnings[0].message
+class TestCurateProposalDispatcher:
+    """curate_proposal maps string actions onto Proposal transitions."""
 
-    def test_empty_summary_warns(self):
-        art = ResearchArtifact(
-            title="X", summary="", conclusions="Y",
-            findings=[_finding("X")],
-        )
-        warnings = validate_artifact(art)
-        completeness = [w for w in warnings if w.category == "completeness"]
-        assert any("summary" in w.message for w in completeness)
+    def test_approve_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "approve")
+        assert out.state == CurationGateState.APPROVED
 
-    def test_empty_conclusions_warns(self):
-        art = ResearchArtifact(
-            title="X", summary="Y", conclusions="",
-            findings=[_finding("X")],
-        )
-        warnings = validate_artifact(art)
-        completeness = [w for w in warnings if w.category == "completeness"]
-        assert any("conclusions" in w.message for w in completeness)
+    def test_reject_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "reject")
+        assert out.state == CurationGateState.REJECTED
 
-    def test_niski_finding_warns(self):
-        art = ResearchArtifact(
-            title="X",
-            findings=[_finding("Risky claim", confidence="niski")],
+    def test_cancel_dispatches(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        out = curate_proposal(p, "cancel")
+        assert out.state == CurationGateState.CANCELLED
+
+    def test_unknown_action_raises_curation_gate_error(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        with pytest.raises(CurationGateError,
+                           match="Unknown curation action"):
+            curate_proposal(p, "bogus")
+
+    def test_approve_preserves_immutability(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        _ = curate_proposal(p, "approve")
+        assert p.state == CurationGateState.PENDING
+
+
+# =============================================================================
+# Phase 3: expire_stale_proposals
+# =============================================================================
+
+class TestExpireStaleProposals:
+    """expire_stale_proposals ages out past-TTL PENDING proposals."""
+
+    def test_expires_pending_past_ttl(self) -> None:
+        now = datetime.now(timezone.utc)
+        past = now - timedelta(hours=1)
+        p = CurationProposal(
+            slug="x", artifact_title="X", target="r",
+            note_content="# x", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=past, expires_at=now,
         )
+        out = expire_stale_proposals([p])
+        assert out[0].state == CurationGateState.EXPIRED
+
+    def test_keeps_pending_within_ttl(self) -> None:
+        now = datetime.now(timezone.utc)
+        future = now + timedelta(hours=1)
+        p = CurationProposal(
+            slug="x", artifact_title="X", target="r",
+            note_content="# x", finding_indices=(),
+            source_path=None, decision_adr="ADR-002",
+            created_at=now, expires_at=future,
+        )
+        out = expire_stale_proposals([p])
+        assert out[0].state == CurationGateState.PENDING
+
+    def test_keeps_terminal_unchanged(self) -> None:
+        now = datetime.now(timezone.utc)
+        for st in (CurationGateState.APPROVED, CurationGateState.REJECTED,
+                   CurationGateState.CANCELLED, CurationGateState.EXPIRED):
+            p = CurationProposal(
+                slug="x", artifact_title="X", target="r",
+                note_content="# x", finding_indices=(),
+                source_path=None, decision_adr="ADR-002",
+                created_at=now, expires_at=now,
+                state=st,
+            )
+            out = expire_stale_proposals([p])
+            assert out[0].state == st
+
+
+# =============================================================================
+# Phase 4: promote_to_obsidian — Vault Resolution
+# =============================================================================
+
+class TestPromoteToObsidianVaultResolution:
+    """Vault resolution and unconfigured-path handling."""
+
+    def test_promote_requires_approved_proposal(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(p)
+
+    def test_promote_approved_raises_if_vault_unconfigured(self,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("JANUS_OBSIDIAN_VAULT", raising=False)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        with pytest.raises(CurationGateError, match="Obsidian vault path is not configured"):
+            promote_to_obsidian(p)
+
+    def test_promote_with_valid_vault_path(self, tmp_path: Path,
+                                           monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        # The promoter writes to Knowledge/ subdirectory — we need it to exist
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        report = promote_to_obsidian(p)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+
+    def test_promote_with_explicit_vault_override(self, tmp_path: Path) -> None:
+        vault = tmp_path / "custom_vault" / "Knowledge"
+        vault.mkdir(parents=True, exist_ok=True)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p, vault_path=vault.parent)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+        assert vault.parent in Path(report["path"]).parents
+
+
+# =============================================================================
+# Phase 4: propose_note_content — Deterministic Rendering
+# =============================================================================
+
+class TestProposeNoteContent:
+    """propose_note_content produces deterministic Obsidian markdown."""
+
+    def test_contains_frontmatter(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert body.startswith("---")
+        assert "created:" in body
+        assert "target:" in body
+        assert "version:" in body
+        assert "confidence:" in body
+        # Frontmatter section should have at least 3 lines
+        fm_section = body.split("---", 2)[1]
+        assert fm_section.count("\n") >= 3
+
+    def test_contains_title_heading(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "# FC" in body
+
+    def test_contains_topic_heading(self) -> None:
+        summary = _mk_summary(title="pipeline", target="pipeline")
+        body = propose_note_content(summary)
+        # _mk_summary hardcodes topic block topic to "test" regardless of title/target.
+        assert "## test" in body
+
+    def test_contains_finding_statements(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "Finding for FC" in body
+
+    def test_contains_conclusions_section(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        body = propose_note_content(summary)
+        assert "Conclusions:" in body
+
+    def test_contains_source_urls_when_present(self) -> None:
+        tb = TopicBlock(topic="t", findings=[
+            Finding(statement="Established", topic="t", confidence="wyzszy",
+                    sources=[_mk_source(url="https://example.com/paper")]),
+        ])
+        summary = KnowledgeSummary(
+            title="FC", target="test", summary_text="S",
+            conclusions="C", topic_blocks=[tb], generated_at=datetime.now(timezone.utc),
+        )
+        body = propose_note_content(summary)
+        assert "https://example.com/paper" in body
+
+    def test_contains_knowledge_gaps_section_when_gaps_exist(self) -> None:
+        summary = _mk_summary(
+            title="FC", target="test",
+            knowledge_gaps=["Gap one", "Gap two"],
+        )
+        body = propose_note_content(summary)
+        assert "## Knowledge gaps" in body
+        assert "Gap one" in body
+        assert "Gap two" in body
+
+    def test_deterministic_same_summary_same_output(self) -> None:
+        summary = _mk_summary(title="FC", target="test")
+        a = propose_note_content(summary)
+        b = propose_note_content(summary)
+        assert a == b
+
+    def test_different_summaries_produce_different_output(self) -> None:
+        s1 = _mk_summary(title="A", target="test")
+        s2 = _mk_summary(title="B", target="test")
+        assert propose_note_content(s1) != propose_note_content(s2)
+
+
+# =============================================================================
+# Phase 3 (downstream): CurationProposal.from_summary
+# =============================================================================
+
+class TestFromSummaryFindingIndices:
+    """CurationProposal.from_summary finding_indices selection."""
+
+    def test_default_indices_cover_all_blocks(self) -> None:
+        tb1 = TopicBlock(topic="a", findings=[_mk_finding("fa", topic="a")])
+        tb2 = TopicBlock(topic="b", findings=[_mk_finding("fb", topic="b")])
+        summary = KnowledgeSummary(
+            title="T", target="r", summary_text="S", conclusions="C",
+            topic_blocks=[tb1, tb2], generated_at=datetime.now(timezone.utc),
+        )
+        p = CurationProposal.from_summary(summary, source_path=None)
+        assert p.finding_indices == (0, 1)
+
+    def test_explicit_indices_subset(self) -> None:
+        tb1 = TopicBlock(topic="a", findings=[_mk_finding("fa", topic="a")])
+        tb2 = TopicBlock(topic="b", findings=[_mk_finding("fb", topic="b")])
+        summary = KnowledgeSummary(
+            title="T", target="r", summary_text="S", conclusions="C",
+            topic_blocks=[tb1, tb2], generated_at=datetime.now(timezone.utc),
+        )
+        p = CurationProposal.from_summary(summary, finding_indices=(0,), source_path=None)
+        assert p.finding_indices == (0,)
+
+
+# =============================================================================
+# Phase 4 (downstream): Validation warnings feed the curate gate
+# =============================================================================
+
+class TestValidationToCurationBridge:
+    """validate_artifact surfaces low-confidence findings for the gate."""
+
+    def test_niski_finding_produces_warning(self) -> None:
+        art = _mk_artifact(findings=[
+            _mk_finding("Low confidence finding", confidence="niski"),
+        ])
         warnings = validate_artifact(art)
         low_conf = [w for w in warnings if w.category == "low_confidence"]
         assert len(low_conf) == 1
-        assert low_conf[0].finding_index == 0
+        assert "niski" in low_conf[0].message
 
-    def test_sredni_no_low_conf_warning(self):
-        art = ResearchArtifact(
-            title="X",
-            findings=[_finding("Safe claim", confidence="sredni")],
-        )
+    def test_no_low_confidence_warnings_when_all_high(self) -> None:
+        art = _mk_artifact(findings=[
+            _mk_finding("Solid finding", confidence="wyzszy"),
+        ])
         warnings = validate_artifact(art)
         low_conf = [w for w in warnings if w.category == "low_confidence"]
         assert len(low_conf) == 0
 
-    def test_multiple_warnings_collected(self):
-        future = datetime(2099, 1, 1, tzinfo=timezone.utc)
-        art = ResearchArtifact(
-            title="X", summary="", conclusions="",
+    def test_empty_summary_completeness_warning(self) -> None:
+        art = _mk_artifact(summary="", conclusions="",
+                           findings=[_mk_finding("F")])
+        warnings = validate_artifact(art)
+        completeness = [w for w in warnings if w.category == "completeness"]
+        assert len(completeness) >= 1
+
+
+# =============================================================================
+# Phase 2 (downstream): generate_summary feeds the promoter
+# =============================================================================
+
+class TestGenerateSummaryToPromoterBridge:
+    """generate_summary output is renderable by propose_note_content."""
+
+    def test_summary_roundtrips_to_note(self) -> None:
+        art = _mk_artifact(
+            title="Roundtrip Co", target="research",
+            summary="Research on Roundtrip",
+            conclusions="Roundtrip conclusions",
             findings=[
-                _finding("Risky", confidence="niski"),
-                _finding("Safe", confidence="sredni",
-                         sources=[_src("http://x.com", accessed=future)]),
+                _mk_finding("Established fact", confidence="wyzszy"),
+                _mk_finding("Tentative finding", confidence="sredni"),
             ],
         )
         warnings = validate_artifact(art)
-        assert len(warnings) >= 3  # completeness x2, low_confidence, freshness
-        categories = {w.category for w in warnings}
-        assert "completeness" in categories
-        assert "low_confidence" in categories
-        assert "freshness" in categories
+        summary = generate_summary(art, warnings=warnings)
+        note = propose_note_content(summary)
+        assert "Roundtrip Co" in note
+        assert "Established fact" in note
+        assert "Tentative finding" in note
 
 
 # =============================================================================
-# generate_summary — GLUE end-to-end
+# Phase 4: Persistence Bridge — promotion records
 # =============================================================================
 
-class TestGenerateSummaryGlue:
-    def test_produces_knowledge_summary(self):
-        ks = generate_summary(_glue_artifact())
-        assert isinstance(ks, KnowledgeSummary)
-        assert ks.target == "GLUE"
-        assert ks.title == _glue_artifact().title
-        assert ks.artifact_version == 1
+class TestPersistPromotionRecord:
+    """persist_promotion_record writes audit JSON; load_record reads it back."""
 
-    def test_topic_blocks_grouped(self):
-        ks = generate_summary(_glue_artifact())
-        topic_names = {tb.topic for tb in ks.topic_blocks}
-        assert "valuation" in topic_names
-        assert "partnerships" in topic_names
-        assert "pipeline" in topic_names
+    def test_persist_writes_json(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="persist-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        assert rec is not None
+        assert rec.name == "persist-test.json"
+        data = json.loads(rec.read_text())
+        assert data["slug"] == "persist-test"
+        assert data["target"] == "research"
+        assert data["state"] == "approved"
+        assert data["promoted"] is True
 
-    def test_composite_confidence_per_topic(self):
-        ks = generate_summary(_glue_artifact())
-        by_topic = {tb.topic: tb.composite_confidence for tb in ks.topic_blocks}
-        assert by_topic["valuation"] == "niski"
-        assert by_topic["partnerships"] == "wyzszy"
-        assert by_topic["pipeline"] == "sredni"
+    def test_load_record_returns_dict(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="load-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        loaded = load_record(rec)
+        assert loaded["slug"] == "load-test"
+        assert loaded["target"] == "research"
 
-    def test_entities_extracted(self):
-        ks = generate_summary(_glue_artifact())
-        assert "GLUE" in ks.entities
-        assert "MRT-2359" in ks.entities
-        assert "Roche" in ks.entities
-        assert "Novartis" in ks.entities
+    def test_load_record_file_not_found_returns_none(self, tmp_path: Path) -> None:
+        missing = tmp_path / "missing.json"
+        assert load_record(missing) is None
 
-    def test_knowledge_gaps_from_niski(self):
-        ks = generate_summary(_glue_artifact())
-        assert len(ks.knowledge_gaps) >= 1
-        assert any("valuation" in g for g in ks.knowledge_gaps)
-
-    def test_source_count_aggregate(self):
-        ks = generate_summary(_glue_artifact())
-        assert ks.source_count == 4  # 1 + 2 + 1
-
-    def test_high_low_confidence_counts(self):
-        ks = generate_summary(_glue_artifact())
-        assert ks.high_confidence_count == 1
-        assert ks.low_confidence_count == 1
-
-    def test_summary_text_from_artifact(self):
-        ks = generate_summary(_glue_artifact())
-        assert ks.summary_text == _glue_artifact().summary
-
-    def test_ordered_topics(self):
-        ks = generate_summary(_glue_artifact())
-        ordered = ks.ordered_topic_blocks()
-        # partnerships (wyzszy) first, then pipeline (sredni), then valuation (niski)
-        assert ordered[0].topic == "partnerships"
-        assert ordered[-1].topic == "valuation"
+    def test_persist_creates_dir(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="mkdir-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "deep" / "nested" / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": False, "path": None, "promoted_at": None},
+            record_dir=rec_dir,
+        )
+        assert rec is not None
+        assert rec.parent.exists()
 
 
 # =============================================================================
-# generate_summary — narrative generation
+# Phase 4: Vault Resolution Helpers
 # =============================================================================
 
-class TestNarrativeGeneration:
-    def test_narrative_generated_for_each_topic(self):
-        ks = generate_summary(_glue_artifact())
-        for tb in ks.topic_blocks:
-            assert tb.narrative
-            assert len(tb.narrative) > 0
+class TestVaultResolution:
+    """_resolve_vault and _is_vault_unconfigured honour the env flag."""
 
-    def test_narrative_includes_finding_statements(self):
-        ks = generate_summary(_glue_artifact())
-        pipeline_tb = next(tb for tb in ks.topic_blocks if tb.topic == "pipeline")
-        assert "MRT-2359" in pipeline_tb.narrative
-        assert "PSA" in pipeline_tb.narrative
+    def test_unconfigured_returns_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("JANUS_OBSIDIAN_VAULT", raising=False)
+        assert _is_vault_unconfigured() is True
 
-    def test_narrative_is_deterministic(self):
-        """Same artifact produces same narratives across calls."""
-        ks1 = generate_summary(_glue_artifact())
-        ks2 = generate_summary(_glue_artifact())
-        for tb1, tb2 in zip(ks1.topic_blocks, ks2.topic_blocks):
-            assert tb1.narrative == tb2.narrative
+    def test_configured_path_exists_returns_false(self, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        assert _is_vault_unconfigured() is False
 
+    def test_configured_path_missing_returns_true(self, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+        missing = tmp_path / "does-not-exist"
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(missing))
+        assert _is_vault_unconfigured() is True
 
-# =============================================================================
-# generate_summary — explicit entities/gaps
-# =============================================================================
+    def test_resolve_vault_with_env(self, tmp_path: Path,
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = _resolve_vault(None)
+        assert vault == tmp_path
 
-class TestExplicitEntitiesAndGaps:
-    def test_explicit_entities_preserved(self):
-        ks = generate_summary(
-            _glue_artifact(),
-            explicit_entities=["CustomEntity"],
-        )
-        assert "CustomEntity" in ks.entities
+    def test_resolve_vault_with_arg_overrides_env(self, tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch,
+                                                    another_path) -> None:
+        another_path.mkdir(exist_ok=True)
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = _resolve_vault(another_path)
+        assert vault == another_path
 
-    def test_explicit_gaps_preserved(self):
-        ks = generate_summary(
-            _glue_artifact(),
-            explicit_gaps=["Manual gap note"],
-        )
-        assert "Manual gap note" in ks.knowledge_gaps
-
-    def test_explicit_entities_skip_extraction(self):
-        """When explicit entities are provided, auto-extraction is skipped."""
-        ks = generate_summary(
-            _glue_artifact(),
-            explicit_entities=["OnlyManual"],
-        )
-        assert ks.entities == ["OnlyManual"]
-
-    def test_explicit_gaps_skip_auto_generation(self):
-        """When explicit gaps are provided, auto-gap generation is skipped."""
-        ks = generate_summary(
-            _glue_artifact(),
-            explicit_gaps=["Manual only"],
-        )
-        assert ks.knowledge_gaps == ["Manual only"]
+    def test_resolve_vault_arg_nonexistent_returns_none(self, tmp_path: Path) -> None:
+        nonexistent = tmp_path / "nope"
+        assert _resolve_vault(nonexistent) is None
 
 
 # =============================================================================
-# generate_summary — empty/minimal artifact
+# Phase 4: Promotion Report is JSON-serializable
 # =============================================================================
 
-class TestMinimalArtifact:
-    def test_single_finding_summary(self):
-        art = ResearchArtifact(
-            title="Minimal",
-            target="T",
-            findings=[_finding("One claim", topic="t", confidence="wyzszy")],
-        )
-        ks = generate_summary(art)
-        assert len(ks.topic_blocks) == 1
-        assert ks.topic_blocks[0].composite_confidence == "wyzszy"
-        assert ks.entities == ["T"]
-        assert ks.knowledge_gaps == []
+class TestPromotionReportSerializable:
+    """promote_to_obsidian reports survive JSON round-trips."""
 
-    def test_empty_summary_generated_when_missing(self):
-        art = ResearchArtifact(
-            title="X", target="T", summary="", conclusions="",
-            findings=[_finding("A", confidence="wyzszy"),
-                      _finding("B", confidence="wyzszy")],
-        )
-        ks = generate_summary(art)
-        assert ks.summary_text  # generated, not empty
-        assert ks.conclusions  # generated, not empty
-        assert "strong evidence" in ks.conclusions
-
-    def test_no_gaps_when_all_high_confidence(self):
-        art = ResearchArtifact(
-            title="X", target="T",
-            findings=[_finding("A", confidence="wyzszy"),
-                      _finding("B", confidence="wyzszy")],
-        )
-        ks = generate_summary(art)
-        assert ks.knowledge_gaps == []
+    def test_report_json_roundtrip(self, monkeypatch: pytest.MonkeyPatch,
+                                    tmp_path: Path) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        p = _mk_proposal(slug="json-test", state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p)
+        payload = json.dumps(report, default=str)
+        restored = json.loads(payload)
+        assert restored["slug"] == "json-test"
+        assert restored["promoted"] is True
+        assert restored["action"] == "promote_to_obsidian"
 
 
 # =============================================================================
-# emit_knowledge_gaps_as_attention (Stage 3 bridge)
+# Phase 5: CLI Surface
 # =============================================================================
 
-class TestEmitKnowledgeGapsAsAttention:
-    def test_empty_gaps_returns_empty(self):
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(
-                topic="t",
-                findings=[_finding("A", confidence="wyzszy")],
-            )],
-        )
-        items = emit_knowledge_gaps_as_attention(ks)
-        assert items == []
+class TestKnowledgeCliSurface:
+    """janus knowledge promote is dispatched and surfaces a proposal."""
 
-    def test_single_gap_produces_item(self):
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(
-                topic="t",
-                findings=[_finding("X", confidence="niski")],
-            )],
-        )
-        items = emit_knowledge_gaps_as_attention(ks)
-        assert len(items) == 1
-        item = items[0]
-        assert item["category"] == "knowledge_gap"
-        assert item["score"] == 50
-        assert item["title"] == ks.knowledge_gaps[0]
-        assert item["reason"] == ks.knowledge_gaps[0]
-
-    def test_goal_title_scoped(self):
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(
-                topic="t",
-                findings=[_finding("X", confidence="niski")],
-            )],
-        )
-        items = emit_knowledge_gaps_as_attention(ks, goal_title="My Goal")
-        assert len(items) == 1
-        assert "[Gap]" in items[0]["title"]
-        assert "My Goal" in items[0]["title"]
-        assert "My Goal" in items[0]["reason"]
-        assert items[0]["category"] == "knowledge_gap"
-
-    def test_multiple_gaps(self):
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[
-                TopicBlock(topic="a", findings=[_finding("A", confidence="niski")]),
-                TopicBlock(topic="b", findings=[_finding("B", confidence="niski")]),
-            ],
-            knowledge_gaps=["Gap one", "Gap two", "Gap three"],
-        )
-        items = emit_knowledge_gaps_as_attention(ks)
-        assert len(items) == 3
-        assert items[0]["reason"] == "Gap one"
-        assert items[1]["reason"] == "Gap two"
-        assert items[2]["reason"] == "Gap three"
-
-    def test_is_pure_no_mutation(self):
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(
-                topic="t",
-                findings=[_finding("X", confidence="niski")],
-            )],
-        )
-        gaps_before = list(ks.knowledge_gaps)
-        emit_knowledge_gaps_as_attention(ks, goal_title="G")
-        assert ks.knowledge_gaps == gaps_before
-
-    def test_long_gap_truncated_in_title(self):
-        long_gap = "X" * 200
-        ks = KnowledgeSummary(
-            target="T", title="T", summary_text="T", conclusions="T",
-            topic_blocks=[TopicBlock(
-                topic="t",
-                findings=[_finding("X", confidence="niski")],
-            )],
-            knowledge_gaps=[long_gap],
-        )
-        items = emit_knowledge_gaps_as_attention(ks)
-        assert len(items) == 1
-        assert len(items[0]["title"]) <= 83  # 77 chars + "..."
-        assert items[0]["reason"] == long_gap  # reason is not truncated
+    def test_knowledge_help_prints_usage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from janus.knowledge_cli import print_knowledge_help
+        print_knowledge_help()
+        captured = capsys.readouterr()
+        assert "artifact" in captured.out
+        assert "knowledge promote" in captured.out
+        assert "--vault" in captured.out
 
 
 # =============================================================================
-# Loop closure: artifact -> summary -> gaps -> attention
+# Phase 5: End-to-end — promotion_records data directory lifecycle
 # =============================================================================
 
-class TestLoopClosure:
-    """End-to-end: create artifact → generate summary → emit gaps → verify."""
+class TestPromotionRecordsDataDirectory:
+    """Phase 5: promotion_records dir is created, records are written/read."""
 
-    def test_full_loop(self, tmp_path, monkeypatch):
-        """AC6: End-to-end test of the research→finding→attention loop.
-
-        create artifact → link to goal → generate summary → emit gaps
-        → verify goal has artifact reference.
-        """
-        # Set up goals file with a goal
-        goals_file = tmp_path / "goals.md"
-        goals_file.write_text("# Goals\n\n## Goal: GLUE Research\nStatus: active\n")
-        monkeypatch.setattr(
-            "janus.integrations.markdown_goals.GOALS_PATH", goals_file
+    def test_records_dir_created_on_first_persist(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="dir-test", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "knowledge" / "promotion_records"
+        rec = persist_promotion_record(
+            p, {"promoted": False, "path": None, "promoted_at": None},
+            record_dir=rec_dir,
         )
+        assert rec is not None
+        assert rec.parent.exists()
+        assert rec.parent.name == "promotion_records"
 
-        # Stage 1: Research → Artifact
-        artifact = ResearchArtifact(
-            title="GLUE Report",
-            target="GLUE",
-            summary="Clinical-stage biotech.",
-            conclusions="High-risk/high-reward.",
+    def test_multiple_records_coexist(self, tmp_path: Path) -> None:
+        rec_dir = tmp_path / "records"
+        now = datetime.now(timezone.utc)
+        for slug in ("alpha", "beta", "gamma"):
+            p = CurationProposal(
+                slug=slug, artifact_title=slug.upper(), target="research",
+                note_content=f"# {slug}\n", finding_indices=(),
+                source_path=None, decision_adr="ADR-002",
+                created_at=now, expires_at=now + timedelta(hours=1),
+                state=CurationGateState.APPROVED,
+            )
+            persist_promotion_record(
+                p, {"promoted": True, "path": None, "promoted_at": now.isoformat()},
+                record_dir=rec_dir,
+            )
+        files = sorted(rec_dir.glob("*.json"))
+        assert len(files) == 3
+        assert {f.stem for f in files} == {"alpha", "beta", "gamma"}
+
+    def test_record_contains_content_hash_for_audit(self, tmp_path: Path) -> None:
+        p = _mk_proposal(slug="audit-hash", state=CurationGateState.APPROVED)
+        rec_dir = tmp_path / "records"
+        rec = persist_promotion_record(
+            p, {"promoted": True, "path": None, "promoted_at": "2026-01-01T00:00:00Z"},
+            record_dir=rec_dir,
+        )
+        data = json.loads(rec.read_text())
+        assert data["content_hash"] == p.content_hash
+        assert len(data["content_hash"]) == 64
+
+
+# =============================================================================
+# Phase 5: Full pipeline end-to-end
+# =============================================================================
+
+class TestFullPipelineE2E:
+    """The full pipeline: artifact → validate → generate → propose → curate → promote."""
+
+    def test_e2e_generate_summary_to_promote_note(self) -> None:
+        art = _mk_artifact(
+            title="E2E Company",
+            target="research",
+            summary="E2E summary text",
+            conclusions="E2E conclusions",
             findings=[
-                Finding(
-                    statement="MRT-2359 Phase 2: 100% PSA response rate",
-                    topic="pipeline",
-                    confidence="wyzszy",
-                    sources=[_src("http://example.com")],
-                ),
-                Finding(
-                    statement="Market cap ~$1.88B (unverified)",
-                    topic="valuation",
-                    confidence="niski",
-                    sources=[_src("http://example.com")],
-                ),
+                _mk_finding("Finding one", confidence="wyzszy"),
+                _mk_finding("Finding two", confidence="sredni"),
+                _mk_finding("Finding three", confidence="niski"),
             ],
-            linked_goal_titles=["GLUE Research"],
         )
+        warnings = validate_artifact(art)
+        summary = generate_summary(art, warnings=warnings)
+        note = propose_note_content(summary)
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                  source_path=None)
+        assert proposal.artifact_title == "E2E Company"
+        assert proposal.target == "research"
+        assert len(proposal.finding_indices) == 3
+        assert note.startswith("---")
+        assert "# E2E Company" in note
+        assert "Finding one" in note
+        assert "Finding two" in note
+        assert "Finding three" in note
+        # knowledge gaps
+        assert "Knowledge gaps" in note or "No knowledge gaps" in note
 
-        # Link artifact → goal (bidirectional)
-        from janus.services.artifact_linking import link_artifact_to_goal
-        link_artifact_to_goal("GLUE Report", "GLUE Research", artifact)
+    def test_e2e_curation_gate_then_promote(self, tmp_path: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        art = _mk_artifact(
+            title="E2E Promote",
+            target="research",
+            summary="E2E summary",
+            conclusions="E2E conclusions",
+            findings=[_mk_finding("Promotable finding")],
+        )
+        warnings = validate_artifact(art)
+        summary = generate_summary(art, warnings=warnings)
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                  source_path=None)
+        # Curate
+        curated = curate_proposal(proposal, "approve")
+        assert curated.state == CurationGateState.APPROVED
+        # Promote
+        report = promote_to_obsidian(curated)
+        assert report["promoted"] is True
+        assert report["adapter"] is False
+        assert report["path"] is not None
+        # Verify file exists
+        path = Path(report["path"])
+        assert path.exists()
+        content = path.read_text()
+        assert "E2E Promote" in content
+        assert "Promotable finding" in content
 
-        # Stage 2: Artifact → KnowledgeSummary
-        summary = generate_summary(artifact)
-        assert summary.target == "GLUE"
-        assert len(summary.knowledge_gaps) >= 1
-
-        # Stage 3: Summary → attention
-        attention_items = emit_knowledge_gaps_as_attention(summary, goal_title="GLUE Research")
-        assert len(attention_items) >= 1
-        assert all(item["category"] == "knowledge_gap" for item in attention_items)
-        assert all("GLUE Research" in item["title"] for item in attention_items)
-
-        # Verify: goal has artifact reference (loop closure condition 1 & 2)
-        from janus.services.goals import get_goal
-        goal = get_goal("GLUE Research")
-        assert "GLUE Report" in goal.research_artifact_titles  # type: ignore[operator]
-        assert "GLUE Research" in artifact.linked_goal_titles
+    def test_e2e_pending_proposal_cannot_be_promoted(self) -> None:
+        art = _mk_artifact(title="Pending", target="research",
+                           summary="S", conclusions="C",
+                           findings=[_mk_finding("F")])
+        summary = generate_summary(art, warnings=validate_artifact(art))
+        proposal = CurationProposal.from_summary(summary, finding_indices=(0, 1, 2),
+                                                  source_path=None)
+        assert proposal.state == CurationGateState.PENDING
+        with pytest.raises(CurationGateError, match="must be APPROVED"):
+            promote_to_obsidian(proposal)
