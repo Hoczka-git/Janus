@@ -41,6 +41,7 @@ class CurationGateState(Enum):
     REJECTED — human rejected; terminal
     CANCELLED — human cancelled; terminal
     EXPIRED  — TTL elapsed without decision; terminal
+    VAULTED  — promoted to the Obsidian vault; terminal
     """
 
     PENDING = "pending"
@@ -48,10 +49,16 @@ class CurationGateState(Enum):
     REJECTED = "rejected"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+    VAULTED = "vaulted"
 
     @property
     def is_terminal(self) -> bool:
-        return self in (CurationGateState.REJECTED, CurationGateState.CANCELLED, CurationGateState.EXPIRED)
+        return self in (
+            CurationGateState.REJECTED,
+            CurationGateState.CANCELLED,
+            CurationGateState.EXPIRED,
+            CurationGateState.VAULTED,
+        )
 
     @property
     def label(self) -> str:
@@ -205,6 +212,17 @@ class CurationProposal:
         if self.state != CurationGateState.PENDING:
             raise StaleStateError(self.state, "expire")
         return self._replace(state=CurationGateState.EXPIRED)
+
+    def vaulted(self) -> CurationProposal:
+        """Transition ``APPROVED`` → ``VAULTED``, returning a new instance.
+
+        Marks the proposal as having been written to the Obsidian vault.
+        Only an APPROVED proposal may be vaulted; any other state raises
+        :class:`StaleStateError`.
+        """
+        if self.state != CurationGateState.APPROVED:
+            raise StaleStateError(self.state, "vault")
+        return self._replace(state=CurationGateState.VAULTED)
 
     # ── Promotion pipeline: conflict + terminal checks ────────────────────────
 
