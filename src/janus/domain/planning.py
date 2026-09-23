@@ -49,7 +49,6 @@ class NextAction:
 
 # ── Object reconstruction helpers ─────────────────────────────────────────────
 
-
 def milestone_objs(goal: Goal) -> list[Milestone]:
     """Construct ordered Milestone objects from goal.milestones dicts.
 
@@ -112,7 +111,6 @@ def _first_non_terminal_milestone(
 
 
 # ── Dynamic derivation ────────────────────────────────────────────────────────
-
 
 def derive_milestone_tasks(
     milestone: Milestone,
@@ -181,7 +179,6 @@ def derive_milestone_task_set(
 
 # ── Project-aware helpers ─────────────────────────────────────────────────────
 
-
 def _get_project_by_title(
     projects: list[Project], milestone_title: str, project_title: str,
 ) -> Project | None:
@@ -225,7 +222,6 @@ def _find_project_for_milestone(
 
 
 # ── Next-action engine ────────────────────────────────────────────────────────
-
 
 def derive_next_action(
     goal: Goal,
