@@ -23,9 +23,9 @@ from typing import Literal
 from janus.models.goal import Goal
 from janus.models.project import Project
 from janus.models.task import Task
-from janus.services.next_action import (
+from janus.domain.planning import (
     NextAction,
-    _project_objs,
+    project_objs,
     derive_next_action,
 )
 
@@ -261,7 +261,7 @@ def recommend_tasks(
                 if isinstance(m_dict, dict) and "goal_title" not in m_dict:
                     goal.milestones[i] = dict(m_dict, goal_title=goal.title)
 
-        projects = _project_objs(goal)
+        projects = project_objs(goal)
         milestone_objs = _milestone_objs(goal)
 
         # Derive next action using hierarchical traversal
@@ -354,7 +354,7 @@ def recommend_next_actions(
 
 def _milestone_objs(goal: Goal):
     """Construct ordered Milestone objects from goal.milestones dicts."""
-    from janus.services.next_action import _milestone_objs as _original
+    from janus.domain.planning import milestone_objs as _original
     # Ensure milestones have goal_title before passing to original
     if goal.milestones:
         for i, m_dict in enumerate(goal.milestones):
@@ -370,8 +370,8 @@ def _task_in_milestone(
     tasks: list[Task],
 ) -> bool:
     """Check if a task belongs to a milestone via dynamic derivation or project assignment."""
-    from janus.services.next_action import (
-        _milestone_objs as mo,
+    from janus.domain.planning import (
+        milestone_objs as mo,
         derive_milestone_task_set,
         _assigned_project_tasks,
     )
@@ -386,7 +386,7 @@ def _task_in_milestone(
             return True
 
     # Check project assignments
-    projects = _project_objs(goal)
+    projects = project_objs(goal)
     assigned = _assigned_project_tasks(projects)
     if task_title in assigned:
         for p in projects:

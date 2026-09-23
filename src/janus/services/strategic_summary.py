@@ -872,7 +872,7 @@ def _has_upcoming_milestone_or_deadline(
     ):
         return True
 
-    from janus.services.attention import _milestone_objs
+    from janus.domain.planning import milestone_objs as _milestone_objs
 
     for milestone in _milestone_objs(goal):
         if milestone.status in (

@@ -256,16 +256,16 @@ def update_milestone_status(
         return _milestone_from_dict(ms_dict)
 
     # Derive the milestone's task set and check if all are now complete
-    from janus.services.next_action import (
-        _milestone_objs,
+    from janus.domain.planning import (
         derive_milestone_tasks,
+        milestone_objs,
     )
     from janus.integrations.markdown_tasks import load_tasks
     from janus.services.tasks import TASKS_PATH as _tasks_path
 
-    milestone_objs = _milestone_objs(goal)
+    milestone_objs_list = milestone_objs(goal)
     milestone = None
-    for m in milestone_objs:
+    for m in milestone_objs_list:
         if m.title == title:
             milestone = m
             break
@@ -288,7 +288,7 @@ def update_milestone_status(
 
     # Derive which tasks belong to this milestone (only open ones).
     milestone_task_titles = derive_milestone_tasks(
-        milestone, milestone_objs, goal, open_task_titles
+        milestone, milestone_objs_list, goal, open_task_titles
     )
 
     # Check: are all tasks belonging to this milestone now complete?

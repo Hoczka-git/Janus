@@ -28,7 +28,7 @@ from janus.services.milestones import (
     skip_milestone,
     reopen_milestone,
 )
-from janus.services.next_action import derive_next_action
+from janus.domain.planning import derive_next_action
 from janus.services.projects import (
     add_project_for_milestone,
     get_project,
@@ -1354,14 +1354,14 @@ def handle_goal_next(args: list[str]) -> None:
         sys.exit(1)
 
     tasks = load_tasks()
+    from janus.domain.planning import project_objs
     from janus.services.weekly_review import _read_completed_task_titles
-    from janus.services.next_action import _project_objs
     completed_titles = set(_read_completed_task_titles())
     from datetime import date
     today = date.today()
 
     action = derive_next_action(goal, tasks, completed_titles, today,
-                                projects=_project_objs(goal))
+                                projects=project_objs(goal))
     if action is None:
         print("No next action.")
         return
