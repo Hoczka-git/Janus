@@ -1,6 +1,7 @@
 # ADR-003, ADR-004, ADR-005: Consolidated Decisions
 
 **Date:** 2026-09-16
+**Last verified:** 2026-09-24
 **Consolidator:** t_77e35ea8 (implementer)
 **Source reviews:**
 - ADR-003: t_985404ff — `docs/research/adr-003-review.md`

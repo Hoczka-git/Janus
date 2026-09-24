@@ -1,5 +1,7 @@
 # Janus Product Backlog
 
+**Last verified:** 2026-09-24
+
 This document contains concrete product capabilities that are candidates for future implementation.
 
 It complements:
