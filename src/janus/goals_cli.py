@@ -681,6 +681,7 @@ Commands:
   next <title>                    Print the derived next action for a goal
   health [<title>]                Show health assessment for goals
   audit [--json]                  Run Goal Integrity Audit
+  repair [--apply] [--dry-run]    Run Goal Integrity Repair workflow
   skills                          List all tracked skills with evidence counts
   set-skill <title> --skill NAME  Set the skill for a goal
   set-skill <title> --clear       Clear the skill from a goal
@@ -1500,7 +1501,7 @@ def handle_goal_audit(args: list[str]) -> None:
     as_json = "--json" in args
 
     goals = load_goals()
-    tasks = load_tasks() if goals else []
+    tasks = load_tasks()
     now = datetime.now().astimezone()
 
     report = audit_goal_integrity(goals=goals, tasks=tasks, now=now)
@@ -1549,4 +1550,183 @@ def _print_audit_report(report) -> None:
     print(f"  Errors:   {report.error_count}")
     print(f"  Warnings: {report.warning_count}")
     print(f"  Info:     {report.info_count}")
+
+
+# ===========================================================================
+# Goal Integrity Repair CLI
+# ===========================================================================
+
+_VALID_ORPHAN_ACTIONS = ("report", "reassign", "archive", "delete")
+_VALID_RECONCILE = ("forward", "reverse")
+
+
+def handle_goal_repair(args: list[str]) -> None:
+    """janus goal repair [--apply] [--dry-run] [--json] [--action A]
+                         [--target-goal T] [--reconcile-strategy S]
+                         [--allow-delete] [--yes]
+
+    Run the Goal Integrity Repair workflow.
+
+    By default (no flags) the command runs in **dry-run** mode and prints the
+    plan of operations without writing any data.  Pass ``--apply`` to persist
+    the planned changes (still requires ``--yes`` for destructive orphan
+    actions, or ``--allow-delete`` + confirmation).
+
+    Flags:
+        --apply                  Actually write the repairs (default: dry-run).
+        --json                   Emit machine-readable JSON of the repair plan.
+        --action ACTION          Orphan handling: report|reassign|archive|delete
+                                 (default: report).
+        --target-goal TITLE      Target goal for --action reassign.
+        --reconcile-strategy S   Mismatch reconciliation: forward|reverse
+                                 (default: forward).
+        --allow-delete           Permit --action delete (defence in depth).
+        --yes                    Skip confirmation prompts (non-interactive).
+    """
+    from janus.integrations.markdown_goals import load_goals
+    from janus.integrations.markdown_tasks import load_tasks
+    from janus.services.goal_integrity import audit_goal_integrity
+    from janus.services.goal_integrity_repair import (
+        repair_goal_integrity, RepairConfig,
+    )
+    from datetime import datetime
+
+    # ── Parse flags ──────────────────────────────────────────────────────
+    dry_run = True
+    as_json = False
+    action = "report"
+    target_goal = None
+    reconcile_strategy = "forward"
+    allow_delete = False
+    confirmed = False
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--apply":
+            dry_run = False
+        elif arg == "--dry-run":
+            dry_run = True
+        elif arg == "--json":
+            as_json = True
+        elif arg == "--action":
+            i += 1
+            if i >= len(args):
+                print("Error: --action requires a value", file=sys.stderr)
+                sys.exit(1)
+            action = args[i]
+            if action not in _VALID_ORPHAN_ACTIONS:
+                print(
+                    f"Error: invalid --action {action!r}. "
+                    f"Allowed: {', '.join(_VALID_ORPHAN_ACTIONS)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        elif arg == "--target-goal":
+            i += 1
+            if i >= len(args):
+                print("Error: --target-goal requires a value", file=sys.stderr)
+                sys.exit(1)
+            target_goal = args[i]
+        elif arg == "--reconcile-strategy":
+            i += 1
+            if i >= len(args):
+                print(
+                    "Error: --reconcile-strategy requires a value",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            reconcile_strategy = args[i]
+            if reconcile_strategy not in _VALID_RECONCILE:
+                print(
+                    f"Error: invalid --reconcile-strategy "
+                    f"{reconcile_strategy!r}. "
+                    f"Allowed: {', '.join(_VALID_RECONCILE)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        elif arg == "--allow-delete":
+            allow_delete = True
+        elif arg == "--yes" or arg == "-y":
+            confirmed = True
+        else:
+            print(f"Error: unknown argument: {arg}", file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    config = RepairConfig(
+        action=action,
+        reconcile_strategy=reconcile_strategy,
+        allow_delete=allow_delete,
+        target_goal=target_goal,
+        confirmed=confirmed,
+        interactive=not confirmed,
+    )
+
+    goals = load_goals()
+    tasks = load_tasks()
+    now = datetime.now().astimezone()
+
+    report = audit_goal_integrity(goals=goals, tasks=tasks, now=now)
+
+    try:
+        result = repair_goal_integrity(
+            report, goals, tasks,
+            config=config, dry_run=dry_run,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if as_json:
+        print(json.dumps(result.plan.to_dict(), indent=2, default=str))
+    else:
+        _print_repair_plan(result)
+
+    if result.plan.summary.get("unsupported"):
+        for u in result.plan.summary["unsupported"]:
+            print(f"  (unsupported: {u})", file=sys.stderr)
+
+
+def _print_repair_plan(result) -> None:
+    """Render a RepairResult in human-readable form."""
+    plan = result.plan
+    print("Goal Integrity Repair")
+    print("=" * 60)
+    print(f"Mode: {'DRY-RUN (no changes written)' if result.dry_run else 'APPLY'}")
+    print(f"Planned operations: {plan.summary['planned_operations']}")
+    print(f"Issues by code: {plan.summary['issues_by_code']}")
+    print(f"Orphan action: {plan.summary['orphan_action']}")
+    print(f"Reconcile strategy: {plan.summary['reconcile_strategy']}")
+    print()
+
+    if plan.issues_by_code:
+        print("Issues detected:")
+        for code, count in sorted(plan.issues_by_code.items()):
+            print(f"  {code:<32} {count}")
+        print()
+
+    if plan.operations:
+        print("Planned operations:")
+        for op in plan.operations:
+            marker = "[dry-run]" if result.dry_run else "[apply]"
+            print(f"  {marker} {op.operation} — {op.description}")
+        print()
+    else:
+        print("No repairable operations planned.")
+        print()
+
+    if plan.summary.get("unsupported"):
+        print("Unsupported / skipped:")
+        for u in sorted(set(plan.summary["unsupported"])):
+            print(f"  - {u}")
+        print()
+
+    if result.dry_run:
+        print("No files modified (dry-run).")
+        print("Pass --apply to persist the planned repairs.")
+    elif result.applied:
+        print(f"Applied {len(result.applied)} operation(s).")
+        if result.backup_path:
+            print(f"Backup directory: {result.backup_path}")
 

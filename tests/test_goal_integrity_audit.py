@@ -386,7 +386,7 @@ class TestGoalAuditCLI:
         _setup_cli_fixtures(
             tmp_path, monkeypatch,
             "# Goals\n",
-            "- [ ] Test task | goal: Nonexistent goal\n",
+            "",
         )
         from janus.goals_cli import handle_goal_audit
         handle_goal_audit(["--json"])
@@ -422,11 +422,11 @@ class TestGoalAuditCLI:
         handle_goal_audit([])
 
     def test_no_goals_no_issues(self, tmp_path, monkeypatch, capsys):
-        """CLI with empty goals file → no issues, exit 0."""
+        """CLI with empty goals file and no tasks → no issues, exit 0."""
         _setup_cli_fixtures(
             tmp_path, monkeypatch,
             "# Goals\n",
-            "- [ ] Test task\n",
+            "",
         )
         from janus.goals_cli import handle_goal_audit
         handle_goal_audit([])
