@@ -24,11 +24,12 @@ class GoalIntegrityIssue:
     Attributes:
         code: Deterministic issue code (spec §6). One of:
             ``GOAL_WITHOUT_TASKS``, ``UNKNOWN_GOAL_REFERENCE``,
-            ``INVALID_METRIC``, ``STALE_ACTIVITY``.
+            ``INVALID_METRIC``, ``STALE_ACTIVITY``,
+            ``ORPHANED_TASK``, ``INVALID_RELATED_TASK``,
+            ``RELATIONSHIP_COUNT_MISMATCH``, ``CIRCULAR_REFERENCE``.
         severity: ``error`` | ``warning`` | ``info``.
         goal_id: The goal title affected, or ``None`` if not goal-specific.
-        task_id: The task title affected (for UNKNOWN_GOAL_REFERENCE),
-            or ``None`` if not task-specific.
+        task_id: The task title affected, or ``None`` if not task-specific.
         message: Human-readable explanation.
         details: Optional structured diagnostic payload.
     """
