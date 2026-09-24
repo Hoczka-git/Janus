@@ -70,6 +70,9 @@ def format_weekly_message(review: "WeeklyReview") -> str:
             if gr.suggested_next_step:
                 lines.append("Suggested next step:")
                 lines.append(f"• {gr.suggested_next_step}")
+            if gr.remediation_action:
+                lines.append("Remediation:")
+                lines.append(f"! {gr.remediation_action}")
             if gr.health_state:
                 lines.append(f"Health: {gr.health_state}")
             if gr.all_related_tasks_completed:
