@@ -192,12 +192,9 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 `docs/roadmap.md` marks items 9-12 as `[ ]` but they are implemented, tested, and merged. Verified by prior review (t_3d55f0c0). Items: Janus ↔ Hermes execution feedback, Strategic state summaries, Evidence-based skill tracking, and one more. The roadmap needs updating to `[x]` or `[~]`.
 
-### 5.2 Two Overlapping Consolidated ADR Files
+### 5.2 Consolidated ADR File (Single Source of Truth)
 
-- `docs/decisions/adr-003-004-005-consolidated-decisions.md` (84 lines, summary)
-- `docs/decisions/adr-consolidated-decisions.md` (211 lines, full review)
-
-Both list ADR-004 as "Accepted with implementation caveats" — stale post-PR-189. Only the runtime plugin-loading gap remains. Which is authoritative is unclear.
+`docs/decisions/adr-003-004-005-consolidated-decisions.md` (211 lines, full review + rationale) is the canonical consolidated ADR record. The duplicate `adr-consolidated-decisions.md` (84 lines, summary) was removed — see t_be476bd0. ADR-004 status updated to "Accepted" post-PR-189.
 
 ### 5.3 Goal Progress: Metric Fields vs Measurement Log
 

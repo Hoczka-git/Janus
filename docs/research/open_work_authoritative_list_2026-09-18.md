@@ -237,14 +237,14 @@ are reflected as CLOSED in this report.
 
 | # | Stale Claim | Source Report | Why Archive (not Remove) |
 |---|-------------|---------------|--------------------------|
-| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **Valid** — `adr-003-004-005-consolidated-decisions.md` (created in `76fd1cd`) and `adr-consolidated-decisions.md` (created in `c74d1ac`) exist on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or document as "available on master only." |
+| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **RESOLVED** (t_be476bd0) — `adr-003-004-005-consolidated-decisions.md` is now canonical; `adr-consolidated-decisions.md` duplicate removed. ADR-004 status updated to "Accepted." |
 
-### Consolidated ADR documents not on HEAD (ARCHIVE)
+### Consolidated ADR documents not on HEAD (RESOLVED)
 
 | # | Stale Claim | Source Report | Resolution |
 |---|-------------|---------------|------------|
-| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **Confirmed** — file created in `76fd1cd` which is on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or mark as "available on master only." |
-| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | Same — created in `c74d1ac`, not on HEAD. Archive: same recommendation. |
+| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** (t_be476bd0) — now canonical on HEAD; ADR-004 status updated to "Accepted." |
+| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** (t_be476bd0) — duplicate removed. |
 
 ---
 
@@ -337,7 +337,7 @@ are reflected as CLOSED in this report.
 || Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
 || 11 tmp_*.py files committed in 2dc1b72 | `git ls-files tmp_*.py` — 11 files; `git show 2dc1b72 --stat` lists all 11 |
 || **ADR-004 Phase 4 "separate agent" claim UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR §10 Phase 4 Integrator Model decision (lines 135-160) explicitly adopted Option B (automated step) and documented why a separate agent was not created. The "separate agent" language describes the design space considered, not an open gap. |
-|| Consolidated ADR docs not on HEAD | `76fd1cd` and `c74d1ac` create `adr-003-004-005-consolidated-decisions.md` and `adr-consolidated-decisions.md`; both on `origin/master` but not on HEAD |
+|| Consolidated ADR docs — duplicate removed | `adr-consolidated-decisions.md` duplicate removed in t_be476bd0; `adr-003-004-005-consolidated-decisions.md` is canonical |
 
 ---
 
@@ -349,12 +349,12 @@ are reflected as CLOSED in this report.
 ### This week
 2. **Patch prompt_builder.py** — ~~remove Model B language (ADR-003 GAP-003)~~ ✅ RESOLVED
    (commit `5c275ad8b` in Hermes agent repo, Sep 16)
-3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
+3. ~~Back-port consolidated ADR docs — `adr-003-004-005-consolidated-decisions.md`
    and `adr-consolidated-decisions.md` exist on master (`76fd1cd`, `c74d1ac`) but not
-   on HEAD. Back-port to HEAD or document as master-only.
+   on HEAD. Back-port to HEAD or document as master-only.~~ ✅ RESOLVED (t_be476bd0) — duplicate removed, canonical file on HEAD.
 
 ### Implementation backlog (requires dedicated tasks)
-7. **ADR-004 Phases 3-5** — implement pre-completion gate, safe integration, completion gating
+7. ~~**ADR-004 Phases 3-5** — implement pre-completion gate, safe integration, completion gating~~ ✅ RESOLVED post-PR-189.
 8. **ADR-005 migration** — route service functions through `atomic_io` instead of
    `data_protection`
 9. **ADR-005 CI grep gate** — add write-path verification to `verification.py`

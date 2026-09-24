@@ -63,7 +63,7 @@ Current state (from child task t_f339fe3e findings):
 | ADR-009 | Data Protection — Atomic IO | Accepted | `atomic_io` implemented, `data_protection` still used | Partially aligned — migration incomplete |
 | ADR-010 | Observability Strategy | Accepted | Implemented | Aligned |
 
-**Consolidated decision docs on `origin/master` but not HEAD:** `adr-003-004-005-consolidated-decisions.md`, `adr-consolidated-decisions.md`, `vault_versioning_decision.md` — historical artifacts, not blockers.
+**Consolidated decision docs on `origin/master` but not HEAD:** `adr-003-004-005-consolidated-decisions.md`, `vault_versioning_decision.md` — historical artifacts, not blockers.
 
 ### 2.4 What Already Embodies Agency-First
 
@@ -564,7 +564,7 @@ The policy boundary is at the **service function entry point**. Before any state
 **Scope:**
 - ADR-005 §2/§6 — add caveat that migration is in progress, "sole gateway" is aspirational
 - ADR-003 §7.7 — CLI help wording: "first-class" → "canonical/primary workflow"
-- Consolidate or archive consolidated ADR docs on HEAD
+- ~~Consolidate or archive consolidated ADR docs on HEAD~~ ✅ RESOLVED (t_be476bd0)
 - Remove 11 `tmp_*.py` scratch files
 
 **Out of scope:**

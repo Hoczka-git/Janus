@@ -204,10 +204,10 @@ Two consolidated decision documents exist on remote branches but are **not on HE
 
 | Document | Created in | Status |
 |----------|-----------|--------|
-| `docs/decisions/adr-003-004-005-consolidated-decisions.md` (211 lines) | `76fd1cd` | Not on HEAD |
-| `docs/decisions/adr-consolidated-decisions.md` (74 lines) | `c74d1ac` | Not on HEAD |
+| `docs/decisions/adr-003-004-005-consolidated-decisions.md` (211 lines) | `76fd1cd` | **Canonical** (duplicate `adr-consolidated-decisions.md` removed in t_be476bd0) |
+| `docs/decisions/adr-consolidated-decisions.md` (74 lines) | `c74d1ac` | **Removed** (duplicate of consolidated ADR record) |
 
-**Recommendation:** Bring `adr-003-004-005-consolidated-decisions.md` to HEAD — it's the clearest statement of record for why ADR-003/004/005 were accepted (reviews from t_985404ff, t_9f249780, t_b41ffe1f all recommend ACCEPT; no ADRs rejected).
+**Recommendation:** ✅ Resolved. `adr-003-004-005-consolidated-decisions.md` is the canonical file on HEAD; ADR-004 status updated to "Accepted" post-PR-189.
 
 ---
 
