@@ -141,6 +141,13 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
             review.progress_delta = assessment.progress_delta
             review.days_since_last_activity = assessment.days_since_last_activity
 
+            # Derive remediation action from health diagnostics (R1).
+            # Only populated for unhealthy goals; healthy goals get None.
+            from janus.services.recommended_actions import derive_remediation_action
+            remediation = derive_remediation_action(assessment, goal=goal, today=today)
+            if remediation is not None:
+                review.remediation_action = remediation.action
+
         goal_reviews.append(review)
 
     duration_ms = (time.monotonic() - start) * 1000
