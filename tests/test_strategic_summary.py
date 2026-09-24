@@ -1643,6 +1643,7 @@ class TestUpcomingDeadlineHelper:
             is False
         )
 
+
     def test_no_deadline_no_milestones(self):
         goal = _make_goal(
             title="G",
@@ -1656,8 +1657,6 @@ class TestUpcomingDeadlineHelper:
             )
             is False
         )
-
-    def test_future_milestone(self):
         goal = _make_goal(
             title="G",
             milestones=[
@@ -1702,3 +1701,52 @@ class TestUpcomingDeadlineHelper:
             )
             is False
         )
+
+
+# ===========================================================================
+# Enrichment: days_since_last_activity in GoalStateSnapshot (strategic summary spec §3)
+# ===========================================================================
+
+class TestGoalStateSnapshotEnrichment:
+    """GoalStateSnapshot includes days_since_last_activity for stalled-work
+    summary and meaningful-change detection."""
+
+    def test_goal_state_snapshot_has_days_since_last_activity(self):
+        from janus.models.strategic_summary import GoalStateSnapshot
+        s = GoalStateSnapshot(goal_title="G")
+        assert hasattr(s, "days_since_last_activity")
+        assert s.days_since_last_activity is None
+
+    def test_goal_state_snapshot_days_since_last_activity_settable(self):
+        from janus.models.strategic_summary import GoalStateSnapshot
+        s = GoalStateSnapshot(goal_title="G", days_since_last_activity=14)
+        assert s.days_since_last_activity == 14
+
+
+# ===========================================================================
+# Enrichment: StrategicSummary.to_dict datetime serialization
+# ===========================================================================
+
+class TestStrategicSummaryToDict:
+    """StrategicSummary.to_dict() and PortfolioHealthCounts.to_dict() produce
+    JSON-friendly output with ISO-format datetime strings."""
+
+    def test_strategic_summary_to_dict_is_json_serializable(self):
+        import json
+        from janus.services.strategic_summary import create_strategic_summary
+        summary = create_strategic_summary(
+            goals=[],
+            today=FIXED_TODAY,
+            open_task_titles=set(),
+            all_task_titles=set(),
+        )
+        d = summary.to_dict()
+        # Should not raise TypeError on datetime
+        json.dumps(d)
+
+    def test_portfolio_health_counts_to_dict_is_json_serializable(self):
+        import json
+        from janus.models.strategic_summary import PortfolioHealthCounts
+        counts = PortfolioHealthCounts(healthy=1, watch=2, stalled=3)
+        d = counts.to_dict()
+        json.dumps(d)

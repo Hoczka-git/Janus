@@ -71,6 +71,7 @@ class GoalStateSnapshot:
     dominant_signal_score: int = 0
     progress: float | None = None
     progress_delta: float | None = None
+    days_since_last_activity: int | None = None
     measurement_overdue_count: int = 0
     signals: frozenset[str] = field(default_factory=frozenset)
     goal_status: str = "active"
@@ -194,9 +195,15 @@ class PortfolioHealthCounts:
     inactive: int = 0
 
     def to_dict(self) -> dict:
-        from dataclasses import asdict
+        """Serialize to a JSON-friendly dict.
 
-        return asdict(self)
+        Converts ``datetime`` to ISO-format strings.
+        """
+        from dataclasses import asdict
+        from datetime import datetime
+
+        raw = asdict(self)
+        return _jsonize(raw)
 
 
 @dataclass
@@ -211,8 +218,22 @@ class StrategicSummary:
     cross_domain_links: list[CrossDomainLink] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Serialize to a JSON-friendly dict."""
+        """Serialize to a JSON-friendly dict.
 
+        Converts ``datetime`` to ISO-format strings.
+        """
         from dataclasses import asdict
 
-        return asdict(self)
+        raw = asdict(self)
+        return _jsonize(raw)
+
+
+def _jsonize(obj):
+    """Recursively convert datetimes to ISO strings for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _jsonize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_jsonize(item) for item in obj]
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    return obj

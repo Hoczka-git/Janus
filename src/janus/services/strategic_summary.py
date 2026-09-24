@@ -140,6 +140,7 @@ def build_goal_state_snapshot(
             dominant_signal_score=0,
             progress=None,
             progress_delta=None,
+            days_since_last_activity=None,
             measurement_overdue_count=0,
             signals=frozenset(),
             goal_status=goal.status,
@@ -171,6 +172,7 @@ def build_goal_state_snapshot(
         ),
         progress=assessment.progress,
         progress_delta=assessment.progress_delta,
+        days_since_last_activity=assessment.days_since_last_activity,
         measurement_overdue_count=(
             assessment.measurement_overdue_count
             if assessment.measurement_overdue_count is not None

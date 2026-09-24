@@ -1477,7 +1477,8 @@ def _print_health_detail(assessment) -> None:
         print("  Signals:")
         for s in sorted(assessment.signals, key=lambda x: x.score, reverse=True):
             marker = " * " if s == assessment.dominant_signal else "   "
-            print(f"  {marker} [{s.score:3d}] {s.signal}: {s.reason}")
+            category_str = f" ({s.category})" if s.category else ""
+            print(f"  {marker} [{s.score:3d}] {s.signal}{category_str}: {s.reason}")
     else:
         print("  Signals: none (healthy)")
 
