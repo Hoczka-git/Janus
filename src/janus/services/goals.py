@@ -77,9 +77,11 @@ def _apply_metric_value(
     - Otherwise: overwrite, set provenance to *incoming_source*.
     """
     new_value = float(new_value)
-    # Idempotency: same value -> no-op (§6.1).
+    # Idempotency: same value -> no-op (§6.1).  Returns a non-None
+    # reject_reason so the caller skips the snapshot append and does not
+    # update provenance (the value didn't actually change).
     if _values_equal(goal.current_value, new_value):
-        return new_value, None
+        return new_value, "idempotent: value unchanged within tolerance"
 
     last = goal.last_value_source
     # Manual within protection window rejects task_derived (§5.1).
