@@ -407,6 +407,72 @@ class TestPromoteToObsidianVaultResolution:
 
 
 # =============================================================================
+# Phase 4: VAULTED state transition on promote_to_obsidian
+# =============================================================================
+
+class TestPromoteTransitionsToVaulted:
+    """promote_to_obsidian transitions an approved proposal to VAULTED."""
+
+    def test_promote_transitions_to_vaulted_state(self, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        report = promote_to_obsidian(p)
+        assert "vaulted_proposal" in report
+        vaulted = report["vaulted_proposal"]
+        assert vaulted.state == CurationGateState.VAULTED
+
+    def test_promote_preserves_original_immutable(self, tmp_path: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("JANUS_OBSIDIAN_VAULT", str(tmp_path))
+        vault = tmp_path / "Knowledge"
+        vault.mkdir(exist_ok=True)
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        promote_to_obsidian(p)
+        # Original proposal must remain APPROVED (immutable transitions).
+        assert p.state == CurationGateState.APPROVED
+
+    def test_vaulted_is_terminal(self) -> None:
+        assert CurationGateState.VAULTED.is_terminal
+
+    def test_vaulted_is_terminal_via_proposal_is_terminal(self) -> None:
+        p = _mk_proposal(state=CurationGateState.VAULTED)
+        assert p.is_terminal
+
+
+class TestVaultedTransition:
+    """CurationProposal.vaulted() state transition."""
+
+    def test_vaulted_from_approved(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        vaulted = p.vaulted()
+        assert vaulted.state == CurationGateState.VAULTED
+
+    def test_vaulted_from_pending_raises_stale(self) -> None:
+        p = _mk_proposal(state=CurationGateState.PENDING)
+        with pytest.raises(StaleStateError):
+            p.vaulted()
+
+    def test_vaulted_from_rejected_raises_stale(self) -> None:
+        p = _mk_proposal(state=CurationGateState.REJECTED)
+        with pytest.raises(StaleStateError):
+            p.vaulted()
+
+    def test_vaulted_from_vaulted_raises_stale(self) -> None:
+        p = _mk_proposal(state=CurationGateState.VAULTED)
+        with pytest.raises(StaleStateError):
+            p.vaulted()
+
+    def test_vaulted_is_immutable(self) -> None:
+        p = _mk_proposal(state=CurationGateState.APPROVED)
+        vaulted = p.vaulted()
+        assert vaulted is not p
+        assert p.state == CurationGateState.APPROVED
+
+
+# =============================================================================
 # Phase 4: propose_note_content — Deterministic Rendering
 # =============================================================================
 

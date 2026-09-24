@@ -1,5 +1,7 @@
 # Janus Planning & Calendar Integration — Findings Report
 
+**Last verified:** 2026-09-24
+
 ## Question Investigated
 
 1. How does daily/weekly planning currently work?

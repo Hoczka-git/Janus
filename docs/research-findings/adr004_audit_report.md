@@ -1,6 +1,7 @@
 # ADR-004 vs. Current Codebase — Verification Report
 
 Date: 2026-09-12
+Last verified: 2026-09-24
 Branch: wt/t_0bd55de8 (checked out)
 Status: Read-only verification complete; no files modified.
 

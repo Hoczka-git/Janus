@@ -1,5 +1,7 @@
 # Consolidated ADR Decisions: ADR-003, ADR-004, ADR-005
 
+**Last verified:** 2026-09-24
+
 Synthesizes the review recommendations for the three architecture decisions under the
 Janus/Mermes roadmap and records the disposition of each. This document is the
 single source of truth that implementation tasks downstream are linked against.
@@ -23,7 +25,7 @@ rework (`kanban_request_changes`). Model B (Reviewer-Child Workflow) is rejected
 ## ADR-004 — Safe Sync-and-Integrate Workflow
 
 - **File:** `docs/decisions/004-safe-sync-integrate-workflow.md`
-- **Status:** Accepted (with implementation caveats)
+- **Status:** Accepted with implementation caveats
 - **Recommendation source:** `docs/research-findings/adr004_review_recommendation.md`
 
 **Decision:** The core design (5-phase workflow: sync → implement → verify →

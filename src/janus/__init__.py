@@ -41,6 +41,7 @@ from janus.research_cli import (
     handle_research_list_proposals,
     print_research_help,
 )
+from janus.knowledge_cli import main as _knowledge_main
 from janus.decision_cli import (
     handle_decision_list,
     handle_decision_show,
@@ -60,6 +61,7 @@ from janus.goals_cli import (
     handle_goal_project,
     handle_goal_health,
     handle_goal_audit,
+    handle_goal_repair,
     handle_goal_skills,
     handle_goal_set_skill,
     print_goal_help,
@@ -144,7 +146,7 @@ def main() -> None:
                 print("       janus workout summary [--running] [--exercise NAME]")
         elif command == "goal":
             if len(filtered) < 2:
-                print("Usage: janus goal <list|show|add|update|complete|milestone|next|health> ...")
+                print("Usage: janus goal <list|show|add|update|complete|milestone|next|health|audit|repair> ...")
                 return
             sub = filtered[1]
             if sub in ("--help", "-h", "help"):
@@ -174,6 +176,8 @@ def main() -> None:
                 handle_goal_health(filtered[2:])
             elif sub == "audit":
                 handle_goal_audit(filtered[2:])
+            elif sub == "repair":
+                handle_goal_repair(filtered[2:])
             else:
                 print(f"Unknown goal subcommand: {sub}")
                 print("Usage: janus goal list")
@@ -255,6 +259,8 @@ def main() -> None:
             else:
                 print(f"Unknown research subcommand: {sub}")
                 print_research_help()
+        elif command == "knowledge":
+            _knowledge_main(filtered[1:])
         elif command == "decision":
             if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
                 print_decision_help()

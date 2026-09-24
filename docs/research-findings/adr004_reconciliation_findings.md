@@ -3,6 +3,7 @@
 **Task:** t_d49bb94d — Make the ADR-004 workflow an enforced, evidence-backed
   completion path for coding tasks (reconciliation + closure)
 **Date:** 2026-09-19
+**Last verified:** 2026-09-24
 **Author:** Hermes Agent
 **Scope:** Reconcile ADR-004 status signal against the post-PR-189 implementation
   and the consolidated decision records, then close remaining documentation drift.

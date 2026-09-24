@@ -1,5 +1,7 @@
 # Hermes / Janus Roadmap
 
+**Last verified:** 2026-09-24
+
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
 
@@ -110,9 +112,9 @@ existing design and planning artifacts in this repository.
   tracking actionable items that do not yet belong to an active task
 - [x] Close the research → finding → decision → action loop by connecting research artifacts with decisions, goals, projects, and follow-up tasks
 - [x] Implement Janus ↔ Hermes execution feedback, including task handoff, execution results, evidence, and resulting state updates
-- [~] Verify the complete Goal → Task → Execution → Completion → Review loop
+- [x] Verify the complete Goal → Task → Execution → Completion → Review loop
   - Status transitions and execution evidence verified.
-  - Remaining: production verification of Completion → Goal Update and Review.
+  - Production verification of Completion → Goal Update and Review complete (ADR-002 curation gate with VAULTED state).
 - [x] Add evidence-based skill tracking linking completed work and project outcomes to career-development goals
 - [x] Add strategic state summaries that surface meaningful changes, neglected goals, stalled work, and recommended next actions
 - [x] Define the `GoalIntegrityReport` and `GoalIntegrityIssue` domain models. specification in [`docs/design/goal_integrity_audit.md`
@@ -121,7 +123,26 @@ existing design and planning artifacts in this repository.
 - [x] Add `janus goal audit --json` output and exit-code semantics
 - [x] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
-- [ ] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
-- [ ] Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review.
-- [ ] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
-- [ ] Expose deterministic goal next-action derivation through `janus goal next <title>` and integrate it into user-facing reviews.
+- [x] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
+- [x] Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review.
+- [x] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+- [x] Expose deterministic goal next-action derivation through `janus goal next <title>` and integrate it into user-facing reviews.
+
+## Agency-First Janus
+
+See [Agency-First Development Phase](janus-agency-first-development-phase.md).
+
+Janus should optimize for increasing user capability and agency,
+not maximizing autonomous agent execution.
+
+Key phases:
+- [x] Complete Goal → Task → Execution → Completion → Review
+  - Verified end-to-end (E2E checks pass; see `.verifications/goal_task_execution_loop_report.md`).
+- [~] Evidence & Audit
+  - Curation gate (ADR-002), decision records, and integrity audit implemented; formal first-class Evidence domain model still proposed (ADR-012).
+- [ ] Personal State Model
+- [ ] Agency-Aware Planning
+- [ ] Policy & Approval
+- [ ] Connector Protocol
+- [ ] Self-Extending Skills
+- [ ] Multi-Agent Orchestration

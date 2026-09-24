@@ -1,5 +1,7 @@
 # Goal System Discovery Report
 
+**Last verified:** 2026-09-24
+
 ## Question Investigated
 
 What is the current state of the Goal System in Janus — its models, tracking logic, task/calendar integration points, and existing milestone/action concepts — and what are the gaps relevant to execution planning?

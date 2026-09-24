@@ -6,17 +6,109 @@ No delete_goal — goals can be set to inactive.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from janus._log import emit
 from janus.models.goal import Goal
+from janus.models.metric_type import (
+    MetricSource,
+    MANUAL_VALUE_PROTECTION_WINDOW_HOURS,
+    VALUE_UPDATE_TOLERANCE,
+    is_metric_source,
+)
 from janus.integrations.markdown_goals import GOALS_PATH, load_goals, save_goal, update_goal
 from janus.integrations.metric_history import append_metric_snapshot, MetricSnapshot
 
 _VALID_FREQUENCIES = {"daily", "twice_weekly", "weekly", "weekends", "custom"}
 _VALID_PREFERRED_TIMES = {"morning", "afternoon", "evening", "anytime"}
 
-
 logger = logging.getLogger(__name__)
+
+
+# ── Provenance helpers (preservation spec §4–§6) ──────────────────────────────
+
+_VALUE_TOLERANCE = VALUE_UPDATE_TOLERANCE
+
+
+def _values_equal(a: float | None, b: float | None) -> bool:
+    """True when two values are equal within tolerance (§6.1 idempotency)."""
+    if a is None or b is None:
+        return a is b
+    return abs(float(a) - float(b)) <= _VALUE_TOLERANCE
+
+
+def _protection_window_expired(goal: Goal) -> bool:
+    """True when a manual update on *goal* is no longer protected (§5.1/§5.3).
+
+    A ``None`` provenance means no prior value was recorded, so there is
+    nothing to protect.
+    """
+    if goal.last_value_source != MetricSource.MANUAL:
+        return True
+    if goal.last_value_updated_at is None:
+        return True
+    try:
+        last = datetime.fromisoformat(goal.last_value_updated_at)
+    except ValueError:
+        return True
+    delta = datetime.now(tz=last.tzinfo) - last
+    return delta.total_seconds() > MANUAL_VALUE_PROTECTION_WINDOW_HOURS * 3600
+
+
+def _apply_metric_value(
+    goal: Goal,
+    new_value: float,
+    incoming_source: MetricSource,
+    task_id: str | None,
+) -> tuple[float | None, str | None]:
+    """Apply a value mutation to *goal* honoring precedence (§5).
+
+    Returns a ``(new_value, reject_reason)`` pair.  When ``reject_reason`` is
+    not None the value was *not* applied (the goal's current_value is left
+    untouched and no snapshot is appended).  The caller persists the goal and
+    records ``recent_activity`` regardless.
+
+    Precedence matrix (§5.6):
+    - A manual value within the protection window rejects incoming
+      ``task_derived``; ``measurement`` and ``import`` are always accepted
+      (§5.2/§5.5).
+    - An idempotent update (same value within tolerance) is a no-op and does
+      not update provenance or append a snapshot (§6.1).
+    - Otherwise: overwrite, set provenance to *incoming_source*.
+    """
+    new_value = float(new_value)
+    # Idempotency: same value -> no-op (§6.1).  Returns a non-None
+    # reject_reason so the caller skips the snapshot append and does not
+    # update provenance (the value didn't actually change).
+    if _values_equal(goal.current_value, new_value):
+        return new_value, "idempotent: value unchanged within tolerance"
+
+    last = goal.last_value_source
+    # Manual within protection window rejects task_derived (§5.1).
+    if (
+        last == MetricSource.MANUAL
+        and incoming_source == MetricSource.TASK_DERIVED
+        and not _protection_window_expired(goal)
+    ):
+        reason = (
+            f"Goal '{goal.title}': automated ({incoming_source}) update "
+            f"rejected — manual value set at "
+            f"{goal.last_value_updated_at} is within "
+            f"{MANUAL_VALUE_PROTECTION_WINDOW_HOURS}h protection window"
+        )
+        logger.warning(reason)
+        return new_value, reason
+
+    # measurement (§5.2) and import (§5.5) always accepted; task_derived
+    # after window expiry accepted (§5.3); manual always accepted (§5.4).
+    goal.current_value = new_value
+    goal.last_value_source = str(incoming_source)
+    goal.last_value_updated_at = datetime.now(timezone.utc).isoformat()
+    goal.last_value_task_id = (
+        task_id if incoming_source == MetricSource.TASK_DERIVED else None
+    )
+    return new_value, None
+
 
 
 def add_goal(
@@ -230,20 +322,30 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
         recent_activity=goal.recent_activity,
         skill_name=goal.skill_name,
         skill_evidence=goal.skill_evidence,
+        last_value_source=goal.last_value_source,
+        last_value_updated_at=goal.last_value_updated_at,
+        last_value_task_id=goal.last_value_task_id,
     )
+
+    # §4.1 / §9.1 provenance: a manual current_value update is attributed to
+    # the ``manual`` source.  last_value_task_id is cleared because manual
+    # updates are not driven by a task (preservation spec §3.1 / §4.1).
+    if "current_value" in changes:
+        goal.last_value_source = str(MetricSource.MANUAL)
+        goal.last_value_updated_at = datetime.now(timezone.utc).isoformat()
+        goal.last_value_task_id = None
 
     update_goal(goal)
 
     # Record a metric snapshot when current_value is updated and the goal
     # has a metric configured (design §7.3 / §12.4).
     if "current_value" in changes and goal.metric_name is not None:
-        from datetime import datetime
         snapshot = MetricSnapshot(
-            timestamp=datetime.now().astimezone(),
+            timestamp=datetime.now(timezone.utc).astimezone(),
             goal_title=goal.title,
             metric_name=goal.metric_name,
             value=float(goal.current_value),
-            source="manual",
+            source=MetricSource.MANUAL,
         )
         append_metric_snapshot(snapshot)
         emit(logger, "service.goal.snapshot_created",
@@ -390,6 +492,7 @@ def update_goal_progress(
     # ``current_value`` legacy field (kept for one migration cycle).
     current_val = (evidence or {}).get("current_value")
     metric_updates = (evidence or {}).get("metric_updates")
+    metric_updated = False
     if metric_updates:
         for mu in metric_updates:
             if not isinstance(mu, dict):
@@ -397,15 +500,51 @@ def update_goal_progress(
             mu_name = mu.get("metric_name")
             mu_val = mu.get("value")
             mu_unit = mu.get("unit")
-            if mu_name == goal.metric_name and mu_val is not None:
-                goal.current_value = float(mu_val)
-                if mu_unit and not goal.metric_unit:
-                    goal.metric_unit = mu_unit
+            # Edge case §4.4: metric_name mismatch -> silently skip.
+            if mu_name != goal.metric_name or mu_val is None:
+                continue
+            # §4.2 / §5 precedence: apply via the provenance helper.  If the
+            # manual protection window rejects the overwrite, the goal's
+            # current_value is left untouched (but the activity is still
+            # recorded and recent_activity persists).
+            new_val, reject_reason = _apply_metric_value(
+                goal, float(mu_val), MetricSource.TASK_DERIVED, completed_task_id
+            )
+            if reject_reason is not None:
+                # Conflict recorded by _apply_metric_value; continue to next
+                # entry (§10.4: each entry evaluated independently).
+                continue
+            if mu_unit and not goal.metric_unit:
+                goal.metric_unit = mu_unit
+            metric_updated = True
     elif current_val is not None and goal.metric_name is not None:
         # Legacy single-value path (deprecated, one migration cycle).
-        goal.current_value = float(current_val)
+        _, reject_reason = _apply_metric_value(
+            goal, float(current_val), MetricSource.TASK_DERIVED, completed_task_id
+        )
+        if reject_reason is None:
+            metric_updated = True
 
     update_goal(goal)
+
+    # §4.2 / §3.9 snapshot side effect: every accepted task-derived value
+    # mutation appends a MetricSnapshot(source=task_derived).  Rejected
+    # (within protection window) and idempotent updates do not append
+    # (§7.2 audit trail / §6.1).
+    if metric_updated and goal.metric_name is not None:
+        snapshot = MetricSnapshot(
+            timestamp=datetime.now(timezone.utc),
+            goal_title=goal.title,
+            metric_name=goal.metric_name,
+            value=float(goal.current_value or 0.0),
+            source=MetricSource.TASK_DERIVED,
+        )
+        append_metric_snapshot(snapshot)
+        emit(logger, "service.goal.snapshot_created",
+             trace_id=None, span_id="service",
+             operation="update_goal_progress", goal_title=title,
+             metric_name=goal.metric_name,
+             message=f"Metric snapshot recorded for goal '{title}' (task_derived)")
 
     emit(logger, "service.goal.mutated",
          trace_id=None, span_id="service",

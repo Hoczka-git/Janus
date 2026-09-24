@@ -421,7 +421,16 @@ def _extract_status(content: str) -> str:
 
 
 def _normalize_status(raw: str) -> str:
-    """Normalize a status string to one of the valid status values."""
+    """Normalize a status string to one of the valid status values.
+
+    Recognizes qualified status prose (e.g. ``Accepted with implementation
+    caveats``, ``Accepted (on consensus)``) by matching the leading canonical
+    keyword, so a status that is *accepted with caveats* is reported as the
+    canonical ``accepted`` value rather than falling through to ``proposed``.
+    The full qualifier text is preserved in the ADR's prose; the discrete
+    ``Decision.status`` field remains one of
+    :data:`VALID_DECISION_STATUSES`.
+    """
     lower = raw.lower().strip().rstrip(".")
     if lower in VALID_DECISION_STATUSES:
         return lower
@@ -434,7 +443,14 @@ def _normalize_status(raw: str) -> str:
         "rejected": "deprecated",
         "withdrawn": "deprecated",
     }
-    return aliases.get(lower, "proposed")
+    if lower in aliases:
+        return aliases[lower]
+    # Match qualified status strings, e.g. "accepted with implementation
+    # caveats", "accepted (on consensus)", "proposed (under review)".
+    for canonical in VALID_DECISION_STATUSES:
+        if lower.startswith(canonical):
+            return canonical
+    return "proposed"
 
 
 def _extract_section(content: str, section_name: str) -> str:

@@ -20,6 +20,10 @@ from janus.services.goal_integrity import (
     UNKNOWN_GOAL_REFERENCE,
     INVALID_METRIC,
     STALE_ACTIVITY,
+    ORPHANED_TASK,
+    INVALID_RELATED_TASK,
+    RELATIONSHIP_COUNT_MISMATCH,
+    CIRCULAR_REFERENCE,
 )
 from janus.services.goal_integrity import INACTIVITY_WINDOW_DAYS
 
@@ -382,7 +386,7 @@ class TestGoalAuditCLI:
         _setup_cli_fixtures(
             tmp_path, monkeypatch,
             "# Goals\n",
-            "- [ ] Test task | goal: Nonexistent goal\n",
+            "",
         )
         from janus.goals_cli import handle_goal_audit
         handle_goal_audit(["--json"])
@@ -418,11 +422,11 @@ class TestGoalAuditCLI:
         handle_goal_audit([])
 
     def test_no_goals_no_issues(self, tmp_path, monkeypatch, capsys):
-        """CLI with empty goals file → no issues, exit 0."""
+        """CLI with empty goals file and no tasks → no issues, exit 0."""
         _setup_cli_fixtures(
             tmp_path, monkeypatch,
             "# Goals\n",
-            "- [ ] Test task\n",
+            "",
         )
         from janus.goals_cli import handle_goal_audit
         handle_goal_audit([])
@@ -598,3 +602,181 @@ class TestGoalAuditCLI:
         janus.main()
         captured = capsys.readouterr()
         assert "Goal Integrity Audit" in captured.out
+
+
+# ── 13. Orphan tasks ──────────────────────────────────────────────────────────
+
+class TestOrphanTasks:
+    def test_orphan_task_detected(self):
+        """An open task with no goal: ref and not in any related_tasks is orphaned."""
+        goal = _task_goal("Real goal", related=["Real task"])
+        orphan_task = _task("Lonely task")  # no goal: ref, not in related_tasks
+        real_task = _task("Real task", goal_ref="Real goal")
+        report = audit_goal_integrity(
+            goals=[goal], tasks=[orphan_task, real_task], now=NOW
+        )
+        orphans = [i for i in report.issues if i.code == ORPHANED_TASK]
+        assert len(orphans) == 1
+        assert orphans[0].severity == "warning"
+        assert orphans[0].task_id == "Lonely task"
+
+    def test_task_in_related_tasks_not_orphaned(self):
+        """A task listed in goal.related_tasks is not orphaned even without goal: ref."""
+        goal = _task_goal("My goal", related=["Book flights"])
+        task = _task("Book flights")  # no goal: ref, but in related_tasks
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        orphans = [i for i in report.issues if i.code == ORPHANED_TASK]
+        assert len(orphans) == 0
+
+    def test_task_with_goal_ref_not_orphaned(self):
+        """A task with a goal: ref is not orphaned (even if goal has no related_tasks)."""
+        goal = _task_goal("My goal", related=[])
+        task = _task("Some task", goal_ref="My goal")
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        orphans = [i for i in report.issues if i.code == ORPHANED_TASK]
+        assert len(orphans) == 0
+
+    def test_orphan_task_no_goals_at_all(self):
+        """When there are no goals, all tasks are orphaned."""
+        orphan = _task("Lonely task")
+        report = audit_goal_integrity(goals=[], tasks=[orphan], now=NOW)
+        orphans = [i for i in report.issues if i.code == ORPHANED_TASK]
+        assert len(orphans) == 1
+        assert orphans[0].task_id == "Lonely task"
+
+    def test_multiple_orphan_tasks(self):
+        """Multiple orphan tasks each get flagged."""
+        goal = _task_goal("Real goal", related=["Task A"])
+        report = audit_goal_integrity(
+            goals=[goal],
+            tasks=[
+                _task("Task A", goal_ref="Real goal"),
+                _task("Orphan 1"),
+                _task("Orphan 2"),
+            ],
+            now=NOW,
+        )
+        orphans = [i for i in report.issues if i.code == ORPHANED_TASK]
+        assert len(orphans) == 2
+        orphan_ids = {i.task_id for i in orphans}
+        assert orphan_ids == {"Orphan 1", "Orphan 2"}
+
+
+# ── 14. Invalid related_task references ───────────────────────────────────────
+
+class TestInvalidRelatedTasks:
+    def test_related_task_not_in_tasks_list(self):
+        """A goal.related_tasks entry pointing to a non-existent task is invalid."""
+        goal = _task_goal("Real goal", related=["Nonexistent task"])
+        report = audit_goal_integrity(goals=[goal], tasks=[], now=NOW)
+        invalids = [i for i in report.issues if i.code == INVALID_RELATED_TASK]
+        assert len(invalids) == 1
+        assert invalids[0].severity == "error"
+        assert invalids[0].goal_id == "Real goal"
+        assert invalids[0].task_id == "Nonexistent task"
+
+    def test_related_task_completed_not_flagged(self):
+        """A completed task is not in the open task list, so it's invalid."""
+        goal = _task_goal("Real goal", related=["Done task"])
+        task = Task(title="Done task")
+        # Simulate a completed task: load_tasks only returns open tasks,
+        # so a completed task won't appear in the tasks list.
+        report = audit_goal_integrity(goals=[goal], tasks=[], now=NOW)
+        invalids = [i for i in report.issues if i.code == INVALID_RELATED_TASK]
+        assert len(invalids) == 1
+        assert invalids[0].task_id == "Done task"
+
+    def test_valid_related_task_not_flagged(self):
+        """A goal.related_tasks entry matching an open task is valid."""
+        goal = _task_goal("Real goal", related=["Real task"])
+        task = _task("Real task")
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        invalids = [i for i in report.issues if i.code == INVALID_RELATED_TASK]
+        assert len(invalids) == 0
+
+    def test_mismatched_related_task(self):
+        """When related_tasks has a stale entry but also a valid one."""
+        goal = _task_goal("Real goal", related=["Valid task", "Stale task"])
+        task = _task("Valid task")
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        invalids = [i for i in report.issues if i.code == INVALID_RELATED_TASK]
+        assert len(invalids) == 1
+        assert invalids[0].task_id == "Stale task"
+
+
+# ── 15. Relationship count mismatch ───────────────────────────────────────────
+
+class TestRelationshipCountMismatch:
+    def test_reverse_only_ref_no_forward(self):
+        """Task references goal via goal: but goal doesn't list it in related_tasks."""
+        goal = _task_goal("My goal", related=[])
+        task = _task("Some task", goal_ref="My goal")
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        mismatches = [i for i in report.issues if i.code == RELATIONSHIP_COUNT_MISMATCH]
+        assert len(mismatches) >= 1
+        assert any(i.task_id == "Some task" for i in mismatches)
+
+    def test_count_mismatch_when_both_populated(self):
+        """Goal lists 2 related tasks, but only 1 task references it back."""
+        goal = _task_goal("My goal", related=["Task A", "Task B"])
+        task_a = _task("Task A", goal_ref="My goal")
+        task_b = _task("Task B")  # missing goal: ref
+        report = audit_goal_integrity(
+            goals=[goal], tasks=[task_a, task_b], now=NOW
+        )
+        mismatches = [i for i in report.issues if i.code == RELATIONSHIP_COUNT_MISMATCH]
+        # Task A is in reverse but also in forward (consistent for that task).
+        # Count mismatch: 2 forward vs 1 reverse.
+        count_mismatches = [i for i in mismatches if i.task_id is None]
+        assert len(count_mismatches) == 1
+        assert count_mismatches[0].details["forward_count"] == 2
+        assert count_mismatches[0].details["reverse_count"] == 1
+
+    def test_no_mismatch_when_no_reverse_refs(self):
+        """No mismatch when tasks have no goal: refs (forward-only is canonical)."""
+        goal = _task_goal("My goal", related=["Task A", "Task B"])
+        task_a = _task("Task A")
+        task_b = _task("Task B")
+        report = audit_goal_integrity(
+            goals=[goal], tasks=[task_a, task_b], now=NOW
+        )
+        mismatches = [i for i in report.issues if i.code == RELATIONSHIP_COUNT_MISMATCH]
+        assert len(mismatches) == 0
+
+
+# ── 16. Circular references ───────────────────────────────────────────────────
+
+class TestCircularReferences:
+    def test_no_circular_ref_for_simple_pair(self):
+        """A single goal↔task mutual link is valid (not a circular reference)."""
+        goal = _task_goal("Goal A", related=["Task T1"])
+        task = _task("Task T1", goal_ref="Goal A")
+        report = audit_goal_integrity(goals=[goal], tasks=[task], now=NOW)
+        circulars = [i for i in report.issues if i.code == CIRCULAR_REFERENCE]
+        assert len(circulars) == 0
+
+    def test_circular_ref_detected(self):
+        """A cycle Goal A → Task T1 → Goal B → Task T2 → Goal A is flagged."""
+        goal_a = _task_goal("Goal A", related=["Task T1"])
+        goal_b = _task_goal("Goal B", related=["Task T2"])
+        task_t1 = _task("Task T1", goal_ref="Goal B")  # points to B
+        task_t2 = _task("Task T2", goal_ref="Goal A")  # points to A
+        report = audit_goal_integrity(
+            goals=[goal_a, goal_b], tasks=[task_t1, task_t2], now=NOW
+        )
+        circulars = [i for i in report.issues if i.code == CIRCULAR_REFERENCE]
+        assert len(circulars) >= 1
+        assert circulars[0].severity == "error"
+        assert "Goal A" in circulars[0].message
+        assert "Goal B" in circulars[0].message
+
+    def test_no_circular_ref_for_linear_chain(self):
+        """A linear chain Goal A → Task T1 → Goal B (no back-edge) is not circular."""
+        goal_a = _task_goal("Goal A", related=["Task T1"])
+        goal_b = _task_goal("Goal B", related=[])
+        task_t1 = _task("Task T1", goal_ref="Goal B")
+        report = audit_goal_integrity(
+            goals=[goal_a, goal_b], tasks=[task_t1], now=NOW
+        )
+        circulars = [i for i in report.issues if i.code == CIRCULAR_REFERENCE]
+        assert len(circulars) == 0
