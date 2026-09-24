@@ -61,6 +61,7 @@ from janus.goals_cli import (
     handle_goal_project,
     handle_goal_health,
     handle_goal_audit,
+    handle_goal_repair,
     handle_goal_skills,
     handle_goal_set_skill,
     print_goal_help,
@@ -145,7 +146,7 @@ def main() -> None:
                 print("       janus workout summary [--running] [--exercise NAME]")
         elif command == "goal":
             if len(filtered) < 2:
-                print("Usage: janus goal <list|show|add|update|complete|milestone|next|health> ...")
+                print("Usage: janus goal <list|show|add|update|complete|milestone|next|health|audit|repair> ...")
                 return
             sub = filtered[1]
             if sub in ("--help", "-h", "help"):
@@ -175,6 +176,8 @@ def main() -> None:
                 handle_goal_health(filtered[2:])
             elif sub == "audit":
                 handle_goal_audit(filtered[2:])
+            elif sub == "repair":
+                handle_goal_repair(filtered[2:])
             else:
                 print(f"Unknown goal subcommand: {sub}")
                 print("Usage: janus goal list")
