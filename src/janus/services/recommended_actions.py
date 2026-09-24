@@ -91,6 +91,14 @@ _REMEDIATION_RULES: dict[str, tuple[str, int]] = {
         "metric update to confirm forward momentum.",
         40,
     ),
+    # Goal metric value moved away from the target over the lookback window.
+    "progress_regressing": (
+        "Progress has regressed away from the target over the lookback "
+        "window. Investigate the cause, correct the metric value if it "
+        "was recorded incorrectly, or re-scope the goal to reflect the "
+        "new baseline.",
+        50,
+    ),
     # One or more measurement requirements are overdue.
     "measurement_due": (
         "Measurement requirements are overdue. Collect the missing metric "
