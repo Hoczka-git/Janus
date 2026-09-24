@@ -1,5 +1,7 @@
 # Hermes / Janus Vision
 
+**Last verified:** 2026-09-24
+
 ## Purpose
 
 Hermes is a persistent personal AI Chief of Staff designed to help manage projects, knowledge, research and personal operations.

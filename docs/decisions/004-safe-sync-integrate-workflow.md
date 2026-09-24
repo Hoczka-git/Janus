@@ -4,8 +4,10 @@
 
 Accepted with implementation caveats
 
-|> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
-|> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
+**Last verified:** 2026-09-24
+
+||> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
+||> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
 |> is wired via `plugins/janus_sync/__init__.py:on_task_claimed` (PR #178). Phases 3+4+5
 |> (pre-completion gate, safe integration, completion gating) are wired into
 |> `src/janus/services/tasks.py:run_completion_gates` / `complete_task()` (PR #176).

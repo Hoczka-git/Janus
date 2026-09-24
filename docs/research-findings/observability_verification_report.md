@@ -2,6 +2,7 @@
 
 **Task:** t_d22c0394 — Verify observability logs and document instrumentation
 **Date:** 2026-09-02
+**Last verified:** 2026-09-24
 **Commit under test:** 7046ca2 (feat: structured observability logging in daily briefing pipeline)
 
 ---

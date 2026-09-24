@@ -2,6 +2,7 @@
 
 ## Status
 
+**Last verified:** 2026-09-24
 **Proposed next phase**
 
 This document defines the next strategic development phase of Janus after the completion of the Goal → Task → Execution → Completion → Review loop.

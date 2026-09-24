@@ -3,6 +3,7 @@
 - **Parent:** ADR-005 — Activity Data Ingestion Layer
 - **Status:** Accepted
 - **Date:** 2026-09-17
+- **Last verified:** 2026-09-24
 - **Decides:** The consolidation strategy for the two overlapping write-protection
   modules discovered after ADR-005 was accepted.
 

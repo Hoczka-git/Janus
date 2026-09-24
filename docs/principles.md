@@ -1,5 +1,7 @@
 # Hermes / Janus Principles
 
+**Last verified:** 2026-09-24
+
 These principles guide both system design and agent behavior.
 
 ---

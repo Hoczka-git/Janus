@@ -2,6 +2,7 @@
 
 **Task:** t_7a55554d — Synthesize ADR-004 audit report  
 **Date:** 2026-09-12  
+**Last verified:** 2026-09-24
 **Scope:** Compare ADR-004 (`docs/decisions/004-safe-sync-integrate-workflow.md`) against current Janus/Hermes implementation.  
 **Method:** Synthesize findings from three parent research tasks: t_73ff09a7 (completion/integration flow survey), t_b352e609 (sync/integrate implementation survey), t_ce633bb3 (ADR-004 claim extraction).
 

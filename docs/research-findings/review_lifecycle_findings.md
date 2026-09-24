@@ -1,5 +1,6 @@
 # Findings: Observability Patterns & Review-Loop Lifecycle Hooks
 
+**Last verified:** 2026-09-24
 **Scope:** Janus domain-logic layer + Hermes agent/orchestration kanban subsystem.
 **Goal:** Current capabilities, gaps, recommended instrumentation points, and existing code that partially addresses review-cycle metrics.
 

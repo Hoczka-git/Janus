@@ -9,6 +9,7 @@
 **Parent skill**: `skills/autonomous-ai-agents/activity-ingestion/SKILL.md` (mandatory)
 **ADR reference**: `docs/decisions/005-activity-data-ingestion-layer.md` (ADR-005)
 **Companion domain skill**: `skills/autonomous-ai-agents/running/SKILL.md` (shared model, persistence, analytics)
+**Last verified:** 2026-09-24
 
 ---
 
