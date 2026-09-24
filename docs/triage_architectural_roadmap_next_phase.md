@@ -72,16 +72,14 @@ All five ADR families are present in `docs/decisions/`:
 | 001 | 001-hermes-janus-system-model.md | Accepted |
 | 002 | 002-obsidian-knowledge-layer.md | Accepted |
 | 003 | 003-canonical-review-topology.md (+ supplement) | Accepted |
-| 004 | 004-safe-sync-integrate-workflow.md | Accepted with implementation caveats |
-| 005 | 005-activity-data-ingestion-layer.md | Accepted (on consolidation) |
+| 004 | 004-safe-sync-integrate-workflow.md | Accepted |
+| 005 | 005-activity-data-ingestion-layer.md | Accepted |
 
-Two consolidated files coexist:
+One consolidated file exists:
 
-- `docs/decisions/adr-consolidated-decisions.md`
-- `docs/decisions/adr-003-004-005-consolidated-decisions.md`
+- `docs/decisions/adr-003-004-005-consolidated-decisions.md` — canonical consolidated ADR for ADR-003/004/005.
 
-Both are near-duplicate. One should be authoritative. This is a documentation debt item,
-not a correctness issue.
+The duplicate `adr-consolidated-decisions.md` was removed in commits b7ef125 / 4c34204 / 3178c97.
 
 ### 3.2 ADR-003 — Canonical Review Topology
 
@@ -249,8 +247,7 @@ These are low-effort, high-signal items. They create false board signal if left 
 1. The roadmap "Agency-First Janus" phase checkboxes are all `[ ]` even though the same
    document's Near-Term list marks the Phase A loop verification done. Reconcile the two.
 
-2. Two near-duplicate consolidated ADR files exist. Pick one as authoritative, merge or
-   remove the other.
+2. ~~Two near-duplicate consolidated ADR files exist~~ — RESOLVED. The duplicate `adr-consolidated-decisions.md` was removed. `adr-003-004-005-consolidated-decisions.md` is now the sole canonical file.
 
 3. The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is
    "referenced but missing." It is not missing. Close or re-baseline that follow-up.
@@ -259,9 +256,7 @@ These are low-effort, high-signal items. They create false board signal if left 
    carry their historical status lines. Adding a "Last verified" date to each ADR is a
    low-effort signal improvement.
 
-5. The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale
-   against this repo. Re-baseline them as resolved-by-deletion-and-relayering, keeping only
-   the backup-strategy preference as an open design item.
+5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo. Re-baseline them as resolved-by-deletion-and-relayering, keeping only the backup-strategy preference as an open design item.~~ — RESOLVED. The migration is complete: `data_protection.py` was deleted in PR #204, all callers migrated to `atomic_io`/`data_integrity`. Only the backup-strategy preference (rotating vs simple `.bak`) remains open.
 
 6. The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime
    item and should stay, but it is not a code gap in this repo.
