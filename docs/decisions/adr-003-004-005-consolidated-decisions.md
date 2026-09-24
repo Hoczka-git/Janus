@@ -17,7 +17,7 @@ All three ADRs were reviewed and **accepted**. None were rejected.
 | ADR | Recommendation | Status Change | Key Rationale |
 |-----|----------------|---------------|---------------|
 | ADR-003 (Canonical Review Topology) | **ACCEPT** | Proposed → Accepted | Model A (Native Review Lane) is fully implemented, tested (5,359 lines), and enforced across all subsystems. Model B never existed in code. |
-| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT (with caveants)** | Proposed → Accepted (with caveats) | Core 5-phase design is sound; ADR references `kanban_db.py` which does not exist in this codebase. Must be reconciled with `services/tasks.py`. |
+| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT** | Proposed → Accepted | Core 5-phase design is sound and fully implemented post-PR-189. All phases wired into completion path. Only Phase 1 start-time invocation remains an explicit deferred design choice. |
 | ADR-005 (Activity Data Ingestion Layer) | **ACCEPT (with caveats)** | Proposed → Accepted (on consolidation) | Core design is correct and partially implemented; service migration incomplete and two overlapping protection layers (`atomic_io` vs `data_protection`) need consolidation. |
 
 **No ADRs were rejected.** Model B of ADR-003 is rejected as the canonical review topology (Model A is adopted), but this is part of ADR-003 itself, not a separate ADR rejection.
@@ -78,8 +78,8 @@ The test suite provides ~5,359 lines of dedicated review-topology tests across 5
 ## Decision 2: ADR-004 — Safe Sync-and-Integrate Workflow for Coding Tasks
 
 **Review task:** t_9f249780
-**Recommendation:** ACCEPT (with implementation caveats)
-**Status:** `docs/decisions/004-safe-sync-integrate-workflow.md` — Updated from `Proposed` to `Accepted (with implementation caveats)`
+**Recommendation:** ACCEPT
+**Status:** `docs/decisions/004-safe-sync-integrate-workflow.md` — Updated from `Proposed` to `Accepted`
 
 ### Rationale
 
