@@ -1,6 +1,7 @@
 # ADR-003, ADR-004, ADR-005: Consolidated Decisions
 
 **Date:** 2026-09-16
+**Last verified:** 2026-09-24
 **Consolidator:** t_77e35ea8 (implementer)
 **Source reviews:**
 - ADR-003: t_985404ff — `docs/research/adr-003-review.md`
@@ -16,7 +17,7 @@ All three ADRs were reviewed and **accepted**. None were rejected.
 | ADR | Recommendation | Status Change | Key Rationale |
 |-----|----------------|---------------|---------------|
 | ADR-003 (Canonical Review Topology) | **ACCEPT** | Proposed → Accepted | Model A (Native Review Lane) is fully implemented, tested (5,359 lines), and enforced across all subsystems. Model B never existed in code. |
-| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT** | Proposed → Accepted | Core 5-phase design is sound and fully implemented post-PR-189 (Phase 1 re-sync, Phase 3 default-on gate, Phase 4 active integration, Phase 5 gated completion). Only Phase 1 start-time invocation remains an explicit deferred design choice. |
+| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT (with caveants)** | Proposed → Accepted (with caveats) | Core 5-phase design is sound; ADR references `kanban_db.py` which does not exist in this codebase. Must be reconciled with `services/tasks.py`. |
 | ADR-005 (Activity Data Ingestion Layer) | **ACCEPT (with caveats)** | Proposed → Accepted (on consolidation) | Core design is correct and partially implemented; service migration incomplete and two overlapping protection layers (`atomic_io` vs `data_protection`) need consolidation. |
 
 **No ADRs were rejected.** Model B of ADR-003 is rejected as the canonical review topology (Model A is adopted), but this is part of ADR-003 itself, not a separate ADR rejection.
@@ -78,7 +79,7 @@ The test suite provides ~5,359 lines of dedicated review-topology tests across 5
 
 **Review task:** t_9f249780
 **Recommendation:** ACCEPT (with implementation caveats)
-**Status:** `docs/decisions/004-safe-sync-integrate-workflow.md` — Updated from `Proposed` to `Accepted`
+**Status:** `docs/decisions/004-safe-sync-integrate-workflow.md` — Updated from `Proposed` to `Accepted (with implementation caveats)`
 
 ### Rationale
 
@@ -102,15 +103,15 @@ ADR-004's core design is sound and addresses real, documented risks:
    ADR-004 Phase 3 requires deterministic checks: working tree clean, `git diff --check`, test re-run after rebase. The current `src/janus/verification.py` is contract-based and opt-in (via `janus_contract:` frontmatter). Only 3 of 9 check types are implemented.
    - **Impact:** Phase 3 cannot be enforced unless the verifier is extended with default-on deterministic checks.
 
-### Current Implementation Status vs. ADR-004 (Post-PR-189)
+### Current Implementation Status vs. ADR-004
 
 | ADR Phase | Current State | Gap |
 |-----------|---------------|-----|
-| Phase 1 — Pre-Implementation Sync | Implemented (`git_sync.py:sync_branch()`, wired into gate via `tasks.py:_phase1_resync()`); start-time invocation is an explicit deferred design choice | None at gate time; start-time sync deferred |
+| Phase 1 — Pre-Implementation Sync | Primitive exists (`git_sync.py`), fully tested, never auto-invoked | Wire `sync_branch()` into task start |
 | Phase 2 — Implementation | Worktree isolation exists | None |
-| Phase 3 — Pre-Completion Gate | Default-on deterministic gate implemented (`tasks.py:_phase3_pre_completion_gate()`) | None |
-| Phase 4 — Safe Integration | Active `integrate_task()` in `src/janus/integration.py`, merge/push/rollback implemented | None |
-| Phase 5 — Gated Completion | `run_completion_gates()` in `complete_task()` enforces Phases 1+3+4 | None |
+| Phase 3 — Pre-Completion Gate | Contract verifier exists (3/9 checks), opt-in | Add deterministic checks; make default-on |
+| Phase 4 — Safe Integration | Entirely absent — no module, no agent, no merge/push/rollback | Build from scratch |
+| Phase 5 — Gated Completion | `complete_task()` is bare markdown edit, no gates | Add gate enforcement |
 
 ### Rejection Rationale
 
@@ -122,19 +123,18 @@ ADR-004's core design is sound and addresses real, documented risks:
 
 ### Recommended Implementation Path
 
-All priorities are now implemented post-PR-189:
+**Priority 1** (low effort, high value):
+- Auto-invoke `sync_branch()` at task start (Phase 1).
+- Extend `verification.py` with default-on deterministic checks: working tree clean, `git diff --check`, test re-run after rebase (Phase 3).
+- Generate `pre_completion_report.json` from `VerificationReport` (Phase 5 evidence).
 
-**Priority 1** (DONE):
-- Auto-invoke `sync_branch()` at task start — wired into gate via `_phase1_resync()` (gate time). Start-time sync remains an explicit deferred design choice.
-- Extend `verification.py` with default-on deterministic checks — done in `_phase3_pre_completion_gate()` (clean tree, `git diff --check`, test re-run after rebase).
-- Generate `pre_completion_report.json` from `VerificationReport` — done.
+**Priority 2** (decide Phase 4 model):
+- Option A (ADR-compliant): Build `src/janus/integration.py` with active merge/push/rollback, performed by a separate agent step.
+- Option B (pragmatic): Implement Phase 4 as an automated step in the completion flow. Lower effort but the implementor remains involved in integration.
 
-**Priority 2** (DONE):
-- Phase 4 model decided: **Option B (automated step in completion flow)**. `src/janus/integration.py:integrate_task()` is called from `complete_task()` via `run_completion_gates()`.
-
-**Priority 3** (DONE):
-- ADR-004 text already references `services/tasks.py` as the completion path.
-- Phase 4 description updated to reflect Option B implementation model.
+**Priority 3** (reconcile ADR with codebase):
+- Update ADR-004 to reference `services/tasks.py` (not `kanban_db.py`).
+- Update Phase 4 description to reflect the chosen implementation model.
 
 ---
 
@@ -191,7 +191,7 @@ Resolution options:
 ### Completed in this task (t_77e35ea8):
 - [x] Collected accept/reject recommendations for ADR-003, ADR-004, ADR-005 from parent review tasks
 - [x] Updated ADR-003 status: `Proposed` → `Accepted`
-- [x] Updated ADR-004 status: `Proposed` → `Accepted (with implementation caveats)` → later updated to `Accepted` post-PR-189
+- [x] Updated ADR-004 status: `Proposed` → `Accepted (with implementation caveats)`
 - [x] Updated ADR-005 status: `Proposed` → `Accepted (on consolidation)`
 - [x] Created this consolidated summary document
 
@@ -200,12 +200,12 @@ Resolution options:
   - Patch `prompt_builder.py` to remove Model B language from `KANBAN_GUIDANCE`
   - Add tests for `_landing_status_after_parents()`, `_escalate_review_loop_exceeded()`, `reopen_review_task()` edge cases, `changes_requested` watcher notification
   - Document `delegate_task` review probes interaction and human-in-the-loop review path
-- **ADR-004 follow-ups (DONE post-PR-189):**
-  - [x] Reconcile `kanban_db.py` references with `services/tasks.py`
-  - [x] Auto-invoke `sync_branch()` at task start (Phase 1) — wired into gate via `_phase1_resync()`
-  - [x] Extend `verification.py` with default-on deterministic checks (Phase 3) — done in `_phase3_pre_completion_gate()`
-  - [x] Decide and implement Phase 4 integrator model — Option B implemented in `src/janus/integration.py`
-  - [x] Add gate enforcement to `complete_task()` (Phase 5) — `run_completion_gates()` implemented
+- **ADR-004 follow-ups:**
+  - Reconcile `kanban_db.py` references with `services/tasks.py`
+  - Auto-invoke `sync_branch()` at task start (Phase 1)
+  - Extend `verification.py` with default-on deterministic checks (Phase 3)
+  - Decide and implement Phase 4 integrator model
+  - Add gate enforcement to `complete_task()` (Phase 5)
 - **ADR-005 follow-ups:**
   - Migrate `tasks.py`, `goals.py`, `milestones.py` to route writes through `atomic_io`
   - Resolve `atomic_io` vs `data_protection` layer overlap (deprecate, compose, or document coexistence)

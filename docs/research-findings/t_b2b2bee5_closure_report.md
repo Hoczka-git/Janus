@@ -4,6 +4,7 @@
 **PR:** #187 (synthesis from t_cbe72f8a)
 **CI:** Passed (2x verify SUCCESS)
 **Date:** 2026-09-19
+**Last verified:** 2026-09-24
 
 ## Summary
 

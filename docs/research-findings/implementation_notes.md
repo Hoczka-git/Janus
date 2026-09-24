@@ -1,5 +1,7 @@
 # Implementation Notes — Execution Feedback & Task Handoff (t_b6c796f2)
 
+**Last verified:** 2026-09-24
+
 ## Scope
 
 Implements the **Janus-side** of the execution feedback and task handoff contract

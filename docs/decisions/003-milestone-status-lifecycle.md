@@ -4,6 +4,8 @@
 
 Accepted
 
+**Last verified:** 2026-09-24
+
 ---
 
 # Context

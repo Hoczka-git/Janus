@@ -3,6 +3,7 @@
 **Task:** t_d49bb94d — Make the ADR-004 workflow an enforced, evidence-backed
   completion path for coding tasks (reconciliation + closure)
 **Date:** 2026-09-19
+**Last verified:** 2026-09-24
 **Author:** Hermes Agent
 **Scope:** Reconcile ADR-004 status signal against the post-PR-189 implementation
   and the consolidated decision records, then close remaining documentation drift.
@@ -141,7 +142,7 @@ about Phase 3/4 needing work.
 
 ## 6. Recommended Next Actions (Documentation Only)
 
-1. Update `docs/decisions/adr-003-004-005-consolidated-decisions.md`: ADR-004 status →
+1. Update `docs/decisions/adr-consolidated-decisions.md`: ADR-004 status →
    `Accepted`; remove "paths/Phase 3/4 need work."
 2. Update `docs/design/sync_integration_workflow_design.md`: either tick the
    §13 acceptance checklist, or add a one-line note that the checklist is

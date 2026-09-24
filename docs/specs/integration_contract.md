@@ -2,6 +2,7 @@
 
 **Task:** t_90ca2ff2 — Design automatic integration contract for Kanban tasks
 **Status:** Design complete — handoff for follow-up implementation
+**Last verified:** 2026-09-24
 **Parent results synthesized:** t_67929499 (dispatch map), t_c70019ba (creation mechanism), t_c9c78f0c (field semantics), t_e3f47991 (synthesis proposal)
 
 
