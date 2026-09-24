@@ -2,9 +2,17 @@
 
 ## Status
 
-Accepted (on consolidation)
+Accepted
 
 **Last verified:** 2026-09-24
+
+> **Status note (2026-09-24):** The earlier "Accepted (on consolidation)" qualifier is
+> superseded. The consolidation condition was discharged by Amendment 01
+> (`docs/decisions/005-01-atomic_io-vs-data_protection-amendment.md`): criteria met
+> 2026-09-22 (PR #204) — all 7 legacy `protected_write` callers migrated to
+> `atomic_io` / `data_integrity`, `data_protection.py` deleted. The single-gateway
+> design is in force: no service write path opens a `data/` file with a raw
+> `open()` / `write_text()` outside `atomic_io` or its `read_modify_write` wrapper.
 
 ---
 
@@ -457,10 +465,12 @@ Create a backup of `data/` files *after* the write completes, rather than before
   filesystem I/O overhead per write.
 
 **Negative / Risks:**
-- **Migration surface.** Five service writers must be refactored. Each
-  refactor is small (replace read/write with `read_modify_write`), but
-  there are five of them, and each touches a different file format.
-  Regression risk is real; each refactor needs its own test.
+- **Migration surface.** ~~Five service writers must be refactored.~~
+  [Resolved by PR #204 / Amendment 01, 2026-09-22] All legacy writers
+  (`tasks`, `goals`, `followups`, `inbox`, `workouts`, plus `research` and
+  `decisions`) were migrated to `atomic_io` / `data_integrity` with per-module
+  tests; `data_protection.py` was deleted. The residual regression risk is now
+  covered by the existing test suite, not open migration work.
 - **Append-only files are excluded.** `metric_history.md` and
   `measurements.jsonl` are not covered by the gateway. They remain
   append-only with no atomicity guarantee beyond what the filesystem
