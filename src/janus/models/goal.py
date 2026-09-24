@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
+
 from janus.models.project import Project
+from janus.models.metric_type import MetricSource, is_metric_source
 
 
 @dataclass
@@ -68,6 +70,13 @@ class Goal:
         # Computed on demand at first; persisted if query performance
         # requires it.
 
+    # Provenance of current_value (preservation spec §3.1).
+    # Records which source last mutated goal.current_value, when,
+    # and (for task_derived) which task drove the value.
+    last_value_source: str | None = None       # metric_type.MetricSource values
+    last_value_updated_at: str | None = None   # ISO-8601 UTC datetime
+    last_value_task_id: str | None = None      # set only when last_value_source == "task_derived"
+
     def __post_init__(self):
         if self.related_tasks is None:
             self.related_tasks = []
@@ -114,6 +123,17 @@ class Goal:
                 f"Invalid direction: {self.direction!r}. "
                 f"Allowed: increase, decrease"
             )
+        if self.last_value_source is not None:
+            if not is_metric_source(self.last_value_source):
+                raise ValueError(
+                    f"Invalid last_value_source: {self.last_value_source!r}. "
+                    f"Allowed: {sorted(MetricSource._value2member_map_)}"
+                )
+            # last_value_task_id is only meaningful for task_derived source.
+            if self.last_value_source != MetricSource.TASK_DERIVED \
+                    and self.last_value_task_id is not None:
+                # Clear stale task_id that belongs to a non-task source.
+                self.last_value_task_id = None
         if not self.title or not self.title.strip():
             raise ValueError("Goal title must not be empty")
 
