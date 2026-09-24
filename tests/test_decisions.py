@@ -244,6 +244,61 @@ class TestADRParsing:
         d = get_decision("005")
         assert d.supersedes_adr == "001"
 
+    def test_parse_status_value_only(self, tmp_path, monkeypatch):
+        """ADR with '## Status' header and a bare status word."""
+        self._write_adr(tmp_path, monkeypatch, {
+            "filename": "001-test.md",
+            "content": (
+                "# ADR-001: Test Decision\n\n"
+                "## Status\n\nSuperseded\n\n"
+                "## Context\n\nSome context.\n\n"
+            ),
+        })
+        d = get_decision("001")
+        assert d.status == "superseded"
+
+    def test_parse_status_section_qualified_accepted(self, tmp_path, monkeypatch):
+        """'## Status' with 'Accepted with implementation caveats' normalizes to 'accepted'.
+
+        The qualifier is supporting prose; the canonical discrete status is 'accepted'.
+        """
+        self._write_adr(tmp_path, monkeypatch, {
+            "filename": "004-test.md",
+            "content": (
+                "# ADR-004: Safe Sync\n\n"
+                "## Status\n\nAccepted with implementation caveats\n\n"
+                "## Context\n\nCtx.\n\n"
+            ),
+        })
+        d = get_decision("004")
+        assert d.status == "accepted"
+
+    def test_parse_status_qualified_with_parens(self, tmp_path, monkeypatch):
+        """'Accepted (on consensus)' normalizes to 'accepted'."""
+        self._write_adr(tmp_path, monkeypatch, {
+            "filename": "005-test.md",
+            "content": (
+                "# ADR-005: Test\n\n"
+                "## Status\n\nAccepted (on consolidation)\n\n"
+                "## Context\n\nCtx.\n\n"
+            ),
+        })
+        d = get_decision("005")
+        assert d.status == "accepted"
+
+    def test_parse_status_invalid_defaults_to_proposed(self, tmp_path, monkeypatch):
+        """An unrecognized status string defaults to 'proposed'."""
+        self._write_adr(tmp_path, monkeypatch, {
+            "filename": "006-test.md",
+            "content": (
+                "# ADR-006: Test\n\n"
+                "## Status\n\nSome wild idea\n\n"
+                "## Context\n\nCtx.\n\n"
+            ),
+        })
+        d = get_decision("006")
+        assert d.status == "proposed"
+
     def test_parse_non_adr_file_skipped(self, tmp_path, monkeypatch):
         """Files not matching NNN-*.md pattern are skipped."""
         dec_dir = tmp_path / "docs" / "decisions"
