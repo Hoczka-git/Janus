@@ -1,6 +1,7 @@
 # Research & Knowledge Capture — Existing Capabilities Survey
 
 **Date:** 2026-09-01
+**Last verified:** 2026-09-24
 **Scope:** Janus repository + Hermes agent skills
 **Goal:** Identify existing research output, knowledge summaries, source provenance, and Obsidian integration capabilities. Do not implement.
 

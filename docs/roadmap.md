@@ -1,5 +1,7 @@
 # Hermes / Janus Roadmap
 
+**Last verified:** 2026-09-24
+
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
 

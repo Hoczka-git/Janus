@@ -1,5 +1,7 @@
 # Consolidated ADR Decisions: ADR-003, ADR-004, ADR-005
 
+**Last verified:** 2026-09-24
+
 Synthesizes the review recommendations for the three architecture decisions under the
 Janus/Mermes roadmap and records the disposition of each. This document is the
 single source of truth that implementation tasks downstream are linked against.
