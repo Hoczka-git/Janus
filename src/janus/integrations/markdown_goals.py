@@ -133,6 +133,9 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                     "recent_activity": [],
                     "skill_name": None,
                     "skill_evidence": [],
+                    "last_value_source": None,
+                    "last_value_updated_at": None,
+                    "last_value_task_id": None,
                 }
                 # Empty title after strip is invalid
                 if not current["title"]:
@@ -467,6 +470,15 @@ def load_goals(trace_id: str | None = None) -> list[Goal]:
                 elif stripped.startswith("Skill:"):
                     raw = stripped[6:].strip()
                     current["skill_name"] = raw if raw else None
+                elif stripped.startswith("LastValueSource:"):
+                    raw = stripped[17:].strip()
+                    current["last_value_source"] = raw if raw else None
+                elif stripped.startswith("LastValueUpdatedAt:"):
+                    raw = stripped[20:].strip()
+                    current["last_value_updated_at"] = raw if raw else None
+                elif stripped.startswith("LastValueTaskId:"):
+                    raw = stripped[17:].strip()
+                    current["last_value_task_id"] = raw if raw else None
                 if stripped.startswith("Related tasks:") or stripped.startswith("Research artifacts:") or stripped.startswith("Decision numbers:") or stripped.startswith("Follow-up IDs:"):
                     # Determine which list section we're entering
                     if stripped.startswith("Research artifacts:"):
@@ -620,6 +632,9 @@ def _finalize_goal(data: dict) -> Goal:
         recent_activity=data["recent_activity"],
         skill_name=data["skill_name"],
         skill_evidence=data["skill_evidence"],
+        last_value_source=data["last_value_source"],
+        last_value_updated_at=data["last_value_updated_at"],
+        last_value_task_id=data["last_value_task_id"],
     )
 
 
@@ -722,6 +737,16 @@ def _format_goal_block(goal: Goal) -> list[str]:
 
     if goal.skill_name:
         lines.append(f"Skill: {goal.skill_name}")
+
+    # Provenance fields (preservation spec §3.1 / §9.1).
+    # Only written when last_value_source is set; last_value_task_id is
+    # only present when last_value_source == "task_derived".
+    if goal.last_value_source is not None:
+        lines.append(f"LastValueSource: {goal.last_value_source}")
+        if goal.last_value_updated_at is not None:
+            lines.append(f"LastValueUpdatedAt: {goal.last_value_updated_at}")
+        if goal.last_value_task_id is not None:
+            lines.append(f"LastValueTaskId: {goal.last_value_task_id}")
 
     if goal.skill_evidence:
         lines.append("## Skill evidence")
