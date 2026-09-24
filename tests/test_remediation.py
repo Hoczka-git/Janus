@@ -115,6 +115,17 @@ def test_watch_measurement_due_signal():
     assert "Measurement requirements are overdue" in ra.action
 
 
+def test_watch_progress_regressing_signal():
+    """progress_regressing gets a medium-high priority remediation."""
+    a = _make_assessment(health_state="watch", signal="progress_regressing", reason="Progress regressed by 25.0 percentage points")
+    ra = derive_remediation_action(a, goal=_make_goal())
+    assert ra is not None
+    assert ra.health_state == "watch"
+    assert ra.signal == "progress_regressing"
+    assert ra.priority == 50
+    assert "regressed" in ra.action.lower()
+
+
 def test_watch_deadline_soon_signal_reason_substitution():
     a = _make_assessment(
         health_state="watch",
