@@ -23,7 +23,7 @@ rework (`kanban_request_changes`). Model B (Reviewer-Child Workflow) is rejected
 ## ADR-004 — Safe Sync-and-Integrate Workflow
 
 - **File:** `docs/decisions/004-safe-sync-integrate-workflow.md`
-- **Status:** Accepted (with implementation caveats)
+- **Status:** Accepted with implementation caveats
 - **Recommendation source:** `docs/research-findings/adr004_review_recommendation.md`
 
 **Decision:** The core design (5-phase workflow: sync → implement → verify →

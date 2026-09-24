@@ -1428,8 +1428,15 @@ def _dispatch_measurement(
     retry_count: int,
     backoff: float,
 ) -> str:
-    """Route a MEASUREMENT record to the metric_history / measurements log."""
+    """Route a MEASUREMENT record to the metric_history / measurements log.
+
+    Per preservation spec §4.3: appends a ``MetricSnapshot`` with the
+    ``measurement`` provenance source and, when the recorded metric matches a
+    Goal's ``metric_name``, advances that Goal's ``current_value`` (with
+    provenance) via the precedence-aware update helper.
+    """
     from janus.models.metric_snapshot import MetricSnapshot
+    from janus.models.metric_type import MetricSource
     from janus.integrations.metric_history import METRIC_HISTORY_PATH, append_metric_snapshot
 
     snapshot = MetricSnapshot(
@@ -1437,7 +1444,7 @@ def _dispatch_measurement(
         goal_title=record.goal_title or "",
         metric_name=record.metric or "",
         value=float(record.value or 0.0),
-        source=record.source,
+        source=MetricSource.MEASUREMENT,
     )
 
     # Append to metric_history.md (append-only, but go through atomic_io
@@ -1465,6 +1472,27 @@ def _dispatch_measurement(
         history_path, _append_metric,
         max_retries=retry_count, backoff_base=backoff,
     )
+
+    # §4.3: propagate the measurement to the matching goal's current_value.
+    # Measurements always win over manual values (§5.2) — the precedence
+    # helper accepts measurement unconditionally.
+    if record.goal_title and record.metric and record.value is not None:
+        from janus.services.goals import _apply_metric_value, get_goal, update_goal
+        try:
+            goal = get_goal(record.goal_title)
+        except ValueError:
+            # No goal (or ambiguous) — nothing to propagate. The snapshot
+            # was still recorded above.
+            goal = None
+        if goal is not None and goal.metric_name == record.metric:
+            _apply_metric_value(
+                goal,
+                float(record.value),
+                MetricSource.MEASUREMENT,
+                task_id=None,
+            )
+            update_goal(goal)
+
     return "appended"
 
 
