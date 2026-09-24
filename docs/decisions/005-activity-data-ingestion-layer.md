@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (on consolidation)
+Accepted
 
 **Last verified:** 2026-09-24
 

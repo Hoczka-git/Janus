@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted with implementation caveats
+Accepted
 
 **Last verified:** 2026-09-24
 
