@@ -47,6 +47,9 @@ def show_weekly(trace_id: str | None = None) -> None:
             if gr.suggested_next_step:
                 print("Suggested next step:")
                 print(f"- {gr.suggested_next_step}")
+            if gr.remediation_action:
+                print("Remediation:")
+                print(f"! {gr.remediation_action}")
             if gr.projects:
                 print("  Projects:")
                 for pp in gr.projects:

@@ -25,6 +25,7 @@ from janus.models.attention import AttentionItem
 from janus.models.recommended_action import (
     CrossDomainLink,
     RecommendedAction,
+    RemediationAction,
     TaskRecommendation,
 )
 from janus.services.goal_health import INACTIVITY_WINDOW_DAYS
@@ -32,8 +33,98 @@ from janus.services.goal_health import INACTIVITY_WINDOW_DAYS
 logger = logging.getLogger(__name__)
 
 # Number of days since a strategic action was surfaced after which a goal
-# is considered "not recently attended to" (spec §2).
+# is considered "not recently attended to" (spec section 2).
 STRATEGIC_ATTENTION_WINDOW_DAYS = 7
+
+# ── Remediation rules (R1) ────────────────────────────────────────────────────
+#
+# Maps each dominant signal to a concrete, actionable remediation action.
+# These rules are tied to the specific health states and signals defined in
+# docs/design/goal_health_progress_signals_stalled_detection_spec.md §4.2.
+#
+# The key is the signal identifier. The value is a remediation action template
+# that may reference ``{reason}`` (the signal's own reason string) so the
+# remediation is specific to the goal's diagnosis.
+#
+# Priority: higher = more urgent. Used for ranking when multiple goals need
+# remediation.
+_REMEDIATION_RULES: dict[str, tuple[str, int]] = {
+    # --- Stalled signals (health_state = stalled) ---
+    # Goal deadline has passed with no open related tasks.
+    "goal_overdue": (
+        "Deadline has passed. Either resume work immediately by adding an "
+        "open related task, or mark the goal as completed/inactive if it is "
+        "no longer relevant.",
+        100,
+    ),
+    # The deadline is today — urgent action needed.
+    "goal_deadline_today": (
+        "Deadline is today. Add or complete a related task now to meet the "
+        "deadline, or defer the deadline if it is no longer realistic.",
+        90,
+    ),
+    # A milestone deadline has passed without completion.
+    "milestone_slipped": (
+        "Milestone deadline was missed. Re-scope the milestone, add the "
+        "missing tasks, or reschedule the milestone deadline.",
+        80,
+    ),
+    # All related tasks are completed but no next step is defined.
+    "goal_stalled": (
+        "All linked tasks are completed. Define the next milestone, add a "
+        "new action, or mark the goal as complete.",
+        40,
+    ),
+    # No recent activity — the goal may have been abandoned in practice.
+    "no_recent_activity": (
+        "No activity for an extended period. Either schedule a check-in, "
+        "add a small starter task to make progress concrete, or mark the "
+        "goal as inactive if paused intentionally.",
+        35,
+    ),
+
+    # --- Watch signals (health_state = watch) ---
+    # Progress is below the slow-progress threshold over the lookback window.
+    "progress_slow": (
+        "Progress is slow over the lookback window. Review the related "
+        "tasks and break the next one into smaller steps, or record a "
+        "metric update to confirm forward momentum.",
+        40,
+    ),
+    # One or more measurement requirements are overdue.
+    "measurement_due": (
+        "Measurement requirements are overdue. Collect the missing metric "
+        "data now, or review and adjust the measurement schedule.",
+        45,
+    ),
+    # Deadline is approaching within the soon-window.
+    "goal_deadline_soon": (
+        "Deadline is approaching ({reason}). Ensure the next milestone or "
+        "task is in progress, or reschedule the deadline if needed.",
+        60,
+    ),
+    # Milestone deadline is approaching within the soon-window.
+    "milestone_deadline_soon": (
+        "Milestone deadline is approaching ({reason}). Confirm the "
+        "milestone is on track — add or start the next task if needed.",
+        55,
+    ),
+    # Goal is active but all tasks are done with no future plan (low severity).
+    "goal_inactive": (
+        "No upcoming milestones or deadlines. Add a future milestone or "
+        "next action to define forward momentum.",
+        30,
+    ),
+}
+
+# Priority override per health state for signals not in the rule table.
+# Default priority when a signal maps to a state but has no explicit rule.
+_HEALTH_STATE_DEFAULT_PRIORITY = {
+    "stalled": 40,
+    "watch": 30,
+    "healthy": 10,
+    "completed": 0,
+}
 
 
 def _parse_deadline(raw):
@@ -198,6 +289,117 @@ def _task_recommendations_by_goal(
     return result
 
 
+def derive_remediation_action(
+    assessment: GoalHealthAssessment,
+    goal: Goal | None = None,
+    today: date | None = None,
+) -> RemediationAction | None:
+    """Derive a concrete, actionable remediation step for a goal from its health signals.
+
+    Consumes an enriched ``GoalHealthAssessment`` (produced by
+    ``assess_goal_health()``) and maps the goal's health state and dominant
+    signal to a specific remediation action via the rule table (R1).
+
+    The remediation is tied to the specific diagnosed health issue — not a
+    generic suggestion — so it is directly actionable and structured for
+    downstream consumption (e.g. the weekly review integration populates
+    ``GoalReview.remediation_action`` from this).
+
+    Args:
+        assessment: The pre-computed health assessment for the goal.
+        goal: Optional ``Goal`` object. If provided, its title is used in the
+            remediation action (preferred over the assessment's ``goal_title``
+            for display consistency).
+        today: Current date for context. Defaults to today.
+
+    Returns:
+        A ``RemediationAction`` with a concrete, specific recommendation, or
+        ``None`` if the goal is healthy (no remediation needed).
+    """
+    if today is None:
+        today = date.today()
+
+    health_state = assessment.health_state
+
+    # Healthy goals need no remediation (spec §4.18.2).
+    if health_state == "healthy":
+        return None
+
+    goal_title = goal.title if goal is not None else assessment.goal_title
+
+    # Determine the dominant signal to key off of.
+    dominant = assessment.dominant_signal
+    signal_key = dominant.signal if dominant else ""
+
+    # Fallback: if there is no dominant signal but the goal is unhealthy,
+    # use the health state as the key for a generic remediation.
+    if not signal_key:
+        signal_key = health_state
+
+    rule = _REMEDIATION_RULES.get(signal_key)
+    if rule is not None:
+        action_text, priority = rule
+        # Substitute the signal reason if the template references {reason}.
+        reason = dominant.reason if dominant else ""
+        if "{reason}" in action_text and reason:
+            action_text = action_text.format(reason=reason)
+        elif "{reason}" in action_text:
+            action_text = action_text.replace("{reason}", "see goal health report")
+    else:
+        # No specific rule for this signal — use the health state default.
+        if health_state == "stalled":
+            action_text = (
+                "Goal is stalled. Review related tasks and milestones to "
+                "restart progress, or mark as inactive if abandoned."
+            )
+        elif health_state == "watch":
+            action_text = (
+                "Goal is at risk. Monitor closely and add an action to "
+                "improve momentum."
+            )
+        else:
+            action_text = "Review goal and take corrective action."
+        priority = _HEALTH_STATE_DEFAULT_PRIORITY.get(health_state, 20)
+
+    return RemediationAction(
+        goal_title=goal_title,
+        health_state=health_state,
+        signal=signal_key,
+        action=action_text,
+        priority=priority,
+    )
+
+
+def derive_remediation_for_reviews(
+    assessments: list[GoalHealthAssessment],
+    goals: list[Goal],
+    today: date | None = None,
+) -> dict[str, RemediationAction | None]:
+    """Derive remediation actions for all goals, keyed by goal title.
+
+    Convenience wrapper for ``derive_remediation_action`` that processes a
+    list of assessments and goals (as used by the weekly review integration).
+
+    Args:
+        assessments: Pre-computed health assessments.
+        goals: The full Goal list (for title lookups and context).
+        today: Current date. Defaults to today.
+
+    Returns:
+        Dict mapping goal title to ``RemediationAction`` (or ``None`` if
+        healthy). Every active goal in ``assessments`` gets an entry.
+    """
+    if today is None:
+        today = date.today()
+
+    goal_by_title = {g.title: g for g in goals}
+    result: dict[str, RemediationAction | None] = {}
+    for a in assessments:
+        goal = goal_by_title.get(a.goal_title)
+        result[a.goal_title] = derive_remediation_action(a, goal, today)
+    return result
+
+
 # ── Neglected-goal identification (spec §2, §26) ─────────────────────────────
 
 def identify_neglected_goals(
@@ -335,6 +537,11 @@ def create_recommended_actions(
         goal_links = _links_for_goal(a.goal_title, cross_links)
         task_recs = task_recs_by_goal.get(a.goal_title, [])
 
+        # Derive concrete remediation action tied to the health state/signals.
+        g = next((gg for gg in goals if gg.title == a.goal_title), None)
+        remediation = derive_remediation_action(a, goal=g, today=today)
+        remediation_action = remediation.action if remediation else None
+
         actions.append(RecommendedAction(
             goal_title=a.goal_title,
             health_state=a.health_state,
@@ -346,6 +553,7 @@ def create_recommended_actions(
             days_since_last_activity=a.days_since_last_activity,
             measurement_overdue_count=a.measurement_overdue_count,
             suggested_next_step=suggested,
+            remediation_action=remediation_action,
             attention_reason=attention_reason,
             task_recommendations=task_recs,
             cross_links=goal_links,
@@ -408,6 +616,8 @@ def render_recommended_actions(
         action = ra.suggested_action
         if action:
             lines.append(f"   Suggested action: {action}")
+        if ra.remediation_action:
+            lines.append(f"   Remediation: {ra.remediation_action}")
         if ra.task_recommendations:
             for tr in ra.task_recommendations:
                 lines.append(f"   Task: {tr.title} (score={tr.score})")

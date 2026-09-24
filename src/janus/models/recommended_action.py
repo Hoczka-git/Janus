@@ -51,19 +51,36 @@ class TaskRecommendation:
 
 
 @dataclass
+class RemediationAction:
+    """A concrete, actionable remediation step tied to a goal's health state.
+
+    Derived from the dominant signal in a ``GoalHealthAssessment``, this
+    provides a specific, actionable recommendation that a user can act on
+    to address the diagnosed health issue (remediation rules tied to health states).
+
+    Attributes:
+        goal_title: The goal this remediation applies to.
+        health_state: The health state that triggered this remediation
+            (healthy | watch | stalled | completed).
+        signal: The dominant signal identifier that triggered the action.
+        action: A concrete, actionable remediation step (e.g., "Add a
+            related task and mark 'Prepare training plan' as in_progress").
+        priority: Ranking priority — higher = more urgent. Used for
+            ordering remediations when multiple goals need attention.
+    """
+
+    goal_title: str
+    health_state: str
+    signal: str
+    action: str
+    priority: int = 0
+
+
+@dataclass
 class RecommendedAction:
-    """A ranked next-action recommendation for a neglected/stalled goal.
+    """A ranked recommendation for a neglected or stalled goal.
 
-    One per neglected/stalled goal, ranked by severity (spec §4, §43–§61).
-
-    Format per spec §4.10:
-        {goal_title} [{health_state}, score={dominant_signal_score}]
-          Reason: {dominant_signal_reason}
-          Progress: {current_progress}% (delta {progress_delta}% over 14d)
-          Activity: {days_since_last_activity}d since last metric/task
-          Measurements overdue: {measurement_overdue_count}
-          Suggested action: {suggested_next_step or attention_item.reason}
-          Cross-links: {research_artifact, decision, follow_up}
+    One per neglected/stalled goal, ranked by severity (strategic summary spec 4, 43-61).
     """
 
     goal_title: str
@@ -76,6 +93,7 @@ class RecommendedAction:
     days_since_last_activity: int | None = None
     measurement_overdue_count: int = 0
     suggested_next_step: str | None = None
+    remediation_action: str | None = None
     attention_reason: str | None = None
     task_recommendations: list[TaskRecommendation] = field(default_factory=list)
     cross_links: list[CrossDomainLink] = field(default_factory=list)
