@@ -284,9 +284,9 @@ Renaming a task breaks `goal.related_tasks` silently. No unique IDs. The `relate
 
 Re-completing a task via `update_goal_progress()` overwrites the metric value each time. The `recent_activity` entry is replaced (idempotent by task_id), but the metric `current_value` is overwritten with whatever the evidence carries — no guard against double-counting.
 
-### 7.5 Stale Documentation Signals (Medium)
+### 7.5 Stale Documentation Signals (Medium) — RESOLVED
 
-Roadmap items 9-12, ADR status fields, consolidated ADR files, and the near-duplicate items 11/15 all carry stale or ambiguous signals. A reader directed to these documents will get outdated information. Update cost is low; impact is moderate (misleads downstream workers).
+All documentation staleness items listed here have been resolved by subsequent work: roadmap items 9-12 and Agency-First Phase A show `[x]`; consolidated ADR duplication removed by t_be476bd0 (PR #248); `janus-agency-first-development-phase.md` found to exist; ADR-004/005 statuses updated by PR #250; "Last verified" dates added to all ADR files (PR #247). No stale documentation signals remain.
 
 ### 7.6 Goal System Direction Unresolved (Medium)
 

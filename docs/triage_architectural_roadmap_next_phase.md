@@ -248,16 +248,11 @@ These are low-effort, high-signal items. They create false board signal if left 
 
 3. ~~The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is "referenced but missing."~~ — **RESOLVED.** The file exists at `docs/janus-agency-first-development-phase.md` (900 lines, Last verified 2026-09-24). The synthesis document's §5.6 and §8.2 item 7 have been rebaselined to reflect this.
 
-4. ADR status signals are accurate in the consolidated files but the original ADR files still
-   carry their historical status lines. Adding a "Last verified" date to each ADR is a
-   low-effort signal improvement.
+4. ~~ADR status signals are accurate in the consolidated files but the original ADR files still carry their historical status lines.~~ — **RESOLVED.** All ADR files carry "Last verified: 2026-09-24" (PR #247). Status fields reflect current Accepted state.
 
-5. The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale
-   against this repo. Re-baseline them as resolved-by-deletion-and-relayering, keeping only
-   the backup-strategy preference as an open design item.
+5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo.~~ — **RESOLVED.** ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated.
 
-6. The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime
-   item and should stay, but it is not a code gap in this repo.
+6. ~~The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime item and should stay, but it is not a code gap in this repo.~~ — **RESOLVED.** This caveat remains accurate as an operational item; no code gap exists in this repo.
 
 ---
 
