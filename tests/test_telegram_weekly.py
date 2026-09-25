@@ -40,7 +40,9 @@ def _make_review(
 
 
 def _make_goal_review(title, progress=None, progress_detail=None,
-                      suggested_next_step=None, health_state=None) -> GoalReview:
+                      suggested_next_step=None, health_state=None,
+                      progress_delta=None, days_since_last_activity=None,
+                      remediation_action=None) -> GoalReview:
     goal = Goal(title=title, status="active")
     return GoalReview(
         goal=goal,
@@ -50,6 +52,9 @@ def _make_goal_review(title, progress=None, progress_detail=None,
         all_related_tasks_completed=False,
         missing_related_tasks=[],
         health_state=health_state,
+        progress_delta=progress_delta,
+        days_since_last_activity=days_since_last_activity,
+        remediation_action=remediation_action,
     )
 
 
@@ -162,6 +167,64 @@ class TestFormatWeeklyMessage:
         review = _make_review(goals=[gr])
         text = format_weekly_message(review)
         assert "Progress: N/A" in text
+
+    def test_goal_with_progress_delta(self):
+        """Telegram weekly renders progress_delta for metric-based goals (§12.5)."""
+        gr = _make_goal_review(
+            "Metric Goal", progress=70.0, progress_detail="23→15, decrease",
+            progress_delta=-5.0, health_state="healthy",
+        )
+        review = _make_review(goals=[gr])
+        text = format_weekly_message(review)
+        assert "Progress delta (14d): -5.0%" in text
+
+    def test_goal_with_days_since_last_activity(self):
+        """Telegram weekly renders days_since_last_activity (§12.5)."""
+        gr = _make_goal_review(
+            "Stale Goal", health_state="stalled",
+            days_since_last_activity=42,
+        )
+        review = _make_review(goals=[gr])
+        text = format_weekly_message(review)
+        assert "Days since last activity: 42" in text
+
+    def test_goal_stalled_marker_rendered(self):
+        """Telegram weekly shows a STALLED attention marker for stalled goals."""
+        gr = _make_goal_review(
+            "Stalled Goal", health_state="stalled",
+            days_since_last_activity=42,
+        )
+        review = _make_review(goals=[gr])
+        text = format_weekly_message(review)
+        assert "⚠ STALLED — attention required" in text
+
+    def test_goal_with_remediation_action(self):
+        """Telegram weekly renders remediation_action from GoalReview."""
+        gr = _make_goal_review(
+            "Overdue Goal", health_state="stalled",
+            remediation_action="Deadline has passed. Add an open related task.",
+        )
+        review = _make_review(goals=[gr])
+        text = format_weekly_message(review)
+        assert "Remediation:" in text
+        assert "Deadline has passed" in text
+
+    def test_health_fields_render_before_remediation(self):
+        """Health state and days_since_last_activity render before remediation,
+        matching the CLI renderer ordering for diagnostic coherence."""
+        gr = _make_goal_review(
+            "G", progress=50.0, progress_delta=-2.0,
+            health_state="stalled", days_since_last_activity=45,
+            remediation_action="Resume work immediately.",
+        )
+        review = _make_review(goals=[gr])
+        text = format_weekly_message(review)
+        health_idx = text.index("Health: stalled")
+        days_idx = text.index("Days since last activity: 45")
+        delta_idx = text.index("Progress delta (14d): -2.0%")
+        rem_idx = text.index("Remediation:")
+        progress_idx = text.index("Progress: 50.0%")
+        assert progress_idx < delta_idx < health_idx < days_idx < rem_idx
 
     def test_no_trailing_newline(self):
         review = _make_review()

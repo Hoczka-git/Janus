@@ -91,27 +91,15 @@ Current state (from child task t_f339fe3e findings):
 | Knowledge pipeline scaffolding | `services/knowledge_pipeline.py` | `validate_artifact()`, `generate_summary()`, `emit_knowledge_gaps_as_attention()` exist |
 | Observability | ADR-010, `integrations/observability.py` | Log schema, structured logging |
 
-### 3.2 Partially Exists (foundations, missing formal model/enforcement)
+|| ADR | File | Status (per its own file or consolidation) |
+||-----|------|---------------------------------------------|
+|| 001 | 001-hermes-janus-system-model.md | Accepted |
+|| 002 | 002-obsidian-knowledge-layer.md | Accepted |
+|| 003 | 003-canonical-review-topology.md (+ supplement) | Accepted |
+|| 004 | 004-safe-sync-integrate-workflow.md | Accepted |
+|| 005 | 005-activity-data-ingestion-layer.md | Accepted |
 
-| Element | Gap | Where to look |
-|---------|-----|---------------|
-| **Goal-level review** | No `under_review` state, no gates before goal completion | `services/goals.py` — `set_goal_state()` has no gate |
-| **Curation gate (ADR-002)** | Knowledge pipeline produces summaries but no promotion gate or Obsidian write | `knowledge_pipeline.py` — no `curation_gate()`, `human_approval()`, `promote_to_obsidian()`. `OBSIDIAN_VAULT_PATH` referenced but zero code uses it |
-| **Write gateway consolidation (ADR-005)** | 8+ modules use `data_protection.protected_write` instead of `atomic_io` | `tasks.py`, `decisions.py`, `markdown_goals.py`, `markdown_inbox.py`, `markdown_followups.py`, `markdown_research.py`, `workout_md.py`, `measurement_log.py` |
-| **Evidence/Verification model** | No formal `Evidence` concept — execution results are implicit in data files | No `evidence.py` or evidence model in domain |
-| **Policy/Approval model** | No `ALLOW/ASK/DENY` abstraction — approval is implicit in review topology and CLI | No policy engine |
-| **PersonalState** | No formal `PersonalState` concept — user context is implicit in goals/tasks/metrics | Not modeled |
-
-### 3.3 Missing
-
-| Element | Where it should be | Notes |
-|---------|--------------------|-------|
-| **Goal completion gates** | `services/goals.py` — `complete_goal()` or equivalent | Goal completion should have gates similar to task completion (ADR-004 Phase 5 pattern) |
-| **Review phase for goals** | Goal lifecycle — `under_review` state | Extends ADR-003 from tasks to goals |
-| **Curation gate implementation** | `services/knowledge_pipeline.py` | Implement `curation_gate()`, `human_approval()`, `promote_to_obsidian()` |
-| **Obsidian promotion** | `integrations/obsidian_promoter.py` (exists but unused) | Vault versioning now available — unblocks this |
-| **Evidence model** | New module — `services/evidence.py` or domain concept | What counts as evidence, how it flows to metrics |
-| **Write gateway migration** | 8+ service/integration modules | Migrate from `protected_write` to `atomic_io.read_modify_write_with_retry` |
+Consolidation duplicate removed by t_be476bd0 (PR #248); only `adr-003-004-005-consolidated-decisions.md` remains as authoritative. This was previously a documentation debt item — not a correctness issue.
 
 ### 3.4 Should NOT Be Implemented (yet)
 
@@ -183,6 +171,15 @@ Review ──result───> Decision
 
 ### 5.1 Do we need `execution_mode: USER / JANUS / COLLABORATIVE`?
 
+> **Follow-up resolution (2026-09-24, t_ea99cee2):** All six documentation staleness items below have been resolved by subsequent work. They are preserved here as historical record.
+
+1. ~~The roadmap "Agency-First Janus" phase checkboxes are all `[ ]`~~ — **RESOLVED.** The Near-Term list already shows items 9-12 as `[x]` and the Agency-First phase list shows Phase A (Complete Goal → Task → Execution → Completion → Review) as `[x]`. The inconsistency noted here has been reconciled by subsequent work.
+2. ~~Two near-duplicate consolidated ADR files exist~~ — **RESOLVED.** `docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only `adr-003-004-005-consolidated-decisions.md` remains as authoritative.
+3. ~~The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is "referenced but missing."~~ — **RESOLVED.** The file exists at `docs/janus-agency-first-development-phase.md` (900 lines, Last verified 2026-09-24). The synthesis document's §5.6 and §8.2 item 7 have been rebaselined to reflect this.
+4. ~~ADR status signals are accurate in the consolidated files but the original ADR files still carry their historical status lines.~~ — **RESOLVED.** All ADR files carry "Last verified: 2026-09-24" (PR #247). Status fields reflect current Accepted state.
+5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo.~~ — **RESOLVED.** ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated.
+6. ~~The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime item and should stay, but it is not a code gap in this repo.~~ — **RESOLVED.** This caveat remains accurate as an operational item; no code gap exists in this repo.
+
 **Probably not as a formal enum.** The current model already captures this:
 
 - **USER:** CLI commands, manual edits to markdown files. User acts directly.
@@ -203,9 +200,45 @@ Review ──result───> Decision
 
 ---
 
+## 5.1b Documentation Staleness — RESOLVED
+
+All documentation staleness follow-up items from the triage §5 (prior version) have been resolved:
+
+1. ~~The roadmap "Agency-First Janus" phase checkboxes are all `[ ]`~~ — **RESOLVED.** The Near-Term list already shows items 9-12 as `[x]` and the Agency-First phase list shows Phase A (Complete Goal → Task → Execution → Completion → Review) as `[x]`. The inconsistency noted here has been reconciled by subsequent work.
+
+2. ~~Two near-duplicate consolidated ADR files exist~~ — **RESOLVED.** `docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only `adr-003-004-005-consolidated-decisions.md` remains as authoritative.
+
+3. ~~The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is "referenced but missing."~~ — **RESOLVED.** The file exists at `docs/janus-agency-first-development-phase.md` (900 lines, Last verified 2026-09-24). The synthesis document's §5.6 and §8.2 item 7 have been rebaselined to reflect this.
+
+4. ~~ADR status signals are accurate in the consolidated files but the original ADR files still carry their historical status lines.~~ — **RESOLVED.** All ADR files carry "Last verified: 2026-09-24" (PR #247). Status fields reflect current Accepted state.
+
+5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo.~~ — **RESOLVED.** ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated.
+
+6. ~~The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime item and should stay, but it is not a code gap in this repo.~~ — **RESOLVED.** This caveat remains accurate as an operational item; no code gap exists in this repo.
+
+---
+
 ## 6. Evidence / Verification / Audit (minimal model)
 
 ### 6.1 Proposed Concepts
+
+> **Follow-up resolution (2026-09-24):** The documentation inconsistencies below have been addressed: roadmap items 9-12 and Agency-First Phase A show `[x]`; consolidated ADR duplication removed; `janus-agency-first-development-phase.md` exists; ADR-004/005 statuses updated by PR #250; "Last verified" dates added to all ADR files (PR #247).
+
+1. ~~Close the documentation inconsistencies first~~ — **RESOLVED.** All five documentation staleness items from §5 have been addressed: roadmap items 9-12 and Agency-First Phase A show `[x]`; consolidated ADR duplication removed; `janus-agency-first-development-phase.md` found to exist; ADR-004/005 statuses updated by PR #250; "Last verified" dates added to all ADR files (PR #247).
+2. Elevate Evidence to a first-class domain concept (Phase B) before adding more autonomous
+   paths, because Principle 4 (Evidence Over Assumptions) is the gate that protects later
+   autonomy.
+3. Add an explicit review-phase state in the Janus task lifecycle and goal-level completion
+   gates (late Phase A / early Phase B) so the loop has the same deterministic protection at
+   the goal level that task completion already has.
+4. Then Phase C (PersonalState aggregate) as the substrate the later phases query.
+5. Then Phase D (agency-aware execution/support modes) before any expansion of autonomous
+   execution.
+6. Then Phase E (policy/approval) as the configurable layer that makes D safe to expand.
+7. Then Phase F (Connector protocol) as a consolidation of existing one-off integrations
+   when there is a real need for more connectors.
+8. Phase G and H only after D/E are in place and there is a demonstrated workload that
+   benefits from them.
 
 ```
 Evidence:
@@ -243,12 +276,11 @@ Decision:
 ### 6.4 Determinism
 
 Evidence records should be deterministic given their inputs — same source data + same derivation = same evidence. This allows re-verification. Non-deterministic evidence (agent-generated summaries, AI assessments) should be labeled as such and not used as sole basis for completion.
-
 ---
 
 ## 7. Policy / Approval (minimal model)
 
-### 7.1 Current State
+### 7.1 Policy Already Exists (implicitly)
 
 The current system already has implicit policy via:
 
@@ -344,14 +376,17 @@ The policy boundary is at the **service function entry point**. Before any state
 
 ### P0 — Necessary Foundations
 
-**P0-1: ADR-005 write gateway migration**
-- Problem: Two write surfaces contradict "sole gateway" claim. Data integrity risk.
-- Scope: Migrate 8+ modules from `protected_write` to `atomic_io.read_modify_write_with_retry`.
-- Dependencies: None — `atomic_io` is already implemented and used by `activity_ingest.py`.
-- Acceptance criteria: Zero `protected_write` calls in service/integration modules (except `data_protection.py` itself if kept as legacy). ADR-005 §2/§6 updated.
-- Tests: Existing tests should continue passing. Add regression test that greps for unauthorized write paths.
-- Suggested ADR: Update ADR-005 (no new ADR needed — this is completing an existing one).
-- Suggested PRs: One PR per module or grouped by domain (tasks+decisions, markdown integrations, goals+workout).
+**P0-1 (CLOSED): ADR-005 write gateway migration**
+- ~~Problem: Two write surfaces contradict "sole gateway" claim. Data integrity risk.~~
+- ~~Scope: Migrate 8+ modules from `protected_write` to `atomic_io.read_modify_write_with_retry`.~~
+- ~~Dependencies: None — `atomic_io` is already implemented and used by `activity_ingest.py`.~~
+- ~~Acceptance criteria: Zero `protected_write` calls in service/integration modules (except `data_protection.py` itself if kept as legacy). ADR-005 §2/§6 updated.~~
+- ~~Tests: Existing tests should continue passing. Add regression test that greps for unauthorized write paths.~~
+- ~~Suggested ADR: Update ADR-005 (no new ADR needed — this is completing an existing one).~~
+- ~~Suggested PRs: One PR per module or grouped by domain (tasks+decisions, markdown integrations, goals+workout).~~
+- **Status:** RESOLVED by ADR-005 Amendment 01 + PR #204. `data_protection.py` deleted; all legacy `protected_write` callers migrated to `atomic_io`/`data_integrity`. The "sole write gateway" claim is now accurate. No remaining action — this item is closed.
+
+The remaining P0 items below do not depend on P0-1 being open — they are still genuinely open.
 
 **P0-2: ADR-004 gates extended to goals**
 - Problem: Goal completion has no gates. Higher-level entities have weaker guards than lower-level ones.

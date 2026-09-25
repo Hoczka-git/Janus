@@ -65,16 +65,22 @@ def format_weekly_message(review: "WeeklyReview") -> str:
                 lines.append(f"Progress: {gr.progress:.1f}%")
                 if gr.progress_detail:
                     lines.append(f"  {gr.progress_detail}")
+                if gr.progress_delta is not None:
+                    lines.append(f"  Progress delta (14d): {gr.progress_delta:+.1f}%")
             else:
                 lines.append("Progress: N/A")
+            if gr.health_state:
+                lines.append(f"Health: {gr.health_state}")
+            if gr.days_since_last_activity is not None:
+                lines.append(f"Days since last activity: {gr.days_since_last_activity}")
+            if gr.health_state == "stalled":
+                lines.append("  ⚠ STALLED — attention required")
             if gr.suggested_next_step:
                 lines.append("Suggested next step:")
                 lines.append(f"• {gr.suggested_next_step}")
             if gr.remediation_action:
                 lines.append("Remediation:")
                 lines.append(f"! {gr.remediation_action}")
-            if gr.health_state:
-                lines.append(f"Health: {gr.health_state}")
             if gr.all_related_tasks_completed:
                 lines.append("✓ All currently linked tasks completed")
             if gr.missing_related_tasks:

@@ -124,7 +124,8 @@ existing design and planning artifacts in this repository.
 - [x] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
-- [x] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+- [~] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+  - `curation_gate.py` + `CurationProposal` state machine implemented; `create_curation_proposal` in `knowledge_pipeline.py`. `promote_to_vault` wired in `research_cli.py`. Full `human_approval()` → `promote_to_vault()` flow not yet end-to-end verified in production.
 - [x] Expose deterministic goal next-action derivation through `janus goal next <title>` and integrate it into user-facing reviews.
 
 ## Agency-First Janus
@@ -138,7 +139,8 @@ Key phases:
 - [x] Complete Goal → Task → Execution → Completion → Review
   - Verified end-to-end (E2E checks pass; see `.verifications/goal_task_execution_loop_report.md`).
 - [~] Evidence & Audit
-  - ADR-011 (evidence model / goal-level gates) proposed at `docs/decisions/adr-011-evidence-model.md`; ADR-012 also proposed. See `docs/triage_architectural_roadmap_next_phase.md` §3.2 / §4.1.
+  - ADR-011 (goal-level gates) proposed; ADR-012 (evidence model) proposed. See `docs/decisions/adr-011-goal-level-completion-gates.md`.
+- [~] Agency-First phase — P0 (ADR-005 migration, ADR-011 gates) and P1 (ADR-012 evidence, ADR-013 curation) planned; P2/P3 deferred until P0/P1 stable. See `docs/triage_architectural_roadmap_next_phase.md` §8/§9.
 - [ ] Personal State Model
 - [ ] Agency-Aware Planning
 - [ ] Policy & Approval

@@ -195,7 +195,7 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 ### 5.2 Consolidated ADR file duplication RESOLVED
 
-`docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only the authoritative consolidated file remains: `docs/decisions/adr-003-004-005-consolidated-decisions.md`.
+`docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only the authoritative consolidated file remains: `docs/decisions/adr-003-004-005-consolidated-decisions.md`. ADR-004 status is now **"Accepted"** (post-PR-189, all 5 phases implemented). ADR-005 status is now **"Accepted"** (post-PR-204, migration complete, `data_protection.py` deleted). Only the runtime plugin-loading gap remains for ADR-004 (§6).
 
 ### 5.3 Goal Progress: Metric Fields vs Measurement Log
 
@@ -203,7 +203,7 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 ### 5.4 Roadmap Items 11 and 15 Were Consolidated
 
-Item 11 (`[~]`) and Item 15 (`[ ]`) were near-duplicate entries for the same "Verify the complete Goal → Task → Execution → Completion → Review loop" work. Item 11 has been promoted to `[x]` (verified end-to-end with E2E checks), and Item 15 has been consolidated into it. No stale duplication remains.
+Item 11 (`[~]` → `[x]`) and Item 15 (`[ ]` → `[x]`) were near-duplicate entries for the same "Verify the complete Goal → Task → Execution → Completion → Review loop" work. Both have been promoted to `[x]` (verified end-to-end with E2E checks); no stale duplication remains.
 
 ### 5.5 Execution Planning vs Project Hierarchy
 
@@ -308,7 +308,7 @@ No mypy/pyright, no ruff/flake8. Only pytest configured. The project uses datacl
 
 1. **Load janus_sync plugin in Hermes config** — realizes ADR-004 compliance in production. Alternatively, document gated completion as opt-in. This is the highest-impact action.
 
-2. **Update roadmap items 9-12 from `[ ]` to `[x]`** — verified implemented. Low effort, removes stale signal.
+2. ~~Update roadmap items 9-12 from `[ ]` to `[x]`~~ — **DONE.** Roadmap Near-Term items 9-12 already show `[x]`; Agency-First Phase A already `[x]`. (Resolved by PR #250 / t_59cd163e.)
 
 3. **ADR status signals** — RESOLVED by PR #250 (merge 8045c31). ADR-004 and ADR-005 status fields now
    correctly show "Accepted" (not the old qualified statuses) in both the canonical ADR files and the
