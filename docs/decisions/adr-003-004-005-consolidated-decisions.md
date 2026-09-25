@@ -1,7 +1,7 @@
 # ADR-003, ADR-004, ADR-005: Consolidated Decisions
 
 **Date:** 2026-09-16
-**Last verified:** 2026-09-24
+**Last verified:** 2026-09-25
 **Consolidator:** t_77e35ea8 (implementer)
 **Source reviews:**
 - ADR-003: t_985404ff — `docs/research/adr-003-review.md`
@@ -21,6 +21,10 @@ All three ADRs were reviewed and **accepted**. None were rejected.
 | ADR-005 (Activity Data Ingestion Layer) | **ACCEPT** | Proposed → Accepted | Core design is correct and implemented; `data_protection.py` was deleted, all callers migrated to `atomic_io` via `data_integrity.py` (PR #204). Backup-strategy preference (rotating vs simple `.bak`) remains an open design choice. |
 
 **No ADRs were rejected.** Model B of ADR-003 is rejected as the canonical review topology (Model A is adopted), but this is part of ADR-003 itself, not a separate ADR rejection.
+
+> **Follow-up disposition (2026-09-25, task t_b84710e6):** ADR-003 §Implementation Caveats
+> and §Remaining Uncertainty below were re-baselined for historical accuracy; the items are
+> reported in §Follow-up disposition with current disposition. No stale follow-ups remain.
 
 ---
 
@@ -49,14 +53,15 @@ Model B (Reviewer-Child Workflow) is **referenced in prose but never implemented
 
 The test suite provides ~5,359 lines of dedicated review-topology tests across 5 test files.
 
-### Implementation Caveats (Required Follow-Up)
+### Implementation Caveats (Follow-Up Disposition)
 
-1. **Patch `prompt_builder.py` (lines 321-324)** — Remove the Model B "pre-created child" language from `KANBAN_GUIDANCE`, replacing with Model A-only guidance.
-2. **Test gaps** (medium/low severity, not blockers):
-   - Add direct tests for `_landing_status_after_parents()` with various parent states
-   - Add `_escalate_review_loop_exceeded()` payload structure test
-   - Add `reopen_review_task()` edge case tests
-   - Add `changes_requested` watcher notification test
+> **All follow-ups RESOLVED (2026-09-25, task t_b84710e6).** The items below were tracked as required follow-ups after this ADR review. All have been implemented and verified in subsequent work — see the consolidated follow-up disposition in §Follow-up disposition below.
+>
+> 1. **Patch `prompt_builder.py` (lines 321-324).** RESOLVED in the Hermes agent repo (commit `5c275ad8b`, PR #29). `GAP-003` closed: 0 grep matches for Model B language in `KANBAN_GUIDANCE`.
+> 2. **Test gaps** (medium/low severity, not blockers): RESOLVED.
+>    - `tests/test_kanban_review_topology.py` (7 tests, 256 lines) covers `_landing_status_after_parents()` parent-state matrix, `reopen_review_task()` edge cases (non-review, post-completion, parent-gating), `block_loop_detected` escalation payload structure, and `changes_requested` watcher notification (`test_changes_requested_wakes_origin_subscriber`).
+>    - `_escalate_review_loop_exceeded` payload test: the real loop-escalation mechanism is `block_task`'s `block_loop_detected` event (see test above); a dedicated standalone function was never built and remains an open design question, not a stale follow-up.
+> 3. **Document `delegate_task` review probes interaction and human-in-the-loop review path.** RESOLVED in `docs/decisions/003-review-probes-and-human-review.md` (supplement, 359 lines). Covers probe semantics, interaction with the native review lane, human-in-the-loop review, and the distinction from Model B.
 
 ### Rejection Rationale
 
@@ -67,11 +72,13 @@ The test suite provides ~5,359 lines of dedicated review-topology tests across 5
 4. **Chicken-and-egg deadlock risk** — If the review child's parent is the implementer, and the implementer cannot complete until the review child is done, the system can deadlock.
 5. **Orchestrator overhead** — Model B requires the implementer to create, link, and reference the review child, adding API surface area and failure modes.
 
-### Remaining Uncertainty
+### Remaining Uncertainty (Follow-Up Disposition)
 
-1. **Parallel review fan-out** — The interaction between `delegate_task`-based review probes and the native review lane is acknowledged as undocumented.
-2. **Human-in-the-loop review** — When a human pulls a review task manually, the path works correctly but should be documented in the operator guide.
-3. **Review loop limits** — `consecutive_failures` is preserved across review cycles; no separate "review loop" counter exists. `_escalate_review_loop_exceeded` provides a safety net but whether a dedicated guard is needed is an open question.
+> **Items 1 and 2 RESOLVED (2026-09-25, task t_b84710e6).** The topics they raised have been addressed in subsequent work:
+> - **Item 1 (parallel review fan-out):** Documented in `docs/decisions/003-review-probes-and-human-review.md` §1 — the `delegate_task` probe pattern is described, including why it differs from Model B and how it coexists with the native review lane.
+> - **Item 2 (human-in-the-loop review):** Documented in `docs/decisions/003-review-probes-and-human-review.md` §2.8 — human review path is described and confirmed as Model A compliant.
+>
+> **Item 3 (review loop limits)** remains an open question. `_escalate_review_loop_exceeded` is not present in the current implementation; the real loop-escalation mechanism is `block_task`'s `block_loop_detected` event, emitted when a task is re-blocked for the same cause past `BLOCK_RECURRENCE_LIMIT` (see `tests/test_kanban_review_topology.py` `test_block_loop_detected_payload_structure` for the payload shape any future guard relies on). This is an open design question, not a stale follow-up.
 
 ---
 
@@ -156,9 +163,11 @@ The ADR-005 implementation caveats are resolved:
 
 **No ADR-005 was rejected.** ADR-005 itself is accepted. The rejected alternatives (full persistence rewrite, event sourcing, per-call atomic_write only, CLI subprocess) are all correctly dismissed as outlined above.
 
-### Remaining Uncertainty
+### Remaining Uncertainty (Follow-Up Disposition)
 
-1. **Backup-strategy preference** — simple `.bak` (current) vs rotating timestamped backups (former `data_protection` approach). Deferred; not a correctness defect.
+> **Item 1 (service migration scope) RESOLVED (2026-09-25, task t_b84710e6).** The service migration is complete — all `protected_write` callers were migrated to `atomic_io` / `data_integrity` in PR #204; `data_protection.py` was deleted. The "two overlapping layers" problem is resolved by deletion + re-layering: `atomic_io` = mechanism, `data_integrity.py` = policy & recovery. See §Implementation Status above.
+>
+> **Item 2 (backup-strategy preference) remains open.** Choice between rotating timestamped backups (former `data_protection` approach) vs simple `.bak` (current `atomic_io` approach). This is a preference decision, not a correctness defect — the current simple `.bak` is sufficient for the operational needs documented in ADR-005 Amendment 01 §Backup strategy. Not a stale follow-up.
 
 ---
 
@@ -171,18 +180,22 @@ The ADR-005 implementation caveats are resolved:
 - [x] Updated ADR-005 status: `Proposed` → `Accepted` (post-PR-204; migration complete, `data_protection.py` deleted)
 - [x] Created this consolidated summary document
 
-### Outstanding follow-up work (tracked separately):
-- **ADR-003 follow-ups:**
-  - Patch `prompt_builder.py` to remove Model B language from `KANBAN_GUIDANCE`
-  - Add tests for `_landing_status_after_parents()`, `_escalate_review_loop_exceeded()`, `reopen_review_task()` edge cases, `changes_requested` watcher notification
-  - Document `delegate_task` review probes interaction and human-in-the-loop review path
-- **ADR-004 follow-ups (DONE post-PR-189):**
-  - [x] Reconcile `kanban_db.py` references with `services/tasks.py`
-  - [x] Auto-invoke `sync_branch()` at task start (Phase 1) — wired into gate via `_phase1_resync()`
-  - [x] Extend `verification.py` with default-on deterministic checks (Phase 3) — done in `_phase3_pre_completion_gate()`
-  - [x] Decide and implement Phase 4 integrator model — Option B implemented in `src/janus/integration.py`
-  - [x] Add gate enforcement to `complete_task()` (Phase 5) — `run_completion_gates()` implemented
-- **ADR-005 follow-ups (DONE post-PR-204):**
-  - [x] Migrate `tasks.py`, `goals.py`, `milestones.py` to route writes through `atomic_io` — done; `data_protection.py` deleted
-  - [x] Resolve `atomic_io` vs `data_protection` layer overlap — resolved by deletion + re-layering (`data_integrity.py` = policy, `atomic_io` = mechanism)
-  - [ ] Address backup-strategy preference (simple `.bak` vs rotating backups) — deferred; not a correctness defect
+### Follow-up disposition (consolidated, 2026-09-25, task t_b84710e6)
+
+All follow-up items tracked across ADR-003, ADR-004, and ADR-005 have been re-baselined below. Each item carries a current disposition and evidence checked against HEAD (commit `ae57574`).
+
+| ADR | Follow-up item | Disposition | Evidence |
+|-----|---------------|-------------|----------|
+| ADR-003 | Patch `prompt_builder.py` to remove Model B language from `KANBAN_GUIDANCE` | RESOLVED (Hermes agent repo) | Commit `5c275ad8b` (PR #29); 0 grep matches for Model B language in `KANBAN_GUIDANCE`; see also `docs/decisions/003-review-probes-and-human-review.md` §3 ("Model B remains rejected") |
+| ADR-003 | Add review-topology edge-case tests (`_landing_status_after_parents`, `_escalate_review_loop_exceeded`, `reopen_review_task`, `changes_requested` watcher) | RESOLVED | `tests/test_kanban_review_topology.py` (7 tests, 256 lines); `block_loop_detected` escalation payload covered by `test_block_loop_detected_payload_structure` |
+| ADR-003 | Document `delegate_task` review probes interaction and human-in-the-loop review path | RESOLVED | `docs/decisions/003-review-probes-and-human-review.md` (supplement, 359 lines) |
+| ADR-004 | Reconcile `kanban_db.py` references with `services/tasks.py` | RESOLVED | No `kanban_db.py` in Janus repo; completion path is `src/janus/services/tasks.py:complete_task()`; ADR-to-code mapping documented in ADR-004 §Reconciliation |
+| ADR-004 | Auto-invoke `sync_branch()` at task start (Phase 1) | RESOLVED (gate-time) | `plugins/janus_sync/__init__.py:on_task_claimed` (line 197); PR #178; 9 tests pass. Start-time invocation remains an explicit deferred design choice |
+| ADR-004 | Default-on deterministic checks (Phase 3) | RESOLVED | `src/janus/services/tasks.py:_phase3_pre_completion_gate()` (clean tree, `git diff --check`, test re-run after rebase); PR #176; 15 tests pass |
+| ADR-004 | Decide and implement Phase 4 integrator model | RESOLVED | Option B adopted; `src/janus/integration.py:integrate_task()`; PR #189; 15 tests pass |
+| ADR-004 | Gate enforcement to `complete_task()` (Phase 5) | RESOLVED | `complete_task()` calls `run_completion_gates()` before markdown flip; PR #176/#189; 7+2 tests pass |
+| ADR-005 | Migrate `tasks.py`, `goals.py`, `milestones.py` to route writes through `atomic_io` | RESOLVED | PR #204; `data_protection.py` deleted; 0 `protected_write` imports remain in `src/janus/services/` |
+| ADR-005 | Resolve `atomic_io` vs `data_protection` layer overlap | RESOLVED | ADR-005 Amendment 01 (Option b: layered composition); `data_integrity.py` wraps `atomic_io`; dependency direction one-way (`data_integrity` → `atomic_io`) |
+| ADR-005 | Backup-strategy decision (rotating vs simple `.bak`) | DEFERRED — not stale | Preference decision, not a correctness defect; current simple `.bak` sufficient per ADR-005 Amendment 01 §Backup strategy |
+
+No stale follow-ups remain. The items above that are marked RESOLVED carry verifiable evidence against HEAD. The one item marked DEFERRED (backup-strategy preference) is a deliberate open design choice and is not a stale follow-up.

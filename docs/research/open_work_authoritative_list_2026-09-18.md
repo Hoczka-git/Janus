@@ -237,14 +237,14 @@ are reflected as CLOSED in this report.
 
 | # | Stale Claim | Source Report | Why Archive (not Remove) |
 |---|-------------|---------------|--------------------------|
-| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **RESOLVED** — Both docs back-ported to HEAD; `adr-003-004-005-consolidated-decisions.md` is the canonical consolidated ADR (post-PR-189/204 state); `adr-consolidated-decisions.md` was a duplicate and has been removed. |
+| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **Valid** — `adr-003-004-005-consolidated-decisions.md` (created in `76fd1cd`) and `adr-consolidated-decisions.md` (created in `c74d1ac`) exist on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or document as "available on master only." |
 
 ### Consolidated ADR documents not on HEAD (ARCHIVE)
 
 | # | Stale Claim | Source Report | Resolution |
 |---|-------------|---------------|------------|
-| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** — file is now on HEAD as the canonical consolidated ADR. |
-| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** — duplicate file removed; canonical file supersedes it. |
+| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **Confirmed** — file created in `76fd1cd` which is on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or mark as "available on master only." |
+| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | Same — created in `c74d1ac`, not on HEAD. Archive: same recommendation. |
 
 ---
 
@@ -337,7 +337,7 @@ are reflected as CLOSED in this report.
 || Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
 || 11 tmp_*.py files committed in 2dc1b72 | `git ls-files tmp_*.py` — 11 files; `git show 2dc1b72 --stat` lists all 11 |
 || **ADR-004 Phase 4 "separate agent" claim UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR §10 Phase 4 Integrator Model decision (lines 135-160) explicitly adopted Option B (automated step) and documented why a separate agent was not created. The "separate agent" language describes the design space considered, not an open gap. |
-|| Consolidated ADR docs on HEAD | `adr-003-004-005-consolidated-decisions.md` is canonical on HEAD; `adr-consolidated-decisions.md` removed |
+|| Consolidated ADR docs not on HEAD | `76fd1cd` and `c74d1ac` create `adr-003-004-005-consolidated-decisions.md` and `adr-consolidated-decisions.md`; both on `origin/master` but not on HEAD |
 
 ---
 
@@ -350,7 +350,8 @@ are reflected as CLOSED in this report.
 2. **Patch prompt_builder.py** — ~~remove Model B language (ADR-003 GAP-003)~~ ✅ RESOLVED
    (commit `5c275ad8b` in Hermes agent repo, Sep 16)
 3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
-   is now on HEAD (canonical); `adr-consolidated-decisions.md` duplicate was removed.
+   and `adr-consolidated-decisions.md` exist on master (`76fd1cd`, `c74d1ac`) but not
+   on HEAD. Back-port to HEAD or document as master-only.
 
 ### Implementation backlog (requires dedicated tasks)
 7. **ADR-004 Phases 3-5** — implement pre-completion gate, safe integration, completion gating
@@ -386,12 +387,13 @@ All three ADR status fields are now UP-TO-DATE at HEAD:
 | ADR | File | Status at HEAD `893a963` | Previously (2026-09-18) | Change |
 |-----|------|--------------------------|-------------------------|--------|
 | ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | **Accepted** | Proposed | ✓ RESOLVED |
-| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted with implementation caveats** | Proposed | ✓ RESOLVED |
-| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted (on consolidation)** | Proposed | ✓ RESOLVED |
+|| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted** | Accepted with implementation caveats | ✓ RESOLVED |
+|| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted** | Accepted (on consolidation) | ✓ RESOLVED |
 
-**Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
-field now reads "Accepted with implementation caveats," accurately reflecting that all 5
-phases are implemented (see §9.2).
+> **Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
+> field now reads "Accepted," accurately reflecting that all 5 phases are implemented
+> (PRs #176/#178/#189, #250). The earlier "Accepted with implementation caveats" qualifier
+> was superseded by PR #250 (merge 8045c31), which cleared the caveats.
 
 ## 9.2 ADR-004: Safe Sync-and-Integrate Workflow — Current State
 
@@ -458,40 +460,30 @@ integration is complete and tested.
 
 ## 9.4 ADR-005: Activity Data Ingestion Layer — Current State
 
-**GAP-005 (data_protection vs atomic_io): STILL OPEN**
+- **GAP-005 (data_protection vs atomic_io):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. `data_protection.py` deleted; all service writers migrated to `atomic_io`/`data_integrity`. The "sole write gateway" claim is now accurate.
 
-- **Status at HEAD `893a963`:** UNCHANGED
-- **Verdict:** Genuinely open. Services still use `protected_write` from `data_protection.py`.
-  No change from 2026-09-18.
+- **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01. `data_protection.py` deleted; all service writers migrated.
+- **Verdict:** RESOLVED. No genuine open gap remains.
 
-**GAP-007 ("sole write gateway" claim contradicted): RE-EVALUATED**
+- **GAP-007 ("sole write gateway" claim contradicted):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
-- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
-- **Nuance:** The j_ prec rebaseline (t_13a8b54a, 2026-09-18) had already corrected this:
-  the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus
-  data files; the only direct-write outlier is `google_calendar.py:42` (OAuth token cache,
-  not data). The claim is substantially accurate but the §2/§6 text still says "must be the
-  ONLY path" which is technically contradicted by the google_calendar outlier. Still worth
-  a caveat note in §9.4, but less severe than the original "contradicted" framing.
+- **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01.
+- **Nuance:** The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
 **GAP-008 (CI grep gate): STILL OPEN**
 
 - **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open.
 
-## 9.5 Current Genuinely Open Work (2026-09-22, post-PR #176/#178/#189, HEAD `893a963`)  [7 items]
+### 9.3 Current Genuinely Open Work (2026-09-22, post-PR #176/#178/#189, PR #250, PR #204, HEAD `8045c31`)  [3 items]
 
-After reconciliation against HEAD `893a963` (and subsequent fixes through commit `781d4ae`),
-the following items remain genuinely open:
+After reconciliation against HEAD `8045c31` (PR #250 merged, ADR-004 and ADR-005 statuses normalized to "Accepted"), the following items remain genuinely open:
 
-### P1 (high priority)
+### P2 (medium priority)
 
-1. **GAP-005: ADR-005 data_protection → atomic_io migration**
-   - Services still call `protected_write` from `data_protection.py` instead of routing
-     through `atomic_io.read_modify_write_with_retry`
-   - Effort: High. Blocks "sole write gateway" claim from being fully accurate.
+5. **GAP-005: ADR-005 data_protection → atomic_io migration** — CLOSED by ADR-005 Amendment 01 and PR #204. `data_protection.py` deleted; all service writers migrated to `atomic_io`/`data_integrity`. No remaining action.
 
-2. **GAP-001: ADR-002 curation gate not implemented**
+1. **GAP-001: ADR-002 curation gate not implemented**
    - No `curation_gate()` / `human_approval()` / `promote_to_obsidian()` in
      `knowledge_pipeline.py`
    - Effort: Medium. Blocks end-to-end knowledge pipeline.
@@ -499,17 +491,15 @@ the following items remain genuinely open:
 ### P2 (medium priority)
 
 3. **GAP-007: ADR-005 "sole write gateway" claim — add caveat**
-   - §2/§6 says "must be the ONLY path" but `google_calendar.py:42` is a direct-write outlier
-     (OAuth token cache, not data)
-   - Effort: Low. Add caveat noting the token cache exception.
+   - CLOSED by ADR-005 Amendment 01 and PR #204. The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate. No remaining action.
 
-4. **GAP-003: ADR-003 prompt_builder.py Model B language — RESOLVED**
+- **GAP-003 (prompt Model B language): RESOLVED**
    - In Hermes agent repo, not Janus. Unaffected by Janus PRs.
    - Effort: Low. The Janus-side ADR-003 status is now "Accepted" (was "Proposed" at 2026-09-18),
      but the GAP-003 finding about `prompt_builder.py` is Hermes-side and is RESOLVED —
      commit `5c275ad8b` (Sep 16, PR #29) removed the Model B language.
 
-5. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
+3. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
    - No CI rule grepping for data/ writes outside atomic_io
    - Effort: Low. Regression guard. The 2026-09-21 analysis incorrectly marked this CLOSED
      (referencing "195 add..." — referring to PR #195 which did NOT implement a CI grep gate).
