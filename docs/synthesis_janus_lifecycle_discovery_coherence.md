@@ -2,7 +2,6 @@
 
 **Task:** t_80157ed1 — Consolidated discovery and synthesis
 **Date:** 2026-09-24
-**Last verified:** 2026-09-24
 **Scope:** Synthesis of 5 research-findings worktrees + t_80157ed1 discovery reads (roadmap, backlog, vision, design docs)
 **Method:** Cross-worktree thematic aggregation. No implementation changes.
 
@@ -195,21 +194,26 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 ### 5.2 Consolidated ADR File — Resolved
 
-- `docs/decisions/adr-003-004-005-consolidated-decisions.md` (211 lines, canonical) — the single authoritative consolidated ADR.
-- `adr-consolidated-decisions.md` was the duplicate; it was removed in commits b7ef125 / 4c34204 / 3178c97.
+The two overlapping consolidated ADR files have been merged into a single canonical document:
+- `docs/decisions/adr-003-004-005-consolidated-decisions.md` — the sole canonical consolidated
+  decision record for ADR-003/004/005 (reflects post-PR-189/PR-204 implementation state).
+- `docs/decisions/adr-consolidated-decisions.md` — **removed** (was a stale 84-line summary
+  copy that predated the PRs completing ADR-004 and ADR-005 implementation).
 
-ADR-004 status is now "Accepted" (post-PR-189). Only the runtime plugin-loading gap remains.
+ADR-004 status is now **"Accepted"** (post-PR-189, all 5 phases implemented).
+ADR-005 status is now **"Accepted"** (post-PR-204, migration complete, `data_protection.py` deleted).
+Only the runtime plugin-loading gap remains for ADR-004 (§6).
 
 ### 5.3 Goal Progress: Metric Fields vs Measurement Log
 
 `goal_system_design.md` stores `current_value` directly on the Goal (11-field dataclass). `measurement_collection_design.md` stores measurements in a separate `data/measurements.jsonl` log. Two different persistence strategies for the same conceptual problem. The measurement approach is more sophisticated (time-series, due-date tracking) but the goal design approach is simpler. Both are "design complete — not implemented." Implementing both without reconciliation would be redundant.
 
-### 5.4 Roadmap Items 11 and 15 Are Near-Duplicates
+### 5.4 Roadmap Items 11 and 15 — Consolidated
 
-- Item 11: `[~]` Verify the complete Goal → Task → Execution → Completion → Review loop
-- Item 15: `[ ]` Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review
-
-Item 11 is partially done; item 15 is not started. These should be consolidated.
+Item 11 (`[x]` Verify the complete Goal → Task → Execution → Completion → Review loop)
+and item 15 (`[x]` same title with "including production verification" qualifier) were
+near-duplicates. Item 15 has been removed; item 11 already includes the
+production-verification note and is the sole lifecycle-verification roadmap item.
 
 ### 5.5 Execution Planning vs Project Hierarchy
 
@@ -219,11 +223,11 @@ Item 11 is partially done; item 15 is not started. These should be consolidated.
 
 Referenced in a task body but does not exist in the repository. Unknown what it was supposed to contain.
 
-### 5.7 ADR Status Signals — Resolved
+### 5.7 ADR Status Signals Are Stale
 
-- ADR-004 status field: Updated from "Accepted with implementation caveats" to "Accepted" — all 5 phases implemented post-PR-189; only the runtime plugin-loading gap remains.
-- ADR-005 status: Updated from "Accepted (on consolidation)" to "Accepted" — migration complete, `data_protection.py` deleted.
-- Consolidated ADR files: Duplicate removed; `adr-003-004-005-consolidated-decisions.md` is the sole canonical file.
+- ADR-004 status field: "Accepted with implementation caveats" — the caveats are now resolved; only the runtime plugin-loading gap remains.
+- ADR-005 status: References original incomplete migration — superseded by Amendment 01 which declares "criteria met."
+- Consolidated ADR files: Reflect pre-PR-189 state.
 
 ---
 
@@ -322,7 +326,7 @@ No mypy/pyright, no ruff/flake8. Only pytest configured. The project uses datacl
 
 5. **Consolidate roadmap items 11 and 15** — near-duplicate. Merge into one item with clear scope.
 
-6. ~~**Resolve consolidated ADR file duplication**~~ — RESOLVED. `adr-consolidated-decisions.md` (duplicate) was removed. `adr-003-004-005-consolidated-decisions.md` is now the sole canonical file.
+6. **Resolve consolidated ADR file duplication** — determine which of the two consolidated files is authoritative. Merge or delete the other.
 
 7. **Create or remove `janus-agency-first-development-phase.md`** — referenced but missing. Either create it or remove the reference.
 

@@ -200,14 +200,15 @@ These were flagged in prior reports as open/risk but are now resolved:
 
 ## 7. Consolidated Decision Documents
 
-Two consolidated decision documents exist on remote branches but are **not on HEAD**:
+The two consolidated decision documents have been resolved:
 
-| Document | Created in | Status |
-|----------|-----------|--------|
-| `docs/decisions/adr-003-004-005-consolidated-decisions.md` (211 lines) | `76fd1cd` | Not on HEAD |
-| `docs/decisions/adr-consolidated-decisions.md` (74 lines) | `c74d1ac` | Not on HEAD |
+| Document | Status |
+|----------|--------|
+| `docs/decisions/adr-003-004-005-consolidated-decisions.md` (canonical) | **On HEAD** — sole consolidated decision record for ADR-003/004/005 |
+| `docs/decisions/adr-consolidated-decisions.md` (duplicate summary) | **Removed** — was a stale 84-line summary copy; deleted as part of lifecycle consolidation |
 
-**Recommendation:** Bring `adr-003-004-005-consolidated-decisions.md` to HEAD — it's the clearest statement of record for why ADR-003/004/005 were accepted (reviews from t_985404ff, t_9f249780, t_b41ffe1f all recommend ACCEPT; no ADRs rejected).
+The canonical `adr-003-004-005-consolidated-decisions.md` reflects the post-PR-189/PR-204
+implementation state with ADR-004 and ADR-005 statuses normalized to "Accepted".
 
 ---
 
