@@ -242,14 +242,11 @@ sequencing order.
 
 These are low-effort, high-signal items. They create false board signal if left as-is.
 
-1. The roadmap "Agency-First Janus" phase checkboxes are all `[ ]` even though the same
-   document's Near-Term list marks the Phase A loop verification done. Reconcile the two.
+1. ~~The roadmap "Agency-First Janus" phase checkboxes are all `[ ]`~~ — **RESOLVED.** The Near-Term list already shows items 9-12 as `[x]` and the Agency-First phase list shows Phase A (Complete Goal → Task → Execution → Completion → Review) as `[x]`. The inconsistency noted here has been reconciled by subsequent work.
 
-2. Two near-duplicate consolidated ADR files exist. Pick one as authoritative, merge or
-   remove the other.
+2. ~~Two near-duplicate consolidated ADR files exist~~ — **RESOLVED.** `docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only `adr-003-004-005-consolidated-decisions.md` remains as authoritative.
 
-3. The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is
-   "referenced but missing." It is not missing. Close or re-baseline that follow-up.
+3. ~~The synthesis document's §8.2 item 7 says `janus-agency-first-development-phase.md` is "referenced but missing."~~ — **RESOLVED.** The file exists at `docs/janus-agency-first-development-phase.md` (900 lines, Last verified 2026-09-24). The synthesis document's §5.6 and §8.2 item 7 have been rebaselined to reflect this.
 
 4. ADR status signals are accurate in the consolidated files but the original ADR files still
    carry their historical status lines. Adding a "Last verified" date to each ADR is a
@@ -270,7 +267,7 @@ The phase doc already defines the order. The conclusion of this triage is that t
 between Phase A completion and Phase B elevation. The recommended sequence for the next
 implementation work is:
 
-1. Close the documentation inconsistencies first. They block confident sequencing.
+1. ~~Close the documentation inconsistencies first~~ — **RESOLVED.** All five documentation staleness items from §5 have been addressed: roadmap items 9-12 and Agency-First Phase A show `[x]`; consolidated ADR duplication removed; `janus-agency-first-development-phase.md` found to exist; ADR-004/005 statuses updated by PR #250; "Last verified" dates added to all ADR files (PR #247).
 2. Elevate Evidence to a first-class domain concept (Phase B) before adding more autonomous
    paths, because Principle 4 (Evidence Over Assumptions) is the gate that protects later
    autonomy.
@@ -293,16 +290,15 @@ implementation work is:
 These are expressed with an explicit verification criterion so the next worker does not
 self-report "done" without evidence.
 
-### 7.1 Close documentation staleness
-- Reconcile the two consolidated ADR files into one authoritative file.
-- Reconcile roadmap Agency-First checkboxes with verified implementation state.
-- Add "Last verified" dates to each ADR.
-- Remove or re-baseline stale synthesis follow-ups, especially the "janus-agency-first
-  development phase doc missing" item.
-- Re-baseline ADR-005 caveats as resolved-by-relayering; keep only the backup-strategy
-  preference as open.
-- Verification: diff shows one authoritative consolidated file; roadmap phase list consistent
-  with implementation; ADR files carry a verified date; stale synthesis items resolved.
+### 7.1 Close documentation staleness ~~— RESOLVED~~
+
+All items in this section have been resolved by subsequent work:
+
+- ~~Reconcile the two consolidated ADR files into one authoritative file.~~ **RESOLVED** — `docs/decisions/adr-consolidated-decisions.md` removed by t_be476bd0 (PR #248).
+- ~~Reconcile roadmap Agency-First checkboxes with verified implementation state.~~ **RESOLVED** — Near-Term items 9-12 and Agency-First Phase A all show `[x]`.
+- ~~Add "Last verified" dates to each ADR.~~ **RESOLVED** — All ADR files carry "Last verified: 2026-09-24" (PR #247).
+- ~~Remove or re-baseline stale synthesis follow-ups, especially the "janus-agency-first development phase doc missing" item.~~ **RESOLVED** — File exists; synthesis §5.6 and §8.2 item 7 rebaselined.
+- ~~Re-baseline ADR-005 caveats as resolved-by-relayering; keep only the backup-strategy preference as open.~~ **RESOLVED** — ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated.
 
 ### 7.2 Confirm or patch Model B language in the worker prompt
 - Check whether the "pre-created review/QA/release child" Model B guidance is still present in

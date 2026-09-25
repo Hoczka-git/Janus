@@ -189,9 +189,9 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 ## 5. Contradictions and Stale Signals
 
-### 5.1 Roadmap Items 9-12 Are Stale
+### 5.1 Roadmap Items 9-12 Are Implemented
 
-`docs/roadmap.md` marks items 9-12 as `[ ]` but they are implemented, tested, and merged. Verified by prior review (t_3d55f0c0). Items: Janus ↔ Hermes execution feedback, Strategic state summaries, Evidence-based skill tracking, and one more. The roadmap needs updating to `[x]` or `[~]`.
+`docs/roadmap.md` marks items 9-12 as `[x]` (all checked). Verified by prior review (t_3d55f0c0). Items: Janus ↔ Hermes execution feedback, strategic state summaries, evidence-based skill tracking, and the complete Goal → Task → Execution → Completion → Review loop verification. No stale signal remains for these items.
 
 ### 5.2 Consolidated ADR file duplication RESOLVED
 
@@ -201,26 +201,25 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 `goal_system_design.md` stores `current_value` directly on the Goal (11-field dataclass). `measurement_collection_design.md` stores measurements in a separate `data/measurements.jsonl` log. Two different persistence strategies for the same conceptual problem. The measurement approach is more sophisticated (time-series, due-date tracking) but the goal design approach is simpler. Both are "design complete — not implemented." Implementing both without reconciliation would be redundant.
 
-### 5.4 Roadmap Items 11 and 15 Are Near-Duplicates
+### 5.4 Roadmap Items 11 and 15 Were Consolidated
 
-- Item 11: `[~]` Verify the complete Goal → Task → Execution → Completion → Review loop
-- Item 15: `[ ]` Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review
-
-Item 11 is partially done; item 15 is not started. These should be consolidated.
+Item 11 (`[~]`) and Item 15 (`[ ]`) were near-duplicate entries for the same "Verify the complete Goal → Task → Execution → Completion → Review loop" work. Item 11 has been promoted to `[x]` (verified end-to-end with E2E checks), and Item 15 has been consolidated into it. No stale duplication remains.
 
 ### 5.5 Execution Planning vs Project Hierarchy
 
 `execution_planning.md` adds Milestones to Goal (Goal → Milestone → Task, 3-level). `goal_milestone_project_task_hierarchy.md` adds Project between Milestone and Task (Goal → Milestone → Project → Task, 4-level). The latter is more recent/detailed but has no implementation commitment. Both coexist.
 
-### 5.6 Missing File: `janus-agency-first-development-phase.md`
+### 5.6 File Exists: `janus-agency-first-development-phase.md`
 
-Referenced in a task body but does not exist in the repository. Unknown what it was supposed to contain.
+The file `docs/janus-agency-first-development-phase.md` exists (900 lines, Last verified 2026-09-24). It defines the Agency-First development phase model with 8 phases (A–H), 8 product principles, and a feature-evaluation framework. The earlier claim that it was missing was stale — the file was added after the synthesis was written. The roadmap links to it at line 133.
 
-### 5.7 ADR Status Signals Are Stale
+### 5.7 ADR Status Signals Updated
 
-- ADR-004 status field: "Accepted" — all 5 phases implemented, wired, and tested (PRs #176/#178/#189); only the runtime plugin-loading gap remains, which is operational, not a code gap.
-- ADR-005 status: "Accepted" — consolidation condition discharged by Amendment 01 (PR #204); data_protection.py deleted; service migration complete; backup strategy decided. No remaining migration caveats.
-- Consolidated ADR files: Reflect pre-PR-189 state.
+All ADR status signals now reflect current state (post-PR-250). ADR-004 and ADR-005 both show "Accepted" with status notes. The consolidated ADR file reflects current implementation state. No stale status signals remain.
+
+- ADR-004 status field: "Accepted" — all 5 phases implemented, wired, and tested (PRs #176/#178/#189); only the runtime plugin-loading gap remains, which is operational, not a code gap. Updated by PR #250 (merge 8045c31).
+- ADR-005 status: "Accepted" — consolidation condition discharged by Amendment 01 (PR #204); data_protection.py deleted; service migration complete; backup strategy decided. No remaining migration caveats. Updated by PR #250.
+- Consolidated ADR files: Updated to reflect current state by PR #250 (merge 8045c31). ADR-004 row shows "ACCEPT" with implementation rationale; ADR-005 row shows "ACCEPT" with resolved caveats.
 
 ---
 
@@ -319,11 +318,11 @@ No mypy/pyright, no ruff/flake8. Only pytest configured. The project uses datacl
 
 4. **Decide goal system direction** — metric fields on Goal vs MeasurementLog. These overlap. Pick one, reconcile, or explicitly defer one. The 948-line implementation plan exists for metric fields; the 729-line measurement design exists for the log approach.
 
-5. **Consolidate roadmap items 11 and 15** — near-duplicate. Merge into one item with clear scope.
+5. ~~Consolidate roadmap items 11 and 15~~ — **RESOLVED.** Items were consolidated; both are now `[x]`.
 
-6. **Resolve consolidated ADR file duplication** — determine which of the two consolidated files is authoritative. Merge or delete the other.
+6. ~~Resolve consolidated ADR file duplication~~ — **RESOLVED.** `docs/decisions/adr-consolidated-decisions.md` removed by t_be476bd0 (PR #248). Only `adr-003-004-005-consolidated-decisions.md` remains.
 
-7. **Create or remove `janus-agency-first-development-phase.md`** — referenced but missing. Either create it or remove the reference.
+7. ~~Create or remove `janus-agency-first-development-phase.md`~~ — **RESOLVED.** File exists at `docs/janus-agency-first-development-phase.md` (900 lines, Last verified 2026-09-24). Referenced by roadmap line 133. No action needed.
 
 ### 8.3 Medium-Term (Design/Implementation)
 
