@@ -188,29 +188,15 @@ Review ──result───> Decision
 
 **Recommendation:** Don't add `execution_mode` as a domain concept yet. The distinction is already implicit in *who invokes the service* (CLI vs Hermes dispatch) and *what gates apply*. Add it only if there's a concrete need (e.g., different permissions, different audit trails, different UI paths).
 
-### 5.2 Do we need `support_mode: EXPLAIN / COACH / SCAFFOLD / REVIEW / EXECUTE`?
+**This is simpler than a formal `execution_mode`/`support_mode` taxonomy and covers the actual agency needs.**
 
-**Partially — REVIEW is already first-class (ADR-003).** The others map to existing patterns:
+### 5.4 Stale claims cleared (2026-09-25, task t_b84710e6, PR #253)
 
-- **EXPLAIN:** `janus goal explain`, `janus task explain` — already exists as read-only commands.
-- **COACH:** Planning suggestions, next-action derivation — exists in planning service.
-- **SCAFFOLD:** Forms/templates for user input — exists in CLI structure.
-- **REVIEW:** Native review lane (ADR-003) — implemented.
-- **EXECUTE:** Service functions with gates — implemented.
+4. ~~ADR status signals are accurate in the consolidated files but the original ADR files still carry their historical status lines.~~ — **RESOLVED.** All ADR files carry "Last verified: 2026-09-24" (PR #247). Status fields reflect current Accepted state.
 
-**Recommendation:** Don't add `support_mode` as a domain concept. The existing CLI surface + planning + review topology cover these modes without a formal enum. If a future phase needs mode-specific behavior (different permissions, different UI, different audit), add it then.
+5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo.~~ — **RESOLVED.** ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated; `data_protection.py` deleted, migration complete via PR #204.
 
-### 5.3 Simpler alternative that achieves the same effect
-
-The core Agency-First insight is: **Janus should increase user agency, not replace it.** This is achieved by:
-
-1. **Gates before auto-completion** (ADR-004) — Janus doesn't finalize without verification.
-2. **Review as native phase** (ADR-003) — human review is always available.
-3. **Manual override paths** — CLI commands let users act directly, bypassing automation.
-4. **Explicit evidence requirement** (proposed) — completion requires proof, not agent assertion.
-5. **Planning as suggestion, not command** — goals produce tasks, user decides which to act on.
-
-This is simpler than a formal `execution_mode`/`support_mode` taxonomy and covers the actual agency needs.
+6. ~~The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime item and should stay, but it is not a code gap in this repo.~~ — **RESOLVED.** This caveat remains accurate as an operational item; no code gap exists in this repo.
 
 ---
 

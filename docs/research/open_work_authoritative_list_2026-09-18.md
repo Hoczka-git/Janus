@@ -292,7 +292,8 @@ GAP-006 is RESOLVED — ADR §Neutral updated to Option B.
 2. **Patch prompt_builder.py** — ~~remove Model B language (ADR-003 GAP-003)~~ ✅ RESOLVED
    (commit `5c275ad8b` in Hermes agent repo, Sep 16)
 3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
-   is now on HEAD (canonical); `adr-consolidated-decisions.md` duplicate was removed.
+   and `adr-consolidated-decisions.md` exist on master (`76fd1cd`, `c74d1ac`) but not
+   on HEAD. Back-port to HEAD or document as master-only.
 
 ### Implementation backlog (requires dedicated tasks)
 
@@ -406,13 +407,11 @@ integration is complete and tested.
 - **GAP-005 (data_protection vs atomic_io):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. `data_protection.py` deleted; all service writers migrated to `atomic_io`/`data_integrity`. The "sole write gateway" claim is now accurate.
 
 - **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01. `data_protection.py` deleted; all service writers migrated.
-
 - **Verdict:** RESOLVED. No genuine open gap remains.
 
 - **GAP-007 ("sole write gateway" claim contradicted):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
 - **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01.
-
 - **Nuance:** The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
 **GAP-008 (CI grep gate): STILL OPEN**

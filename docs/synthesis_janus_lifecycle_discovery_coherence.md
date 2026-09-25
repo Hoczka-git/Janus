@@ -2,6 +2,7 @@
 
 **Task:** t_80157ed1 — Consolidated discovery and synthesis
 **Date:** 2026-09-24
+**Last verified:** 2026-09-24
 **Scope:** Synthesis of 5 research-findings worktrees + t_80157ed1 discovery reads (roadmap, backlog, vision, design docs)
 **Method:** Cross-worktree thematic aggregation. No implementation changes.
 
@@ -192,7 +193,7 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 `docs/roadmap.md` marks items 9-12 as `[x]` (all checked). Verified by prior review (t_3d55f0c0). Items: Janus ↔ Hermes execution feedback, strategic state summaries, evidence-based skill tracking, and the complete Goal → Task → Execution → Completion → Review loop verification. No stale signal remains for these items.
 
-### 5.2 Consolidated ADR File — Resolved
+### 5.2 Consolidated ADR file duplication RESOLVED
 
 `docs/decisions/adr-consolidated-decisions.md` was removed by t_be476bd0 (PR #248). Only the authoritative consolidated file remains: `docs/decisions/adr-003-004-005-consolidated-decisions.md`. ADR-004 status is now **"Accepted"** (post-PR-189, all 5 phases implemented). ADR-005 status is now **"Accepted"** (post-PR-204, migration complete, `data_protection.py` deleted). Only the runtime plugin-loading gap remains for ADR-004 (§6).
 
