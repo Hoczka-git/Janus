@@ -10,7 +10,12 @@ import pytest
 from janus.models.goal import Goal
 from janus.models.weekly_review import GoalReview, WeeklyReview
 from janus.integrations.markdown_goals import load_goals, GOALS_PATH
-from janus.services.weekly_review import create_weekly_review, TASKS_PATH
+from janus.services.weekly_review import (
+    create_weekly_review,
+    _read_completed_task_dates,
+    _parse_completion_date,
+    TASKS_PATH,
+)
 from janus.integrations.markdown_tasks import load_tasks, TASKS_PATH as TASKS_FILE_PATH
 
 
@@ -648,3 +653,156 @@ class TestWeeklyReviewHealthIntegration:
         # progress_delta should be populated (20.0 vs 22.0 snapshot)
         assert gr.progress_delta is not None
         assert gr.progress_delta > 0  # progress improved
+
+
+# ===========================================================================
+# §13.4 / §14.1 — _read_completed_task_dates and _parse_completion_date
+# ===========================================================================
+class TestParseCompletionDate:
+    """Tests for _parse_completion_date date-string parsing."""
+
+    def test_parse_iso_date(self):
+        result = _parse_completion_date("2026-09-06")
+        assert result == date(2026, 9, 6)
+
+    def test_parse_iso_datetime(self):
+        """Full ISO datetime strings are parsed to their date component."""
+        result = _parse_completion_date("2026-09-06T14:30:00+02:00")
+        assert result == date(2026, 9, 6)
+
+    def test_parse_invalid_returns_none(self):
+        """Garbage strings return None rather than raising."""
+        assert _parse_completion_date("not-a-date") is None
+        assert _parse_completion_date("") is None
+        assert _parse_completion_date("2026/09/06") is None
+
+
+class TestReadCompletedTaskDates:
+    """Tests for _read_completed_task_dates — design §13.4 / §14.1."""
+
+    def test_parses_completed_at_field(self, tmp_path, monkeypatch):
+        """Reads completed_at from standard ``- [x]`` task lines."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(
+            "- [x] Task A | completed_at: 2026-09-06 | priority: 2\n"
+            "- [x] Task B | completed_at: 2026-09-04\n"
+        )
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert dates["Task A"] == date(2026, 9, 6)
+        assert dates["Task B"] == date(2026, 9, 4)
+
+    def test_falls_back_to_janus_evidence_completed_at(self, tmp_path, monkeypatch):
+        """When completed_at is absent, falls back to janus_evidence_completed_at."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(
+            "- [x] Task A | janus_evidence_completed_at: 2026-09-06T10:00:00+02:00\n"
+        )
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert dates["Task A"] == date(2026, 9, 6)
+
+    def test_skips_open_tasks(self, tmp_path, monkeypatch):
+        """Only ``- [x]`` lines are considered; ``- [ ]`` lines are skipped."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(
+            "- [ ] Open Task | completed_at: 2026-09-06\n"
+            "- [x] Done Task | completed_at: 2026-09-04\n"
+        )
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert "Open Task" not in dates
+        assert dates["Done Task"] == date(2026, 9, 4)
+
+    def test_skips_lines_without_completion_date(self, tmp_path, monkeypatch):
+        """Completed lines without a parseable date are silently skipped."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text(
+            "- [x] No date task\n"
+            "- [x] Task with date | completed_at: 2026-09-06\n"
+        )
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert "No date task" not in dates
+        assert "Task with date" in dates
+
+    def test_returns_empty_dict_when_no_tasks_file(self, tmp_path, monkeypatch):
+        """When tasks.md doesn't exist, returns empty dict."""
+        tasks_file = tmp_path / "tasks.md"
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert dates == {}
+
+    def test_returns_empty_dict_when_no_completed_tasks(self, tmp_path, monkeypatch):
+        """Empty or all-open tasks file → empty dict."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text("- [ ] Only open task\n")
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        dates = _read_completed_task_dates()
+        assert dates == {}
+
+
+# ===========================================================================
+# §13.4 / §14.1 — End-to-end: complete_task → completed_at → health
+# ===========================================================================
+class TestCompletedTaskDatesEndToEnd:
+    """End-to-end: completing a task records completed_at, which the health
+    assessment reads back for days_since_last_activity."""
+
+    def test_complete_then_read_dates(self, tmp_path, monkeypatch):
+        """complete_task writes completed_at; _read_completed_task_dates reads it."""
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text("- [ ] Write tests | priority: 3\n")
+        monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.services.tasks import complete_task
+        complete_task("Write tests")
+
+        dates = _read_completed_task_dates()
+        assert "Write tests" in dates
+        assert dates["Write tests"] == date.today()
+
+    def test_weekly_review_passes_completed_task_dates(self, tmp_path, monkeypatch):
+        """create_weekly_review reads completed_task_dates and passes them to
+        assess_goal_health so days_since_last_activity is populated."""
+        today = date.today().isoformat()
+        tasks_file = _write_tasks_file(
+            tmp_path,
+            f"- [x] Old Task | completed_at: {today}\n",
+        )
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: G\n"
+            "Status: active\n"
+            "Metric: Weight\n"
+            "Unit: kg\n"
+            "Start: 100.0\n"
+            "Current: 95.0\n"
+            "Target: 90.0\n"
+            "Direction: decrease\n"
+            "Related tasks:\n"
+            "- Old Task\n"
+        )
+        metric_history = tmp_path / "metric_history.md"
+        metric_history.write_text("# Metric History\n")
+
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.metric_history.METRIC_HISTORY_PATH", metric_history)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        # days_since_last_activity is computed from completed_task_dates
+        assert gr.days_since_last_activity is not None
+        assert gr.days_since_last_activity == 0  # completed today
+

@@ -582,7 +582,13 @@ def complete_task(title: str) -> Task:
 
     idx = matches[0]
     line = lines[idx]
-    lines[idx] = "- [x] " + line[len("- [ ] "):]
+    # Build the completed line: flip checkbox, preserve metadata, and record
+    # the completion date as ``completed_at: <YYYY-MM-DD>`` so that
+    # health diagnostics can compute days_since_last_activity and
+    # progress deltas for task-based goals (design §13.4 / §14.1).
+    completed_at = date.today().isoformat()
+    new_line = _build_completed_line(line, completed_at)
+    lines[idx] = new_line
 
     content = "\n".join(lines) + "\n"
     read_modify_write(
@@ -779,6 +785,30 @@ def complete_task_via_ingest(title: str, evidence: dict | None = None) -> "Inges
 def _validate_title(title: str) -> None:
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
+
+
+def _build_completed_line(open_line: str, completed_at: str) -> str:
+    """Build a completed (``- [x]``) task line, preserving existing metadata.
+
+    The ``completed_at`` date string (``YYYY-MM-DD`` or ISO timestamp) is
+    appended as ``completed_at: <value>`` in the task's metadata section
+    so that health diagnostics can compute days_since_last_activity and
+    progress deltas for task-based goals (design §13.4 / §14.1).
+
+    If the line already carries a ``completed_at`` field, it is replaced
+    (idempotent re-completion).
+    """
+    content = open_line[len("- [ ] "):].strip()
+    # Split title from metadata on " | "
+    if " | " in content:
+        title, metadata = content.split(" | ", 1)
+    else:
+        title, metadata = content, ""
+    parts = [p.strip() for p in metadata.split("|")] if metadata else []
+    # Remove any existing completed_at field for idempotency.
+    parts = [p for p in parts if not p.strip().startswith("completed_at:")]
+    parts.append(f"completed_at: {completed_at}")
+    return f"- [x] {title} | " + " | ".join(parts)
 
 
 def _validate_priority(priority: int) -> None:
