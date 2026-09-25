@@ -142,7 +142,7 @@ about Phase 3/4 needing work.
 
 ## 6. Recommended Next Actions (Documentation Only)
 
-1. Update `docs/decisions/adr-consolidated-decisions.md`: ADR-004 status →
+1. Update `docs/decisions/adr-003-004-005-consolidated-decisions.md`: ADR-004 status →
    `Accepted`; remove "paths/Phase 3/4 need work."
 2. Update `docs/design/sync_integration_workflow_design.md`: either tick the
    §13 acceptance checklist, or add a one-line note that the checklist is

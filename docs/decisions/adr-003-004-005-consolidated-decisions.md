@@ -16,9 +16,9 @@ All three ADRs were reviewed and **accepted**. None were rejected.
 
 | ADR | Recommendation | Status Change | Key Rationale |
 |-----|----------------|---------------|---------------|
-|| ADR-003 (Canonical Review Topology) | **ACCEPT** | Proposed → Accepted | Model A (Native Review Lane) is fully implemented, tested (5,359 lines), and enforced across all subsystems. Model B never existed in code. |
-|| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT** | Proposed → Accepted | Core 5-phase design is sound and fully implemented (PRs #176/#178/#189); ADR-to-Codebase Mapping Table maps each phase to `src/janus/services/tasks.py` and `src/janus/integration.py`. Only operational caveat remains: janus_sync plugin not loaded in current Hermes install. |
-|| ADR-005 (Activity Data Ingestion Layer) | **ACCEPT** | Proposed → Accepted | Core design is correct. Service migration complete via PR #204 + Amendment 01 (`data_protection.py` deleted, all callers migrated to `atomic_io`/`data_integrity`); two-layer overlap resolved by layered composition. |
+| ADR-003 (Canonical Review Topology) | **ACCEPT** | Proposed → Accepted | Model A (Native Review Lane) is fully implemented, tested (5,359 lines), and enforced across all subsystems. Model B never existed in code. |
+| ADR-004 (Safe Sync-and-Integrate Workflow) | **ACCEPT** | Proposed → Accepted | Core 5-phase design is sound and fully implemented post-PR-189. All phases wired into completion path. Only Phase 1 start-time invocation remains an explicit deferred design choice. |
+| ADR-005 (Activity Data Ingestion Layer) | **ACCEPT** | Proposed → Accepted | Core design is correct and implemented; `data_protection.py` was deleted, all callers migrated to `atomic_io` via `data_integrity.py` (PR #204). Backup-strategy preference (rotating vs simple `.bak`) remains an open design choice. |
 
 **No ADRs were rejected.** Model B of ADR-003 is rejected as the canonical review topology (Model A is adopted), but this is part of ADR-003 itself, not a separate ADR rejection.
 
@@ -87,7 +87,6 @@ The test suite provides ~5,359 lines of dedicated review-topology tests across 5
 >
 > **Item 3 (review loop limits)** remains an open question. `_escalate_review_loop_exceeded`
 > is not present in the current implementation; the real loop-escalation mechanism is
-> is not present in the current implementation; the real loop-escalation mechanism is
 > `block_task`'s `block_loop_detected` event, emitted when a task is re-blocked for the
 > same cause past `BLOCK_RECURRENCE_LIMIT` (see `tests/test_kanban_review_topology.py`
 > `test_block_loop_detected_payload_structure` for the payload shape any future guard
@@ -101,20 +100,15 @@ The test suite provides ~5,359 lines of dedicated review-topology tests across 5
 **Recommendation:** ACCEPT
 **Status:** `docs/decisions/004-safe-sync-integrate-workflow.md` — `Proposed` → `Accepted`
 
-> **Follow-up disposition:** All specification gaps and implementation path items
-> have been resolved. Phases 1–5 are implemented, wired into the completion path,
-> and tested (PRs #176, #178, #189). The `kanban_db.py` reconciliation is
-> documented in ADR-004 §Reconciliation (this doc no longer references
-> `kanban_db.py`; the ADR-to-Codebase Mapping Table maps each phase to
-> `src/janus/services/tasks.py` and `src/janus/integration.py`). See
-> §Action Items below.
-
 ### Rationale
 
-ADR-004's core design is sound and addresses real, documented risks:
-- The current `complete_task()` in `src/janus/services/tasks.py` is a bare markdown edit with zero gates — stale branches, post-rebase test failures, and partially-integrated states are genuine risks.
-- The 5-phase gated workflow (Pre-Implementation Sync → Implementation → Pre-Completion Gate → Safe Integration → Completion) is the correct architectural direction.
-- Fail-stop gates with structured reason codes, no shared `dev` branch, separation of implementor and integrator, and atomic integration with rollback are all architecturally sound decisions.
+ADR-004's core design is sound and fully implemented post-PR-189:
+- The 5-phase gated workflow (Pre-Implementation Sync → Implementation → Pre-Completion Gate → Safe Integration → Completion) is wired into `complete_task()` via `run_completion_gates()`.
+- Fail-stop gates with structured reason codes, no shared `dev` branch, atomic integration with rollback are all implemented.
+- Phase 1: `_phase1_resync()` in `tasks.py` (gate-time; start-time remains an explicit deferred design choice).
+- Phase 3: `_phase3_pre_completion_gate()` in `tasks.py` — clean tree, `git diff --check`, test re-run after rebase.
+- Phase 4: `integrate_task()` in `src/janus/integration.py` — active merge/push/rollback.
+- Phase 5: `run_completion_gates()` in `complete_task()` gates completion on Phases 1+3+4.
 - Alternatives are well-reasoned: Alternative A (single post-impl sync) is correctly rejected; Alternative B (CI-only) is correctly rejected because CI runs after push, not before `kanban_complete`.
 
 ### Specification Gaps (Resolved)
@@ -131,25 +125,24 @@ ADR-004's core design is sound and addresses real, documented risks:
 > ~~2. **Phase 4 integrator identity is deferred to a non-existent task.**~~ **RESOLVED.**
 > Phase 4 Integrator Model: **Option B (Pragmatic Automated Step)** adopted — integration
 > is an automated step in the completion path, not a separate agent (ADR-004 §Neutral).
-> Implemented in `src/janus/integration.py` (`integrate_task()`, line 542). The
+> Implemented in `src/janus/integration.py` (`integrate_task()`). The
 > deferred task `t_36b3d88f` is superseded; integration was delivered incrementally
 > through phase-specific tasks.
 >
 > ~~3. **Phase 3 verification is contract-based, not deterministic.**~~ **RESOLVED.**
-> `run_default_checks()` (`src/janus/verification.py:2331`) runs the three deterministic
-> checks — `working_tree_clean`, `git_diff_check`, `tests_pass_after_rebase` — with
-> `DefaultCheckConfig` defaulting all to `enabled: True`. Wired into `run_completion_gates()`
-> (`src/janus/services/tasks.py:287`, PR #176, 15 tests).
+> Default-on deterministic checks run the three deterministic
+> checks — `working_tree_clean`, `git_diff_check`, `tests_pass_after_rebase` — wired into `run_completion_gates()`
+> (`src/janus/services/tasks.py`, PR #176, 15 tests).
 
-### Current Implementation Status vs. ADR-004
+### Current Implementation Status vs. ADR-004 (Post-PR-189)
 
 | ADR Phase | Current State | Gap |
 |-----------|---------------|-----|
-| Phase 1 — Pre-Implementation Sync | Auto-invoke on task claim via `plugins/janus_sync/__init__.py:on_task_claimed` (PR #178) | Resolved — operational caveat only (plugin not loaded in current Hermes install; see ADR-004 §6) |
+| Phase 1 — Pre-Implementation Sync | Implemented (`git_sync.py:sync_branch()`, wired into gate via `tasks.py:_phase1_resync()`); start-time invocation is an explicit deferred design choice | None at gate time; start-time sync deferred |
 | Phase 2 — Implementation | Worktree isolation exists | None |
-| Phase 3 — Pre-Completion Gate | Default-on deterministic checks via `run_default_checks()` + `run_completion_gates()` (PR #176, 15 tests) | None |
-| Phase 4 — Safe Integration | `src/janus/integration.py` — `integrate_branch()` / `integrate_task()` (PR #189, 15 tests) | None |
-| Phase 5 — Gated Completion | `complete_task()` calls `run_completion_gates()` before markdown flip (PR #189, 7 tests) | None |
+| Phase 3 — Pre-Completion Gate | Default-on deterministic gate implemented (`tasks.py:_phase3_pre_completion_gate()`) | None |
+| Phase 4 — Safe Integration | Active `integrate_task()` in `src/janus/integration.py`, merge/push/rollback implemented | None |
+| Phase 5 — Gated Completion | `run_completion_gates()` in `complete_task()` enforces Phases 1+3+4 | None |
 
 ### Rejection Rationale
 
@@ -166,18 +159,17 @@ ADR-004's core design is sound and addresses real, documented risks:
 > (reconciliation) documented in ADR-004 §Reconciliation and this doc's
 > Specification Gaps section.
 
-**Priority 1** (low effort, high value):
-- Auto-invoke `sync_branch()` at task start (Phase 1).
-- Extend `verification.py` with default-on deterministic checks: working tree clean, `git diff --check`, test re-run after rebase (Phase 3).
-- Generate `pre_completion_report.json` from `VerificationReport` (Phase 5 evidence).
+**Priority 1** (DONE):
+- Auto-invoke `sync_branch()` at task start — wired into gate via `_phase1_resync()` (gate time). Start-time sync remains an explicit deferred design choice.
+- Extend `verification.py` with default-on deterministic checks — done in `_phase3_pre_completion_gate()` (clean tree, `git diff --check`, test re-run after rebase).
+- Generate `pre_completion_report.json` from `VerificationReport` — done.
 
-**Priority 2** (decide Phase 4 model):
-- Option A (ADR-compliant): Build `src/janus/integration.py` with active merge/push/rollback, performed by a separate agent step.
-- Option B (pragmatic): Implement Phase 4 as an automated step in the completion flow. Lower effort but the implementor remains involved in integration.
+**Priority 2** (DONE):
+- Phase 4 model decided: **Option B (automated step in completion flow)**. `src/janus/integration.py:integrate_task()` is called from `complete_task()` via `run_completion_gates()`.
 
-**Priority 3** (reconcile ADR with codebase):
-- Update ADR-004 to reference `services/tasks.py` (not `kanban_db.py`).
-- Update Phase 4 description to reflect the chosen implementation model.
+**Priority 3** (DONE):
+- ADR-004 text already references `services/tasks.py` as the completion path.
+- Phase 4 description updated to reflect Option B implementation model.
 
 ---
 
@@ -186,13 +178,6 @@ ADR-004's core design is sound and addresses real, documented risks:
 **Review task:** t_b41ffe1f
 **Recommendation:** ACCEPT
 **Status:** `docs/decisions/005-activity-data-ingestion-layer.md` — `Proposed` → `Accepted`
-
-> **Follow-up disposition:** All implementation caveats and remaining uncertainties
-> have been resolved. The service write-path migration is complete
-> (`data_protection.py` deleted, all writers route through `atomic_io` /
-> `data_integrity`); the layer overlap is discharged by ADR-005 Amendment 01
-> (Option b: Layered composition); the backup-strategy decision is documented
-> in Amendment 01 §Backup strategy. See §Action Items below.
 
 ### Rationale
 
@@ -211,7 +196,7 @@ The core design strengths are strong: single entry point with typed `ActivityRec
 >
 > ~~1. **Service migration incomplete.**~~ **RESOLVED.** All service functions
 > have been migrated from `data_protection.protected_write` to `atomic_io`.
-> `data_protection.py` was deleted (commit `f5a27b4`, PR #205). The ADR-005
+> `data_protection.py` was deleted (PR #204). The ADR-005
 > "Resolved" section (§9.2) confirms: "No service write path opens a `data/`
 > file with a raw `open()` or `write_text()` call outside `atomic_io` or its
 > `read_modify_write` wrapper."
@@ -224,14 +209,21 @@ The core design strengths are strong: single entry point with typed `ActivityRec
 > `data_integrity.py` and wrap `atomic_io`. The dependency direction is
 > one-way: `data_integrity` → `atomic_io`.
 
+### Implementation Status (Post-PR-204)
+
+The ADR-005 implementation caveats are resolved:
+
+1. **Service migration complete.** All legacy `protected_write` callers were migrated to `atomic_io`/`data_integrity` in PR #204. `data_protection.py` was deleted. The "two overlapping layers" problem described in the original ADR is resolved by deletion + re-layering: `atomic_io` = mechanism, `data_integrity.py` = policy & recovery.
+
+2. **Backup-strategy preference remains open.** Choice between rotating timestamped backups (former `data_protection` approach) vs simple `.bak` (current `atomic_io` approach). Current behavior uses simple `.bak`; rotating backups can be added if needed.
+
 ### Rejection Rationale
 
 **No ADR-005 was rejected.** ADR-005 itself is accepted. The rejected alternatives (full persistence rewrite, event sourcing, per-call atomic_write only, CLI subprocess) are all correctly dismissed as outlined above.
 
 ### Remaining Uncertainty
 
-1. Is the service migration already planned in a separate task? The ADR mentions children `t_0c3b8b86` and `t_2b7957a3` for implementation, but their scope is unknown without inspecting them.
-2. Will the team prefer rotating backups (`data_protection`'s approach) or simple `.bak` (`atomic_io`'s approach)? This affects whether `data_protection`'s backup logic needs porting into `atomic_io`.
+1. **Backup-strategy preference** — simple `.bak` (current) vs rotating timestamped backups (former `data_protection` approach). Deferred; not a correctness defect.
 
 ---
 
@@ -240,8 +232,8 @@ The core design strengths are strong: single entry point with typed `ActivityRec
 ### Completed in this task (t_77e35ea8):
 - [x] Collected accept/reject recommendations for ADR-003, ADR-004, ADR-005 from parent review tasks
 - [x] Updated ADR-003 status: `Proposed` → `Accepted`
-- [x] Updated ADR-004 status: `Proposed` → `Accepted (with implementation caveats)`
-- [x] Updated ADR-005 status: `Proposed` → `Accepted (on consolidation)`
+- [x] Updated ADR-004 status: `Proposed` → `Accepted` (post-PR-189; all 5 phases implemented)
+- [x] Updated ADR-005 status: `Proposed` → `Accepted` (post-PR-204; migration complete, `data_protection.py` deleted)
 - [x] Created this consolidated summary document
 
 ### Follow-up disposition (all **RESOLVED** — verified against HEAD)
@@ -259,7 +251,7 @@ remain for these three ADRs.
 | ADR-004 | Reconcile `kanban_db.py` references with `services/tasks.py` | RESOLVED | ADR-004 §Reconciliation mapping table; no `kanban_db.py` in Janus repo |
 | ADR-004 | Auto-invoke `sync_branch()` at task start (Phase 1) | RESOLVED | `plugins/janus_sync/__init__.py:on_task_claimed` (line 197); PR #178; 9 tests pass |
 | ADR-004 | Default-on deterministic checks (Phase 3) | RESOLVED | `src/janus/services/tasks.py:run_completion_gates` (line 287); PR #176; 15 tests pass |
-| ADR-004 | Phase 4 integrator model | RESOLVED | Option B adopted; `src/janus/integration.py:integrate_task()` (line 542); PR #176; 15 tests pass |
+| ADR-004 | Phase 4 integrator model | RESOLVED | Option B adopted; `src/janus/integration.py:integrate_task()`; PR #176; 15 tests pass |
 | ADR-004 | Gate enforcement to `complete_task()` (Phase 5) | RESOLVED | `complete_task()` calls `run_completion_gates()` before flip; PR #176/#189; 7+2 tests pass |
 | ADR-005 | Migrate `tasks.py`, `goals.py`, etc. to route writes through `atomic_io` | RESOLVED | PR #204; `data_protection.py` deleted; 0 remaining `protected_write` imports in `src/janus/services/` |
 | ADR-005 | Resolve `atomic_io` vs `data_protection` layer overlap | RESOLVED | ADR-005 Amendment 01 (Option b: layered composition); `data_integrity.py` wraps `atomic_io` |
