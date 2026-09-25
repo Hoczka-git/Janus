@@ -138,7 +138,7 @@ Key phases:
 - [x] Complete Goal → Task → Execution → Completion → Review
   - Verified end-to-end (E2E checks pass; see `.verifications/goal_task_execution_loop_report.md`).
 - [~] Evidence & Audit
-  - Curation gate (ADR-002), decision records, and integrity audit implemented; formal first-class Evidence domain model still proposed (ADR-012).
+  - ADR-011 (evidence model / goal-level gates) proposed at `docs/decisions/adr-011-evidence-model.md`; ADR-012 also proposed. See `docs/triage_architectural_roadmap_next_phase.md` §3.2 / §4.1.
 - [ ] Personal State Model
 - [ ] Agency-Aware Planning
 - [ ] Policy & Approval
