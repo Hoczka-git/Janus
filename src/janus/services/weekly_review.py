@@ -6,9 +6,10 @@ Does not duplicate metric-vs-task priority logic.
 
 from pathlib import Path
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import logging
+import re
 import time
 
 from janus._log import emit
@@ -40,11 +41,89 @@ def _read_completed_task_titles() -> list[str]:
     return completed
 
 
+def _read_completed_task_dates() -> dict[str, date]:
+    """Parse completion dates from completed task lines in tasks.md.
+
+    Reads ``completed_at:`` and ``janus_evidence_completed_at:`` metadata
+    fields from ``- [x]`` task lines. Returns a mapping of task title to
+    completion date.
+
+    The ``completed_at`` field is written by ``complete_task`` (format
+    ``YYYY-MM-DD``). The ``janus_evidence_completed_at`` field is written by
+    evidence propagation (format ``YYYY-MM-DDTHH:MM:SS+tz`` or
+    ``YYYY-MM-DD``).
+
+    Lines without a parseable completion date are skipped — the task title
+    is still picked up by ``_read_completed_task_titles`` separately.
+    """
+    dates: dict[str, date] = {}
+    if not TASKS_PATH.exists():
+        return dates
+
+    completed_at_re = re.compile(r"completed_at:\s*(\S+)")
+    evidence_at_re = re.compile(r"janus_evidence_completed_at:\s*(\S+)")
+
+    with TASKS_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line.startswith("- [x]"):
+                continue
+            content = line[5:].strip()
+            # Title is everything before the first " | " separator
+            if " | " in content:
+                title, metadata = content.split(" | ", 1)
+            else:
+                title, metadata = content, ""
+            title = title.strip()
+            if not title:
+                continue
+
+            # Prefer the primary completed_at field; fall back to
+            # janus_evidence_completed_at if the primary is absent.
+            raw_date = None
+            match = completed_at_re.search(metadata)
+            if match:
+                raw_date = match.group(1)
+            else:
+                match = evidence_at_re.search(metadata)
+                if match:
+                    raw_date = match.group(1)
+
+            if raw_date is None:
+                continue
+
+            parsed = _parse_completion_date(raw_date)
+            if parsed is not None:
+                dates[title] = parsed
+
+    return dates
+
+
+def _parse_completion_date(raw: str) -> date | None:
+    """Parse a completion date string into a ``date`` object.
+
+    Accepts both ``YYYY-MM-DD`` and full ISO datetime strings
+    (``YYYY-MM-DDTHH:MM:SS+tz``). Returns ``None`` if the string
+    cannot be parsed.
+    """
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(raw).date()
+    except ValueError:
+        return None
+
+
 def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     """Create a weekly review from current tasks and goals.
 
-    Does not pretend to know historical completion timestamps.
-    Reports current completed state only.
+    Reads completion dates from ``tasks.md`` metadata (``completed_at:`` and
+    ``janus_evidence_completed_at:`` fields on ``- [x]`` task lines) and
+    passes them to the goal health assessment so that
+    ``days_since_last_activity`` and task-based ``progress_delta`` are
+    computed accurately (design §13.4 / §14.1).
     """
     start = time.monotonic()
     emit(logger, "briefing.generation.started",
@@ -59,6 +138,7 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
 
     # Build lookup structures
     completed_titles = _read_completed_task_titles()
+    completed_task_dates = _read_completed_task_dates()
     open_task_map = {t.title: t for t in tasks}
     all_open_titles = list(open_task_map.keys())
 
@@ -135,6 +215,7 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
             open_task_titles={t.title for t in tasks},
             all_task_titles=all_task_titles,
             metric_snapshots=metric_snaps,
+            completed_task_dates=completed_task_dates,
         )
         if assessment is not None:
             review.health_state = assessment.health_state

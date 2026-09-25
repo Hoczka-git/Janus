@@ -561,6 +561,40 @@ class TestNoRecentActivitySignal:
         assert "goal_inactive" in signal_names
         assert "no_recent_activity" not in signal_names
 
+    def test_suppressed_by_recent_task_completion(self):
+        """no_recent_activity does NOT fire when a related task was completed
+        within the inactivity window (design §6.2.2 / §13.4)."""
+        goal = _make_metric_goal(related_tasks=["Task A"])
+        from datetime import timedelta
+        dates = {"Task A": date.today() - timedelta(days=5)}  # recent completion
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[], completed_task_dates=dates,
+        )
+        assert assessment is not None
+        assert not any(s.signal == "no_recent_activity" for s in assessment.signals)
+
+    def test_fires_when_task_completion_is_stale(self):
+        """no_recent_activity fires when the only activity (task completion)
+        is older than the inactivity window (design §6.2.2 / §13.4).
+
+        For no_recent_activity to be evaluated, goal_inactive must NOT fire
+        first — so the related task must NOT exist in all_task_titles. The
+        stale completion date (40 days, outside the 30-day window) does not
+        suppress the signal.
+        """
+        goal = _make_metric_goal(related_tasks=["Task A"])
+        from datetime import timedelta
+        dates = {"Task A": date.today() - timedelta(days=40)}  # outside 30-day window
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[], completed_task_dates=dates,
+        )
+        assert assessment is not None
+        assert any(s.signal == "no_recent_activity" for s in assessment.signals)
+
 
 # ===========================================================================
 # 12.3 Stalled-Goal Detection — existing behavior preserved
@@ -685,6 +719,50 @@ class TestGoalHealthAssessmentFields:
         )
         assert assessment is not None
         assert assessment.days_since_last_activity == 3
+
+    def test_days_since_last_activity_from_completed_task_dates(self):
+        """days_since_last_activity is computed from completed_task_dates when
+        no metric snapshots exist (design §13.4 / §14.1)."""
+        goal = _make_metric_goal()
+        # Use today as the completion date → 0 days of inactivity
+        dates = {"Old Task": date.today()}
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[], completed_task_dates=dates,
+        )
+        assert assessment is not None
+        assert assessment.days_since_last_activity == 0
+
+    def test_days_since_last_activity_from_completed_task_dates_days_ago(self):
+        """days_since_last_activity reflects days since the completion date."""
+        goal = _make_metric_goal()
+        # Completion 5 days ago
+        from datetime import timedelta
+        dates = {"Old Task": date.today() - timedelta(days=5)}
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[], completed_task_dates=dates,
+        )
+        assert assessment is not None
+        assert assessment.days_since_last_activity == 5
+
+    def test_days_since_last_activity_takes_most_recent(self):
+        """When both snapshots and completions exist, the most recent wins."""
+        goal = _make_metric_goal()
+        from datetime import timedelta
+        # Snapshot 2 days ago
+        snapshots = [_snap("Body fat", "Body fat %", 20.0, 2)]
+        # Completion 5 days ago — older than the snapshot
+        dates = {"Old Task": date.today() - timedelta(days=5)}
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots, completed_task_dates=dates,
+        )
+        assert assessment is not None
+        assert assessment.days_since_last_activity == 2
 
     def test_progress_delta_from_snapshots(self):
         """progress_delta is computed from metric snapshots."""
