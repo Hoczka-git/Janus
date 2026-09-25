@@ -75,13 +75,9 @@ All five ADR families are present in `docs/decisions/`:
 || 004 | 004-safe-sync-integrate-workflow.md | Accepted |
 || 005 | 005-activity-data-ingestion-layer.md | Accepted |
 
-Two consolidated files coexist:
+Consolidation duplicate removed by t_be476bd0 (PR #248); only `adr-003-004-005-consolidated-decisions.md` remains as authoritative.
 
-- `docs/decisions/adr-consolidated-decisions.md`
-- `docs/decisions/adr-003-004-005-consolidated-decisions.md`
-
-Both are near-duplicate. One should be authoritative. This is a documentation debt item,
-not a correctness issue.
+This was previously a documentation debt item — not a correctness issue.
 
 ### 3.2 ADR-003 — Canonical Review Topology
 
