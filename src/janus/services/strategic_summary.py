@@ -1683,6 +1683,11 @@ def render_strategic_summary(
                     f"   Suggested action: {action}"
                 )
 
+            if recommendation.remediation_action:
+                lines.append(
+                    f"   Remediation: {recommendation.remediation_action}"
+                )
+
             if recommendation.cross_links:
                 link_strings = [
                     f"{link.category}: {link.title}"

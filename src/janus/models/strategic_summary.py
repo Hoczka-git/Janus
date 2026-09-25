@@ -178,6 +178,7 @@ class RecommendedAction:
     days_since_last_activity: int | None = None
     measurement_overdue_count: int = 0
     suggested_next_step: str | None = None
+    remediation_action: str | None = None
     attention_reason: str | None = None
     cross_links: list[CrossDomainLink] = field(default_factory=list)
 
