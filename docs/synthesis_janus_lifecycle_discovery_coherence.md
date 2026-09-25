@@ -192,23 +192,28 @@ Both Hermes plugins are code-complete but have runtime caveats:
 
 `docs/roadmap.md` marks items 9-12 as `[ ]` but they are implemented, tested, and merged. Verified by prior review (t_3d55f0c0). Items: Janus ↔ Hermes execution feedback, Strategic state summaries, Evidence-based skill tracking, and one more. The roadmap needs updating to `[x]` or `[~]`.
 
-### 5.2 Two Overlapping Consolidated ADR Files
+### 5.2 Consolidated ADR File — Resolved
 
-- `docs/decisions/adr-003-004-005-consolidated-decisions.md` (84 lines, summary)
-- `docs/decisions/adr-consolidated-decisions.md` (211 lines, full review)
+The two overlapping consolidated ADR files have been merged into a single canonical document:
+- `docs/decisions/adr-003-004-005-consolidated-decisions.md` — the sole canonical consolidated
+  decision record for ADR-003/004/005 (reflects post-PR-189/PR-204 implementation state).
+- `docs/decisions/adr-consolidated-decisions.md` — **removed** (was a stale 84-line summary
+  copy that predated the PRs completing ADR-004 and ADR-005 implementation).
 
-Both list ADR-004 as "Accepted with implementation caveats" — stale post-PR-189. Only the runtime plugin-loading gap remains. Which is authoritative is unclear.
+ADR-004 status is now **"Accepted"** (post-PR-189, all 5 phases implemented).
+ADR-005 status is now **"Accepted"** (post-PR-204, migration complete, `data_protection.py` deleted).
+Only the runtime plugin-loading gap remains for ADR-004 (§6).
 
 ### 5.3 Goal Progress: Metric Fields vs Measurement Log
 
 `goal_system_design.md` stores `current_value` directly on the Goal (11-field dataclass). `measurement_collection_design.md` stores measurements in a separate `data/measurements.jsonl` log. Two different persistence strategies for the same conceptual problem. The measurement approach is more sophisticated (time-series, due-date tracking) but the goal design approach is simpler. Both are "design complete — not implemented." Implementing both without reconciliation would be redundant.
 
-### 5.4 Roadmap Items 11 and 15 Are Near-Duplicates
+### 5.4 Roadmap Items 11 and 15 — Consolidated
 
-- Item 11: `[~]` Verify the complete Goal → Task → Execution → Completion → Review loop
-- Item 15: `[ ]` Verify the complete Goal → Task → Execution → Completion → Review loop, including production verification of Completion → Goal Update and Review
-
-Item 11 is partially done; item 15 is not started. These should be consolidated.
+Item 11 (`[x]` Verify the complete Goal → Task → Execution → Completion → Review loop)
+and item 15 (`[x]` same title with "including production verification" qualifier) were
+near-duplicates. Item 15 has been removed; item 11 already includes the
+production-verification note and is the sole lifecycle-verification roadmap item.
 
 ### 5.5 Execution Planning vs Project Hierarchy
 

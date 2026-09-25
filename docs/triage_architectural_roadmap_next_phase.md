@@ -55,15 +55,15 @@ Current state (from child task t_f339fe3e findings):
 | ADR-003 | Canonical Review Topology | Accepted | **Fully implemented, verified** (57 tests) | Aligned — review is native phase |
 | ADR-003a | Milestone Status Lifecycle | Accepted | Implemented | Aligned |
 | ADR-003b | Review Probes and Human Review | Accepted | Implemented | Aligned — human review is first class |
-| ADR-004 | Safe Sync-and-Integrate Workflow | Accepted with caveats | **All 5 phases, 48 gate tests** | Aligned — gates protect integrity |
-| ADR-005 | Activity Data Ingestion Layer | Accepted (on consolidation) | **Primary gap** — dual write surfaces | Partially aligned — gateway exists but not sole path |
+| ADR-004 | Safe Sync-and-Integrate Workflow | Accepted | **All 5 phases, 48 gate tests** | Aligned — gates protect integrity |
+| ADR-005 | Activity Data Ingestion Layer | Accepted | **Primary gap** — dual write surfaces | Partially aligned — gateway exists but not sole path (migration incomplete) |
 | ADR-006 | Kanban Task Protocol | Accepted | Implemented | Aligned |
 | ADR-007 | Execution Feedback Sync | Accepted | Implemented | Aligned |
 | ADR-008 | Verification Pipeline | Accepted | Implemented | Aligned |
 | ADR-009 | Data Protection — Atomic IO | Accepted | `atomic_io` implemented, `data_protection` still used | Partially aligned — migration incomplete |
 | ADR-010 | Observability Strategy | Accepted | Implemented | Aligned |
 
-**Consolidated decision docs on `origin/master` but not HEAD:** `adr-003-004-005-consolidated-decisions.md`, `adr-consolidated-decisions.md`, `vault_versioning_decision.md` — historical artifacts, not blockers.
+**Consolidated decision docs:** `adr-003-004-005-consolidated-decisions.md` (canonical, post-PR-189/204) — the duplicate `adr-consolidated-decisions.md` summary copy has been removed as part of lifecycle consolidation. (`vault_versioning_decision.md` remains a historical artifact on `origin/master`; vault versioning is now implemented.)
 
 ### 2.4 What Already Embodies Agency-First
 

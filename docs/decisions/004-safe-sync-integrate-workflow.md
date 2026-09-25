@@ -2,10 +2,18 @@
 
 ## Status
 
-Accepted with implementation caveats
+Accepted
 
-|> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
-|> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
+**Last verified:** 2026-09-24
+
+> **Status note (2026-09-24):** The earlier "Accepted with implementation caveats"
+> status is superseded. All five phases are implemented, wired into the completion
+> path, and tested (PRs #176/#178/#189) — there is no remaining code gap. The one
+> open item is operational, not an implementation caveat: the `janus_sync` plugin
+> is not loaded in the current Hermes install (§6).
+
+||> **Implementation status:** All 5 phases of ADR-004 are now implemented, wired into the
+||> gated completion workflow, and tested. Phase 1 (auto-invoke sync_branch on task claim)
 |> is wired via `plugins/janus_sync/__init__.py:on_task_claimed` (PR #178). Phases 3+4+5
 |> (pre-completion gate, safe integration, completion gating) are wired into
 |> `src/janus/services/tasks.py:run_completion_gates` / `complete_task()` (PR #176).
@@ -98,9 +106,11 @@ in the Janus domain layer, not in `hermes_cli/kanban_db.py`.
 `tests/plugins/test_janus_sync_plugin.py` (TestAutoInvokeOnClaim, 9 tests). PR #178.
 
 **Runtime caveat:** in the current Hermes install the `janus_sync` plugin is **not loaded** — it is
-absent from every `plugins.enabled` list (`~/.hermes/config.yaml`, all profile configs), and the
-Hermes venv `janus.pth` points at a deleted worktree so `import janus` fails in the gateway.
-Auto-invoke is therefore code-complete and tested, but dormant in this install. See §6 (Open Operational
+absent from every `plugins.enabled` list (`~/.hermes/config.yaml`, all profile configs) and from
+every Hermes plugin discovery root, so neither the Phase 1 auto-invoke nor the execution-feedback
+gate-block routing runs in production. (The venv import path itself is healthy again:
+`janus.pth` resolves to the live `janus/src` tree, so `import janus` succeeds.) Auto-invoke is
+therefore code-complete and tested, but dormant in this install. See §6 (Open Operational
 Items).
 
 ~~Phase 3 is opt-in, not default.~~ [Superseded by PR #176] **Phase 3 is implemented and default-on.**
@@ -318,11 +328,17 @@ The following are operational/runtime items — not code gaps:
 
 1. **janus_sync plugin not loaded in the current Hermes install.** The `plugins/janus_sync` module
    is code-complete but absent from every `plugins.enabled` list in `~/.hermes/config.yaml` and
-   all profile configs. The Hermes venv `janus.pth` points at a deleted worktree
-   (`…/.worktrees/t_4cd8c17f/src`), so `import janus` fails in the gateway venv. Until the plugin
-   is enabled and the venv path is repaired, Phase 1 auto-invoke and gate-block routing via
-   `kanban_block` are dormant at runtime. The Janus-side code, tests, and reason codes are all
-   in place.
+   all profile configs, and it is not present in any Hermes plugin discovery root (bundled
+   `plugins/` of the Hermes install, `~/.hermes/plugins/`, or project `.hermes/plugins/` —
+   the last requires `HERMES_ENABLE_PROJECT_PLUGINS=1`). Until the plugin is copied or
+   linked into a discovery root and enabled, Phase 1 auto-invoke and execution-feedback
+   gate-block routing via `kanban_block` are dormant at runtime. The Janus-side code, tests,
+   and reason codes are all in place.
+   *(Update 2026-09-24: the earlier sub-claim that the Hermes venv `janus.pth` points at a
+   deleted worktree so `import janus` fails is resolved — `janus.pth` now points at
+   `/home/dan11hermes/workspaces/janus/src`, which exists, and `import janus` succeeds in
+   the gateway venv. The remaining gap is plugin discovery/enabling only, not import
+   breakage.)*
 
 2. **No `contracts/` directory in the repo.** The Janus-side contract extension (12 check
    functions in `src/janus/verification.py`) is opt-in via a `contracts/<branch>.yaml` file.
