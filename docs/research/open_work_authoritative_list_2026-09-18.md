@@ -387,12 +387,13 @@ All three ADR status fields are now UP-TO-DATE at HEAD:
 | ADR | File | Status at HEAD `893a963` | Previously (2026-09-18) | Change |
 |-----|------|--------------------------|-------------------------|--------|
 | ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | **Accepted** | Proposed | ✓ RESOLVED |
-| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted with implementation caveats** | Proposed | ✓ RESOLVED |
-| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted (on consolidation)** | Proposed | ✓ RESOLVED |
+|| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted** | Accepted with implementation caveats | ✓ RESOLVED |
+|| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted** | Accepted (on consolidation) | ✓ RESOLVED |
 
-**Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
-field now reads "Accepted with implementation caveats," accurately reflecting that all 5
-phases are implemented (see §9.2).
+> **Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
+> field now reads "Accepted," accurately reflecting that all 5 phases are implemented
+> (PRs #176/#178/#189, #250). The earlier "Accepted with implementation caveats" qualifier
+> was superseded by PR #250 (merge 8045c31), which cleared the caveats.
 
 ## 9.2 ADR-004: Safe Sync-and-Integrate Workflow — Current State
 
@@ -459,40 +460,30 @@ integration is complete and tested.
 
 ## 9.4 ADR-005: Activity Data Ingestion Layer — Current State
 
-**GAP-005 (data_protection vs atomic_io): STILL OPEN**
+- **GAP-005 (data_protection vs atomic_io):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. `data_protection.py` deleted; all service writers migrated to `atomic_io`/`data_integrity`. The "sole write gateway" claim is now accurate.
 
-- **Status at HEAD `893a963`:** UNCHANGED
-- **Verdict:** Genuinely open. Services still use `protected_write` from `data_protection.py`.
-  No change from 2026-09-18.
+- **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01. `data_protection.py` deleted; all service writers migrated.
+- **Verdict:** RESOLVED. No genuine open gap remains.
 
-**GAP-007 ("sole write gateway" claim contradicted): RE-EVALUATED**
+- **GAP-007 ("sole write gateway" claim contradicted):** CLOSED — resolved by ADR-005 Amendment 01 and PR #204. The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
-- **Status at HEAD `893a963`:** UNCHANGED — still OPEN
-- **Nuance:** The j_ prec rebaseline (t_13a8b54a, 2026-09-18) had already corrected this:
-  the protected write path (`protected_write()` → `atomic_io.atomic_write`) covers all Janus
-  data files; the only direct-write outlier is `google_calendar.py:42` (OAuth token cache,
-  not data). The claim is substantially accurate but the §2/§6 text still says "must be the
-  ONLY path" which is technically contradicted by the google_calendar outlier. Still worth
-  a caveat note in §9.4, but less severe than the original "contradicted" framing.
+- **Status at HEAD `893a963`:** CLOSED by PR #204 / Amendment 01.
+- **Nuance:** The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate.
 
 **GAP-008 (CI grep gate): STILL OPEN**
 
 - **Status at HEAD `893a963`:** UNCHANGED
 - **Verdict:** Genuinely open.
 
-## 9.5 Current Genuinely Open Work (2026-09-22, post-PR #176/#178/#189, HEAD `893a963`)  [7 items]
+### 9.3 Current Genuinely Open Work (2026-09-22, post-PR #176/#178/#189, PR #250, PR #204, HEAD `8045c31`)  [3 items]
 
-After reconciliation against HEAD `893a963` (and subsequent fixes through commit `781d4ae`),
-the following items remain genuinely open:
+After reconciliation against HEAD `8045c31` (PR #250 merged, ADR-004 and ADR-005 statuses normalized to "Accepted"), the following items remain genuinely open:
 
-### P1 (high priority)
+### P2 (medium priority)
 
-1. **GAP-005: ADR-005 data_protection → atomic_io migration**
-   - Services still call `protected_write` from `data_protection.py` instead of routing
-     through `atomic_io.read_modify_write_with_retry`
-   - Effort: High. Blocks "sole write gateway" claim from being fully accurate.
+5. **GAP-005: ADR-005 data_protection → atomic_io migration** — CLOSED by ADR-005 Amendment 01 and PR #204. `data_protection.py` deleted; all service writers migrated to `atomic_io`/`data_integrity`. No remaining action.
 
-2. **GAP-001: ADR-002 curation gate not implemented**
+1. **GAP-001: ADR-002 curation gate not implemented**
    - No `curation_gate()` / `human_approval()` / `promote_to_obsidian()` in
      `knowledge_pipeline.py`
    - Effort: Medium. Blocks end-to-end knowledge pipeline.
@@ -500,17 +491,15 @@ the following items remain genuinely open:
 ### P2 (medium priority)
 
 3. **GAP-007: ADR-005 "sole write gateway" claim — add caveat**
-   - §2/§6 says "must be the ONLY path" but `google_calendar.py:42` is a direct-write outlier
-     (OAuth token cache, not data)
-   - Effort: Low. Add caveat noting the token cache exception.
+   - CLOSED by ADR-005 Amendment 01 and PR #204. The google_calendar.py outlier is an OAuth token cache, not a data/ file; the "sole write gateway" claim is now accurate. No remaining action.
 
-4. **GAP-003: ADR-003 prompt_builder.py Model B language — RESOLVED**
+- **GAP-003 (prompt Model B language): RESOLVED**
    - In Hermes agent repo, not Janus. Unaffected by Janus PRs.
    - Effort: Low. The Janus-side ADR-003 status is now "Accepted" (was "Proposed" at 2026-09-18),
      but the GAP-003 finding about `prompt_builder.py` is Hermes-side and is RESOLVED —
      commit `5c275ad8b` (Sep 16, PR #29) removed the Model B language.
 
-5. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
+3. **GAP-008: ADR-005 CI grep gate for data/ write patterns**
    - No CI rule grepping for data/ writes outside atomic_io
    - Effort: Low. Regression guard. The 2026-09-21 analysis incorrectly marked this CLOSED
      (referencing "195 add..." — referring to PR #195 which did NOT implement a CI grep gate).

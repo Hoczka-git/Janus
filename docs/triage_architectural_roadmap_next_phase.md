@@ -72,8 +72,8 @@ All five ADR families are present in `docs/decisions/`:
 | 001 | 001-hermes-janus-system-model.md | Accepted |
 | 002 | 002-obsidian-knowledge-layer.md | Accepted |
 | 003 | 003-canonical-review-topology.md (+ supplement) | Accepted |
-| 004 | 004-safe-sync-integrate-workflow.md | Accepted with implementation caveats |
-| 005 | 005-activity-data-ingestion-layer.md | Accepted (on consolidation) |
+|| 004 | 004-safe-sync-integrate-workflow.md | Accepted |
+|| 005 | 005-activity-data-ingestion-layer.md | Accepted |
 
 Two consolidated files coexist:
 

@@ -198,7 +198,7 @@ Both Hermes plugins are code-complete but have runtime caveats:
 - `docs/decisions/adr-003-004-005-consolidated-decisions.md` (84 lines, summary)
 - `docs/decisions/adr-consolidated-decisions.md` (211 lines, full review)
 
-Both list ADR-004 as "Accepted with implementation caveats" — stale post-PR-189. Only the runtime plugin-loading gap remains. Which is authoritative is unclear.
+Both list ADR-004 as "Accepted" and ADR-005 as "Accepted" — current post-PR-189/post-PR-250. The one remaining caveat is runtime plugin availability for ADR-004 Phase 1, which is operational, not a code gap. Which file is authoritative is still unclear.
 
 ### 5.3 Goal Progress: Metric Fields vs Measurement Log
 
@@ -221,8 +221,8 @@ Referenced in a task body but does not exist in the repository. Unknown what it 
 
 ### 5.7 ADR Status Signals Are Stale
 
-- ADR-004 status field: "Accepted with implementation caveats" — the caveats are now resolved; only the runtime plugin-loading gap remains.
-- ADR-005 status: References original incomplete migration — superseded by Amendment 01 which declares "criteria met."
+- ADR-004 status field: "Accepted" — all 5 phases implemented, wired, and tested (PRs #176/#178/#189); only the runtime plugin-loading gap remains, which is operational, not a code gap.
+- ADR-005 status: "Accepted" — consolidation condition discharged by Amendment 01 (PR #204); data_protection.py deleted; no remaining migration caveats.
 - Consolidated ADR files: Reflect pre-PR-189 state.
 
 ---
@@ -314,7 +314,7 @@ No mypy/pyright, no ruff/flake8. Only pytest configured. The project uses datacl
 
 2. **Update roadmap items 9-12 from `[ ]` to `[x]`** — verified implemented. Low effort, removes stale signal.
 
-3. **Update ADR status signals** — ADR-004 status field, ADR-005 status field, both consolidated ADR files. Reflect post-PR-189 code-complete state. The only remaining caveat is runtime plugin availability.
+3. **Update ADR status signals** — ADR-004 and ADR-005 status fields already reflect current state (both "Accepted" with status notes) per PR #250. No remaining action.
 
 ### 8.2 Near-Term (Decision Required)
 
