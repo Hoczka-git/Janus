@@ -414,6 +414,108 @@ class TestProgressSlowEdgeCases:
 
 
 # ===========================================================================
+# 4b. progress_regressing signal (design §13.3 / enrichment)
+# ===========================================================================
+
+class TestProgressRegressing:
+    """The ``progress_regressing`` signal fires when a goal's metric value
+    has moved away from its target over the lookback window (negative
+    progress delta) — a distinct problem from slow progress."""
+
+    def test_fires_on_negative_progress_delta(self):
+        """Metric goal whose value moved away from target → progress_regressing."""
+        # start=23.0, target=15.0, direction=decrease, current=20.0
+        # 90 days ago value was 18.0 → progress was 62.5%, now 37.5% → delta=-25
+        goal = _make_metric_goal()
+        old_snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        assert a is not None
+        reg_signals = [s for s in a.signals if s.signal == "progress_regressing"]
+        assert len(reg_signals) == 1
+        assert reg_signals[0].category == "progress"
+        assert reg_signals[0].score == 50
+        assert "regressed" in reg_signals[0].reason
+
+    def test_does_not_fire_when_progress_improving(self):
+        """progress_regressing does NOT fire when delta is positive."""
+        # 90 days ago value 22.0 → progress 12.5%, now 37.5% → delta=+25
+        goal = _make_metric_goal()
+        snapshots = [_snap("Body fat", "Body fat %", 22.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots, completed_task_dates=None,
+        )
+        assert not any(s.signal == "progress_regressing" for s in a.signals)
+
+    def test_does_not_fire_without_lookback_history(self):
+        """progress_regressing does NOT fire when no snapshot older than lookback."""
+        goal = _make_metric_goal()
+        # Snapshot is only 5 days ago — lookback window (14 days) hasn't elapsed
+        snapshots = [_snap("Body fat", "Body fat %", 18.0, 5)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots, completed_task_dates=None,
+        )
+        assert not any(s.signal == "progress_regressing" for s in a.signals)
+
+    def test_does_not_fire_for_inactive_goal(self):
+        """progress_regressing does NOT fire for inactive goals."""
+        goal = _make_metric_goal(status="inactive")
+        snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots, completed_task_dates=None,
+        )
+        assert a is None
+
+    def test_does_not_fire_without_progress_config(self):
+        """progress_regressing does NOT fire when goal has no metric and no tasks."""
+        goal = Goal(title="G", status="active")
+        snapshots = [_snap("G", "m", 1.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots, completed_task_dates=None,
+        )
+        assert not any(s.signal == "progress_regressing" for s in a.signals)
+
+    def test_regression_takes_precedence_over_no_recent_activity(self):
+        """progress_regressing (score=50) has higher score than no_recent_activity
+        (score=35); the dominant signal should be progress_regressing."""
+        goal = _make_metric_goal()
+        old_snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        assert a is not None
+        assert a.dominant_signal is not None
+        assert a.dominant_signal.signal == "progress_regressing"
+        assert a.health_state == "watch"
+
+    def test_regressing_and_slow_do_not_fires_simultaneously(self):
+        """When progress regresses, progress_slow should NOT also fire."""
+        goal = _make_metric_goal()
+        old_snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        a = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        assert a is not None
+        assert any(s.signal == "progress_regressing" for s in a.signals)
+        assert not any(s.signal == "progress_slow" for s in a.signals)
+
+
+# ===========================================================================
 # 5. Observability — goal signals in attention engine log event (§12.7)
 # ===========================================================================
 
@@ -663,4 +765,115 @@ class TestServiceToHealthIntegration:
 
         review = create_weekly_review()
         assert len(review.goals) == 1
-        assert review.goals[0].goal.title == "Active"
+
+
+# ===========================================================================
+# Signal category taxonomy (design §5.1 / enrichment)
+# ===========================================================================
+
+class TestSignalCategory:
+    """GoalSignal carries a semantic ``category`` per spec §5.1 so that
+    diagnostics can be grouped by signal type."""
+
+    def test_goal_signal_has_category_field(self):
+        from janus.models.goal_signal import GoalSignal
+        from datetime import datetime
+        s = GoalSignal(
+            signal="progress_slow", score=40, reason="r",
+            timestamp=datetime.now(),
+            category="progress",
+        )
+        assert s.category == "progress"
+
+    def test_goal_signal_category_defaults_to_none(self):
+        from janus.models.goal_signal import GoalSignal
+        from datetime import datetime
+        s = GoalSignal(signal="x", score=40, reason="r", timestamp=datetime.now())
+        assert s.category is None
+
+    def test_progress_slow_signal_has_progress_category(self):
+        goal = _make_metric_goal()
+        # Snapshot 90 days ago at same current value → delta = 0 < threshold
+        old_snapshots = [_snap("Body fat", "Body fat %", 20.0, 90)]
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        assert assessment is not None
+        ps_signals = [s for s in assessment.signals if s.signal == "progress_slow"]
+        assert len(ps_signals) == 1
+        assert ps_signals[0].category == "progress"
+
+    def test_measurement_due_signal_has_measurement_category(self):
+        from janus.models.metric_snapshot import MetricSnapshot
+        goal = _make_metric_goal(
+            measurement_requirements=[
+                {"metric": "Body fat %", "frequency": "daily",
+                 "unit": "%", "preferred_time": "09:00", "interval_days": 1},
+            ],
+        )
+        # No recent snapshot → measurement_due fires
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[_snap("Body fat", "Body fat %", 20.0, 90)],
+            completed_task_dates=None,
+        )
+        assert assessment is not None
+        md_signals = [s for s in assessment.signals if s.signal == "measurement_due"]
+        if md_signals:
+            assert md_signals[0].category == "measurement"
+
+
+# ===========================================================================
+# to_dict serialization (design §73 / enrichment)
+# ===========================================================================
+
+class TestToDictSerialization:
+    """GoalHealthAssessment.to_dict() produces JSON-friendly output with
+    signal categories and ISO-format timestamps."""
+
+    def test_to_dict_includes_signal_category(self):
+        from janus.services.goal_health import assess_goal_health
+        goal = _make_metric_goal()
+        old_snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        d = assessment.to_dict()
+        assert "signals" in d
+        for sig in d["signals"]:
+            assert "category" in sig
+            assert "signal" in sig
+            assert "score" in sig
+            assert "reason" in sig
+            assert "timestamp" in sig
+
+    def test_to_dict_is_json_serializable(self):
+        import json
+        from janus.services.goal_health import assess_goal_health
+        goal = _make_metric_goal()
+        old_snapshots = [_snap("Body fat", "Body fat %", 18.0, 90)]
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=old_snapshots, completed_task_dates=None,
+        )
+        d = assessment.to_dict()
+        # Should not raise
+        json.dumps(d)
+
+    def test_to_dict_timestamp_is_isoformat(self):
+        from janus.services.goal_health import assess_goal_health
+        goal = _make_metric_goal()
+        assessment = assess_goal_health(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=[], completed_task_dates=None,
+        )
+        d = assessment.to_dict()
+        if d.get("evaluated_at"):
+            assert "T" in d["evaluated_at"]

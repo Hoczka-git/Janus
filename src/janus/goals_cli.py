@@ -1381,7 +1381,7 @@ def handle_goal_health(args: list[str]) -> None:
     """
     from janus.integrations.markdown_goals import load_goals
     from janus.integrations.markdown_tasks import load_tasks, TASKS_PATH
-    from janus.services.weekly_review import _read_completed_task_titles
+    from janus.services.weekly_review import _read_completed_task_titles, _read_completed_task_dates
     from janus.services.goal_health import assess_goal_health
     from datetime import date
 
@@ -1395,12 +1395,13 @@ def handle_goal_health(args: list[str]) -> None:
     completed_titles = _read_completed_task_titles()
     all_task_titles |= set(completed_titles)
 
-    # Build completed_task_dates for days_since_last_activity
+    # Build completed_task_dates for days_since_last_activity and
+    # task-based progress_delta. Reads the completed_at metadata
+    # field written by complete_task (design §13.4 / §14.1).
     today = date.today()
-    completed_task_dates: dict[str, date] | None = None
-    # We don't have task completion timestamps in the current model;
-    # this is a known limitation (design §13.4 / open question 1).
-    # Pass None to indicate no completion date data available.
+    completed_task_dates: dict[str, date] | None = _read_completed_task_dates()
+    if not completed_task_dates:
+        completed_task_dates = None
 
     if args:
         # Single goal
@@ -1478,7 +1479,8 @@ def _print_health_detail(assessment) -> None:
         print("  Signals:")
         for s in sorted(assessment.signals, key=lambda x: x.score, reverse=True):
             marker = " * " if s == assessment.dominant_signal else "   "
-            print(f"  {marker} [{s.score:3d}] {s.signal}: {s.reason}")
+            category_str = f" ({s.category})" if s.category else ""
+            print(f"  {marker} [{s.score:3d}] {s.signal}{category_str}: {s.reason}")
     else:
         print("  Signals: none (healthy)")
 

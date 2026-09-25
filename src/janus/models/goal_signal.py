@@ -27,6 +27,10 @@ class GoalSignal:
             tiebreaker and to map the signal to a health state.
         reason: Human-readable explanation of why the signal fired.
         timestamp: When the signal was evaluated.
+        category: Signal type classification per spec §5.1 — one of
+            ``deadline``, ``stall``, ``inactivity``, ``progress``,
+            ``measurement``. Used in structured diagnostics and
+            observability output to group signals by semantic type.
         stale_after: Optional duration after which the signal auto-resolves.
             Not used in v1 (signals are recomputed on demand).
     """
@@ -35,4 +39,5 @@ class GoalSignal:
     score: int
     reason: str
     timestamp: datetime
+    category: str | None = None
     stale_after: timedelta | None = None

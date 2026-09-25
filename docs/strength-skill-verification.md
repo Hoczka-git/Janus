@@ -1,5 +1,7 @@
 # Strength Skill — Verification Report (t_a8807f56)
 
+**Last verified:** 2026-09-24
+
 Verification pass for the strength training skill integration.
 
 - Branch: `wt/t_a8807f56`

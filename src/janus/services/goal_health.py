@@ -48,7 +48,33 @@ _FREQUENCY_INTERVAL_DAYS = {
 }
 
 
-# ── Health state resolution ──────────────────────────────────────────────────
+# ── Signal → category taxonomy (design §5.1) ────────────────────────────────
+# Maps each signal name to its semantic type category, used for
+# structured diagnostics and observability output.
+
+_SIGNAL_CATEGORY = {
+    # Deadline signals
+    "goal_overdue": "deadline",
+    "goal_deadline_today": "deadline",
+    "goal_deadline_soon": "deadline",
+    "milestone_slipped": "deadline",
+    "milestone_deadline_soon": "deadline",
+    # Stall signals
+    "goal_stalled": "stall",
+    # Inactivity signals
+    "goal_inactive": "inactivity",
+    "no_recent_activity": "inactivity",
+    # Progress signals
+    "progress_slow": "progress",
+    "progress_regressing": "progress",
+    # Measurement signals
+    "measurement_due": "measurement",
+}
+
+
+def _categorize_signal(signal_name: str) -> str:
+    """Return the category for a signal name, defaulting to 'other'."""
+    return _SIGNAL_CATEGORY.get(signal_name, "other")
 
 # Maps each signal to the health state it produces. The highest-scoring
 # signal determines the health state (design §4.2).
@@ -62,6 +88,7 @@ _SIGNAL_TO_HEALTH_STATE = {
     "goal_inactive": "watch",
     "no_recent_activity": "stalled",
     "progress_slow": "watch",
+    "progress_regressing": "watch",
     "measurement_due": "watch",
 }
 
@@ -173,9 +200,81 @@ def _compute_progress_slow(
                 f"(threshold: {PROGRESS_SLOW_THRESHOLD:.0f}%)"
             ),
             timestamp=now,
+            category=_categorize_signal("progress_slow"),
         )
 
     return None
+
+
+def _compute_progress_regressing(
+    goal: Goal,
+    now: datetime,
+    metric_snapshots: list[MetricSnapshot],
+    completed_task_titles: set[str] | None,
+) -> GoalSignal | None:
+    """Evaluate the ``progress_regressing`` signal (design §13.3 / open Q3).
+
+    Fires when progress delta over the lookback window is *negative* — the
+    goal's metric value has moved away from its target. This is a distinct
+    problem from ``progress_slow`` (which covers insufficient positive
+    movement); regression warrants its own signal so it is visible rather
+    than silently suppressed.
+    """
+    if goal.status != "active":
+        return None
+
+    lookback_start = now - timedelta(days=PROGRESS_LOOKBACK_DAYS)
+
+    has_metric = _has_metric_config(goal)
+    has_tasks = bool(goal.related_tasks)
+    if not has_metric and not has_tasks:
+        return None
+
+    current_progress = compute_goal_progress(goal, completed_task_titles)
+    if current_progress is None:
+        return None
+
+    past_progress: float | None = None
+
+    if has_metric:
+        relevant = [s for s in metric_snapshots if s.metric_name == goal.metric_name]
+        past_snapshots = [s for s in relevant if s.timestamp <= lookback_start]
+        if not past_snapshots:
+            return None
+        past_snapshot = max(past_snapshots, key=lambda s: s.timestamp)
+        past_goal = _reconstruct_goal_as_of(goal, past_snapshot.value)
+        past_progress = compute_goal_progress(past_goal, completed_task_titles)
+        if past_progress is None:
+            return None
+        progress_delta = current_progress - past_progress
+    else:
+        # Task-based goals: without completion timestamps we use the current
+        # completed set (conservative). The signal may be weaker until task
+        # completion timestamps are recorded (design §13.4).
+        progress_delta = current_progress
+
+    if progress_delta >= 0:
+        return None
+
+    if past_progress is not None:
+        reason = (
+            f"Progress regressed by {abs(progress_delta):.1f} percentage "
+            f"points over the last {PROGRESS_LOOKBACK_DAYS} days "
+            f"(current: {current_progress:.1f}%, was: {past_progress:.1f}%)"
+        )
+    else:
+        reason = (
+            f"Progress regressed by {abs(progress_delta):.1f} percentage "
+            f"points over the last {PROGRESS_LOOKBACK_DAYS} days"
+        )
+
+    return GoalSignal(
+        signal="progress_regressing",
+        score=50,
+        reason=reason,
+        timestamp=now,
+        category=_categorize_signal("progress_regressing"),
+    )
 
 
 def _compute_measurement_due(
@@ -231,6 +330,7 @@ def _compute_measurement_due(
             score=45,
             reason=f"Overdue measurements: {', '.join(overdue_metrics)}",
             timestamp=now,
+            category=_categorize_signal("measurement_due"),
         )
     return None
 
@@ -434,12 +534,15 @@ def assess_goal_health(
         completed_task_dates=completed_task_dates,
     )
     # Convert existing StallSignal tuples to GoalSignal objects.
-    for stall_signal, _category in stall_signals:
+    # The category from assess_goal_stall is the signal name itself;
+    # we derive the semantic category from _SIGNAL_CATEGORY.
+    for stall_signal, category in stall_signals:
         signals.append(GoalSignal(
             signal=stall_signal.signal,
             score=stall_signal.score,
             reason=stall_signal.reason,
             timestamp=now,
+            category=_categorize_signal(stall_signal.signal),
         ))
 
     # 2. progress_slow signal (design §8) — emitted here.
@@ -450,7 +553,17 @@ def assess_goal_health(
     if progress_slow is not None:
         signals.append(progress_slow)
 
-    # 3. measurement_due signal (design §9) — emitted here.
+    # 3. progress_regressing signal (design §13.3 / open Q3) — emitted here.
+    #    Fires when progress delta over the lookback window is negative
+    #    (metric value moved away from target). progress_slow already
+    #    suppresses itself on negative delta, so these don't overlap.
+    progress_regressing = _compute_progress_regressing(
+        goal, now, metric_snapshots, completed_titles,
+    )
+    if progress_regressing is not None:
+        signals.append(progress_regressing)
+
+    # 4. measurement_due signal (design §9) — emitted here.
     measurement_due = _compute_measurement_due(goal, now, metric_snapshots)
     if measurement_due is not None:
         signals.append(measurement_due)

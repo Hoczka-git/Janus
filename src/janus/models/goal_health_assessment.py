@@ -12,7 +12,7 @@ This implements the assessment data model defined in
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from janus.models.goal_signal import GoalSignal
 
@@ -53,6 +53,44 @@ class GoalHealthAssessment:
     evaluated_at: datetime | None = None
 
     def to_dict(self) -> dict:
-        """Serialize to a JSON-friendly dict (spec §73)."""
-        from dataclasses import asdict
-        return asdict(self)
+        """Serialize to a JSON-friendly dict (spec §73).
+
+        Converts ``datetime`` to ISO-format strings, ``timedelta`` to
+        total seconds, and includes the ``category`` field on each
+        signal.
+        """
+        def _signal_dict(signal: GoalSignal) -> dict:
+            ts = signal.timestamp
+            stale = signal.stale_after
+            return {
+                "signal": signal.signal,
+                "category": signal.category,
+                "score": signal.score,
+                "reason": signal.reason,
+                "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts,
+                "stale_after": (
+                    stale.total_seconds()
+                    if isinstance(stale, timedelta)
+                    else stale
+                ),
+            }
+
+        return {
+            "goal_title": self.goal_title,
+            "health_state": self.health_state,
+            "signals": [_signal_dict(s) for s in self.signals],
+            "dominant_signal": (
+                _signal_dict(self.dominant_signal)
+                if self.dominant_signal is not None
+                else None
+            ),
+            "progress": self.progress,
+            "progress_delta": self.progress_delta,
+            "days_since_last_activity": self.days_since_last_activity,
+            "measurement_overdue_count": self.measurement_overdue_count,
+            "evaluated_at": (
+                self.evaluated_at.isoformat()
+                if isinstance(self.evaluated_at, datetime)
+                else self.evaluated_at
+            ),
+        }

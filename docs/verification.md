@@ -1,5 +1,7 @@
 # Repository Verification Contract
 
+**Last verified:** 2026-09-24
+
 This document defines what "the Janus repository is verified" means and how to reproduce it locally.
 
 ## Command

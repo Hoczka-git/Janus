@@ -1,5 +1,7 @@
 # Goal Management & Health/Progress Patterns — Research Summary
 
+**Last verified:** 2026-09-24
+
 ## Question Investigated
 
 What is the current state of the goal management subsystem in Janus — data models, existing signals, health/progress/stalled concepts, and CRUD/query paths — and what abstractions can be reused vs. gaps that a new feature must fill?

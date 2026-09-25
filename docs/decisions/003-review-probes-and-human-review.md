@@ -2,6 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-09-16
+**Last verified:** 2026-09-24
 **Parent ADR:** `docs/decisions/003-canonical-review-topology.md` (Accepted)
 **Resolves remaining uncertainty:** Parallel review fan-out and human-in-the-loop review path (ADR-003 §Remaining Uncertainty #1 and #2)
 
