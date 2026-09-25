@@ -37,7 +37,7 @@ fields. **9 stale claims** are identified for archiving or removal (see §5).
 
 ## Legend
 
-| Disposition | Meaning |
+|| Disposition | Meaning ||
 |-------------|----------|
 | **OPEN** | Verified at HEAD — work remains to be done |
 | **CLOSED** | Resolved by `2dc1b72` or prior work — no action needed |
@@ -48,11 +48,11 @@ fields. **9 stale claims** are identified for archiving or removal (see §5).
 
 ## 1. ADR Status Fields — Stale (All Three ADRs)
 
-|| ADR | File | Field | Current | Should Be | Evidence (HEAD) |
-||-----|------|-------|---------|-----------|-----------------|
-|| ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | Status | Accepted | Accepted | `76fd1cd` propagated to HEAD — status is now "Accepted" |
-|| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md` (line 5 under `## Status`) | Status | Accepted with implementation caveats | Accepted with implementation caveats | Updated at HEAD `893a963` to reflect full Phase 1-5 implementation |
-|| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md` (line 5 under `## Status`) | Status | Accepted (on consolidation) | Accepted (on consolidation) | Status already reflects consolidation; no change needed |
+|| ADR | File | Field | Current | Should Be | Evidence (HEAD) ||
+|-------------|------|-------|---------|-----------|-----------------||
+| ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | Status | Accepted | Accepted | `76fd1cd` propagated to HEAD — status is now "Accepted" |
+| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md` (line 5 under `## Status`) | Status | Accepted with implementation caveats | Accepted with implementation caveats | Updated at HEAD `893a963` to reflect full Phase 1-5 implementation |
+| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md` (line 5 under `## Status`) | Status | Accepted (on consolidation) | Accepted (on consolidation) | Status already reflects consolidation; no change needed |
 
 **Status:** All three ADR status fields are now UP-TO-DATE at HEAD `893a963`:
 - ADR-003: "Accepted" ✓
@@ -112,7 +112,7 @@ No status field changes needed — this item is RESOLVED.
   - Phase 3: `src/janus/services/tasks.py:run_completion_gates` (line 287) — clean tree,
     final sync, test re-run, `git diff --check`. 15/15 tests pass.
   - Phase 4: `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()`
-    (line 548) — FF merge, controlled merge fallback, post-merge tests, rollback, push,
+    (line 548) — FF merge, controlled merge fallback, post-merge test suite, rollback, push,
     remote containment check, `integration_report.json`. 15/15 tests pass.
   - Phase 5: `src/janus/services/tasks.py:complete_task()` (line 527) — gates via
     `run_completion_gates()` before markdown flip. 7/7 tests pass + 2 gate block routing.
@@ -138,58 +138,32 @@ No status field changes needed — this item is RESOLVED.
 
 ## 4. ADR-005: Activity Data Ingestion Layer
 
-### GAP-005: Services still use data_protection instead of atomic_io gateway (OPEN — P1)
+### GAP-005: Services still use data_protection instead of atomic_io gateway (CLOSED — was OPEN — P1)
 
 - **ADR Reference:** `docs/decisions/005-activity-data-ingestion-layer.md` §2, §4, §6
 - **Description:** The ADR states service functions "will be refactored to delegate file
-  I/O to `atomic_io`" and that "the single write gateway must be the ONLY path that can
-  modify data/." However, services still call `protected_write` from `data_protection.py`,
-  which has its own `atomic_write` — a separate write surface from `atomic_io.py`.
-- **Current status:** OPEN — gateway code exists but is not the sole write path.
+  I/O to `atomic_io`" and that "the single write gateway must be the ONLY path that
+  can modify data/." At HEAD `781d4ae` (post-PR #204), `data_protection.py` has been
+  deleted and all legacy `protected_write` callers migrated to `atomic_io`/`data_integrity`.
+- **Current status:** **CLOSED** — resolved by ADR-005 Amendment 01 and PR #204.
 - **Evidence linking to HEAD:**
-  - `src/janus/services/activity_ingest.py` — 1109 lines, fully implemented, imports
-    `atomic_io.read_modify_write_with_retry`
+  - `data_protection.py` — DELETED (no longer in repo)
+  - `src/janus/services/activity_ingest.py` — imports `atomic_io.read_modify_write_with_retry`
   - `src/janus/integrations/atomic_io.py` — 224 lines, fully implemented
-  - `src/janus/integrations/data_protection.py:258` — has its own `atomic_write` (separate
-    from `atomic_io.atomic_write`)
-  - `src/janus/services/tasks.py:17` — imports `protected_write` from `data_protection`;
-    calls `protected_write` at lines 74, 184, 284, 349
-  - `src/janus/services/decisions.py:19` — imports `protected_write` from `data_protection`;
-    calls `protected_write` at lines 132, 172, 223, 274
-  - `src/janus/integrations/markdown_inbox.py:158` — imports and uses `protected_write`
-  - `src/janus/integrations/markdown_followups.py:194` — imports and uses `protected_write`
-  - `src/janus/integrations/markdown_research.py:16` — imports and uses `protected_write`/`protected_append`
-  - `src/janus/integrations/workout_md.py:14` — imports and uses `protected_write`
-  - `src/janus/integrations/markdown_goals.py:46,787` — imports `compute_hash` and
-    `protected_write` from `data_protection`
-  - `src/janus/services/measurement_log.py:103` — uses `f.write()` for append-only JSONL
-  - `src/janus/integrations/google_calendar.py:42` — `TOKEN_PATH.write_text()` (credentials file, not data/)
-  - The ADR's §2 says services "will be refactored" — refactoring is incomplete.
-- **Recommended next step:** Migrate service functions to route through
-  `atomic_io.read_modify_write_with_retry` instead of `protected_write`. Either deprecate
-  `data_protection.py` or clarify its role as the legacy path. This is the primary
-  implementation gap for ADR-005.
+  - `src/janus/integrations/data_integrity.py` — wraps `atomic_io` (policy layer)
+  - `grep -rn "protected_write" src/janus/` → 0 matches
+  - All 7 legacy `protected_write` callers migrated (PR #204)
+- **Recommended next step:** None — this gap is RESOLVED. No remaining action.
 
-### GAP-007: ADR-005 "sole write gateway" claim is contradicted (OPEN — P1)
+### GAP-007: ADR-005 "sole write gateway" claim contradicted — **CLOSED (was OPEN — P1)**
 
 - **ADR Reference:** `docs/decisions/005-activity-data-ingestion-layer.md` §2, §6
 - **Description:** The ADR states "the single write gateway must be the ONLY path that
-  can modify data/" and "the model cannot regenerate files." At HEAD, multiple direct
-  write paths exist in service functions and integration modules.
-- **Current status:** OPEN — documentation is inaccurate.
-- **Evidence linking to HEAD:**
-  - `src/janus/services/tasks.py` — `complete_task()`, `complete_janus_task()`,
-    `set_task_state()`, `set_task_progress()` all call `TASKS_PATH.read_text()` and
-    `protected_write(TASKS_PATH, ...)` — this is a read + full rewrite outside atomic_io
-  - `src/janus/integrations/markdown_goals.py:764` — `raw_content = GOALS_PATH.read_text()`
-    in `update_goal()`, followed by `protected_write`
-  - `src/janus/integrations/markdown_followups.py:199` — `raw_content = FOLLOWUPS_PATH.read_text()`
-  - `src/janus/integrations/markdown_inbox.py:163` — `raw_content = INBOX_PATH.read_text()`
-  - `src/janus/integrations/workout_md.py:93` — `path.read_text()` for hash capture
-  - CLI-driven paths (janus task add, janus goal update, etc.) call service functions
-    that use `protected_write` directly, not `ingest_activities()`
-- **Recommended next step:** Update ADR-005 §2/§6 to acknowledge that the migration is
-  in progress and the "sole write gateway" claim is not yet true. See also GAP-005.
+  can modify data/." At HEAD `781d4ae`, the claim is now accurate — `data_protection.py`
+  deleted, all callers migrated.
+- **Current status:** **CLOSED** — resolved by ADR-005 Amendment 01 and PR #204.
+- **Note:** The google_calendar.py outlier (`TOKEN_PATH.write_text()`) is an OAuth token
+  cache, not a data/ file — exempt from the gateway claim.
 
 ### GAP-008: ADR-005 CI grep gate not implemented (OPEN — P2)
 
@@ -203,8 +177,6 @@ No status field changes needed — this item is RESOLVED.
     files are unchanged *during a test run* (contract verification), NOT a write-path
     gate that greps for `data/` file writes outside the gateway
   - `grep -rn "data/.*write_text\|write.*data/" src/janus/verification.py` → 0 matches
-  - `docs/examples/contract_phase1.yaml` — the referenced precedent is about immutable
-    files during testing, not write-path enforcement
 - **Recommended next step:** Implement a CI verification rule (in `verification.py` or
   a separate script) that greps for new `data/` write paths outside the approved gateway
   modules.
@@ -218,8 +190,8 @@ and should be archived or removed:
 
 ### Claims RESOLVED by commit 2dc1b72 (REMOVE from active tracking)
 
-| # | Stale Claim | Source Report | Resolution |
-|---|-------------|---------------|------------|
+|| # | Stale Claim | Source Report | Resolution ||
+|-------------|-------------|---------------|------------||
 | 1 | "Uncommitted doc updates at risk of loss" (roadmap, product_backlog, t_36b3d88f refs) | t_3a254c43, t_aae7cef4 | **COMMITTED** by `2dc1b72` — all 5 files updated, 13 insertions, 13 deletions. No loss risk remains. |
 | 2 | "t_36b3d88f references still point to non-superseded task" | t_c5c6c0e1, t_aae7cef4 | **RESOLVED** — `2dc1b72` updated all 3 docs with "superseded" notices |
 | 3 | "Roadmap items 113–116 not yet marked complete" | t_c5c6c0e1 | **RESOLVED** — `2dc1b72` marked all 4 as `[x]` |
@@ -235,118 +207,88 @@ are reflected as CLOSED in this report.
 
 ### Claims that are STALE but retain historical value (ARCHIVE)
 
-| # | Stale Claim | Source Report | Why Archive (not Remove) |
-|---|-------------|---------------|--------------------------|
-| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **Valid** — `adr-003-004-005-consolidated-decisions.md` (created in `76fd1cd`) and `adr-consolidated-decisions.md` (created in `c74d1ac`) exist on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or document as "available on master only." |
+|| # | Stale Claim | Source Report | Why Archive (not Remove) ||
+|-------------|-------------|---------------|--------------------------|
+| 1 | "Consolidated ADR-003/004/005 decision docs exist on remote but not HEAD" | t_c387d140 | **RESOLVED** — Both docs back-ported to HEAD; `adr-003-004-005-consolidated-decisions.md` is the canonical consolidated ADR (post-PR-189/204 state); `adr-consolidated-decisions.md` was a duplicate and has been removed. |
 
 ### Consolidated ADR documents not on HEAD (ARCHIVE)
 
-| # | Stale Claim | Source Report | Resolution |
-|---|-------------|---------------|------------|
-| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **Confirmed** — file created in `76fd1cd` which is on `origin/master` but not on current HEAD branch. Archive: either back-port to HEAD or mark as "available on master only." |
-| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | Same — created in `c74d1ac`, not on HEAD. Archive: same recommendation. |
+|| # | Stale Claim | Source Report | Resolution ||
+|-------------|-------------|---------------|------------||
+| 1 | "adr-003-004-005-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** — file is now on HEAD as the canonical consolidated ADR. |
+| 2 | "adr-consolidated-decisions.md exists on remote but not HEAD" | t_c387d140 | **RESOLVED** — duplicate file removed; canonical file supersedes it. |
 
 ---
 
 ## 6. Genuinely Open Work (Prioritized)
 
-|| Priority | Gap | ADR | Effort | Block |
-|----------|-----|-----|--------|--------|
-| **P1** | GAP-005: Services still use data_protection instead of atomic_io | ADR-005 | High | Two write surfaces (data_protection + atomic_io) contradict "sole gateway" |
-| **P1** | GAP-001: ADR-002 curation gate not implemented | ADR-002 | Medium | Blocks end-to-end knowledge pipeline |
-| **P1** | GAP-007: ADR-005 "sole gateway" claim contradicted by code | ADR-005 | Medium | Documentation accuracy |
-| **P2** | GAP-003: Prompt Model B language removed (RESOLVED) | ADR-003 | Low | Resolved in Hermes agent repo commit `5c275ad8b` |
-| **P2** | GAP-008: ADR-005 CI grep gate not implemented | ADR-005 | Low | Regression protection |
+|| Priority | Gap | ADR | Effort | Block ||
+|---------- | ----- | --- | ----- | ---- ||
+| **P2** | GAP-008: ADR-005 CI grep gate for data/ write patterns | ADR-005 | Low | Regression guard |
+| **P2** | GAP-001: ADR-002 curation gate not implemented | ADR-002 | Medium | Blocks end-to-end knowledge pipeline |
+| **P1** | GAP-003: Prompt Model B language removed (RESOLVED) | ADR-003 | Low | Resolved in Hermes agent repo commit `5c275ad8b` |
 
-### 6.1 ADR-002: Curation Gate Not Implemented (OPEN — P1)
-- **Description:** Knowledge pipeline produces summaries but has no mechanism to gate
-  or execute promotion to Obsidian.
-- **Current status:** OPEN
-- **Evidence linking to HEAD:**
-  - `src/janus/services/knowledge_pipeline.py` has `validate_artifact()`,
-    `generate_summary()`, `emit_knowledge_gaps_as_attention()` — but no
-    `curation_gate()`, `human_approval()`, or `promote_to_obsidian()`
-  - `grep -rn "promote_to_obsidian\|obsidian_write" src/` → 0 matches
-  - `OBSIDIAN_VAULT_PATH` referenced in specs but zero code uses it
-- **Recommended next step:** Implement curation gate in `knowledge_pipeline.py` with
-  a human-approval step before calling into the Obsidian vault.
+### 6.1 ADR-005 Write Gateway Migration (CLOSED)
 
-### 6.2 ADR-004 Phase 4 "separate agent" claim — **RESOLVED (was GAP-006)**
+GAP-005 and GAP-007 are RESOLVED by ADR-005 Amendment 01 + PR #204:
+- `data_protection.py` deleted
+- All legacy `protected_write` callers migrated to `atomic_io`/`data_integrity`
+- The "sole write gateway" claim is now accurate
+- No remaining action
 
-- **ADR Reference:** `docs/decisions/004-safe-sync-integrate-workflow.md` §10 (Neutral)
-- **Description:** The ADR stated "Phase 4 requires a separate agent/profile" but also
-  noted the task was "superseded." Post-PR #176/#178, Phase 4 IS implemented via Option B
-  (automated step in completion path), not a separate agent.
-- **Current status:** **RESOLVED** — the ADR's Phase 4 Integrator Model decision
-  (lines 135-160) explicitly adopted Option B and documented why a separate agent was
-  not created. The body text accurately reflects the implemented approach.
-- **Evidence:**
-  - `docs/decisions/004-safe-sync-integrate-workflow.md:135-160` — Phase 4 Integrator
-    Model decision, Option B adopted
-  - `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()` (line 548)
-    — Phase 4 IS implemented
-  - 15/15 `test_integration.py` tests pass
-- **Recommended next step:** None — RESOLVED.
+### 6.2 ADR-004 Phases 3-5 (CLOSED)
 
-### 6.3 tmp_*.py scratch files committed to repository (OPEN — Cleanup)
+GAP-004 is RESOLVED — all 5 phases implemented (48 gate tests pass). No remaining action.
 
-- **Description:** 11 `tmp_*.py` scratch files were committed in `2dc1b72` but are
-  transient test/fixture scripts.
-- **Current status:** OPEN (cleanup needed)
-- **Evidence linking to HEAD:**
-  - `git ls-files tmp_*.py` lists 11 files: `tmp_fix_sw16_rmw.py`, `tmp_fix_sw16_rule_s3_eq_s2.py`,
-    `tmp_ingest_sw16.py`, `tmp_ingest_sw16_v2.py`, `tmp_ingest_sw16_v3.py`, `tmp_rw17.py`,
-    `tmp_rw17_final.py`, `tmp_rw17_v2.py`, `tmp_rw17_v3.py`, `tmp_rw17_v4.py`, `tmp_sw16.py`
-  - All were committed by `2dc1b72` (should have been cleaned up before commit)
-- **Recommended next step:** Remove the `tmp_*.py` files from the repository. They are
-  scratch scripts, not part of the codebase.
+### 6.3 ADR-004 "separate agent" claim (CLOSED)
+
+GAP-006 is RESOLVED — ADR §Neutral updated to Option B.
 
 ---
 
 ## 7. Evidence Chain
 
-| Finding | Source (HEAD `0f6caec`, parent `2dc1b72`) |
-|---------|----------------------|
-|| ADR-003 status says "Proposed" | `docs/decisions/003-canonical-review-topology.md:3` — `**Status:** Proposed` |
-|| ADR-004 status says "Proposed" | `docs/decisions/004-safe-sync-integrate-workflow.md:3-5` — `## Status` / `Proposed` |
-|| ADR-005 status says "Proposed" | `docs/decisions/005-activity-data-ingestion-layer.md:3-5` — `## Status` / `Proposed` |
-|| Commit 76fd1cd set statuses to "Accepted" on master | `git show 76fd1cd` — 4 files changed, status lines modified |
-|| 76fd1cd is NOT an ancestor of HEAD | `git merge-base 0f6caec 76fd1cd` returns `345090f` (not 76fd1cd) |
-|| **ADR-003/004/005 status fields UPDATE 2026-09-21 (t_8a6768e8)** | All three statuses verified UP-TO-DATE at HEAD `893a963`:
+|| Finding | Source (HEAD `0f6caec`, parent `2dc1b72`) ||
+|---------|----------------------||
+| ADR-003 status says "Proposed" | `docs/decisions/003-canonical-review-topology.md:3` — `**Status:** Proposed` |
+| ADR-004 status says "Proposed" | `docs/decisions/004-safe-sync-integrate-workflow.md:3-5` — `## Status` / `Proposed` |
+| ADR-005 status says "Proposed" | `docs/decisions/005-activity-data-ingestion-layer.md:3-5` — `## Status` / `Proposed` |
+| Commit 76fd1cd set statuses to "Accepted" on master | `git show 76fd1cd` — 4 files changed, status lines modified |
+| 76fd1cd is NOT an ancestor of HEAD | `git merge-base 0f6caec 76fd1cd` returns `345090f` (not 76fd1cd) |
+| **ADR-003/004/005 status fields UPDATE 2026-09-21 (t_8a6768e8)** | All three statuses verified UP-TO-DATE at HEAD `893a963`:
   - ADR-003: "Accepted" ✓
   - ADR-004: "Accepted with implementation caveats" ✓
   - ADR-005: "Accepted (on consolidation)" ✓ |
-|| Model B prompt language exists in Hermes agent repo | `agent/prompt_builder.py:322` — "pre-created review, QA, or release child" |
-|| sync_branch implemented but not called | `src/janus/git_sync.py:267`; `grep -rn "sync_branch" hermes-agent/` → 0 matches |
-|| **ADR-004 Phases 3-5 implementation UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** at HEAD `893a963`:
+| Model B prompt language exists in Hermes agent repo | `agent/prompt_builder.py:322` — "pre-created review, QA, or release child" |
+| sync_branch implemented but not called | `src/janus/git_sync.py:267`; `grep -rn "sync_branch" hermes-agent/` → 0 matches |
+| **ADR-004 Phases 3-5 implementation UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** at HEAD `893a963`:
   - Phase 1 auto-invoke: `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync` (line 238) → `sync_branch()` (line 276). 9/9 tests pass.
   - Phase 3 pre-completion gate: `src/janus/services/tasks.py:run_completion_gates` (line 287). 15/15 tests pass.
   - Phase 4 safe integration: `src/janus/integration.py:integrate_branch()` (line 160), `integrate_task()` (line 548). 15/15 tests pass.
   - Phase 5 completion gating: `src/janus/services/tasks.py:complete_task()` (line 527) gated via `run_completion_gates()`. 7/7 tests + 2 gate block routing.
   - **Total: 48 passing gate tests** across 4 test files. |
-|| activity_ingest.py fully implemented | `src/janus/services/activity_ingest.py` — 1109 lines |
-|| atomic_io.py fully implemented | `src/janus/integrations/atomic_io.py` — 224 lines |
-|| data_protection.py has separate atomic_write | `src/janus/integrations/data_protection.py:258` |
-|| Services import and call protected_write | `src/janus/services/tasks.py:17,74,184,284,349`; `src/janus/services/decisions.py:19,132,172,223,274` |
-|| Integration modules use protected_write | `markdown_inbox.py:158,178`, `markdown_followups.py:194,214`, `workout_md.py:14,94`, `markdown_research.py:16`, `markdown_goals.py:46,787` |
-|| measurement_log uses f.write | `src/janus/services/measurement_log.py:103` (append-only JSONL) |
-|| google_calendar uses TOKEN_PATH.write_text | `src/janus/integrations/google_calendar.py:42` (credentials, not data/) |
-|| CI grep gate not in verification.py | `src/janus/verification.py:1144` — `check_files_immutable` is immutable-files check, not write-path gate |
-|| Vault IS versioned (decision executed) | `/mnt/c/Users/dan11/Documents/HermesVault` — `.git` exists with commits `fcf155d`, `a534147` |
-|| data/ directory removed from git | `git log --oneline 80b1e8e` — "removed data files from git"; `ls data/` → not found at HEAD |
-|| Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
-|| 11 tmp_*.py files committed in 2dc1b72 | `git ls-files tmp_*.py` — 11 files; `git show 2dc1b72 --stat` lists all 11 |
-|| **ADR-004 Phase 4 "separate agent" claim UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR §10 Phase 4 Integrator Model decision (lines 135-160) explicitly adopted Option B (automated step) and documented why a separate agent was not created. The "separate agent" language describes the design space considered, not an open gap. |
-|| Consolidated ADR docs not on HEAD | `76fd1cd` and `c74d1ac` create `adr-003-004-005-consolidated-decisions.md` and `adr-consolidated-decisions.md`; both on `origin/master` but not on HEAD |
+| activity_ingest.py fully implemented | `src/janus/services/activity_ingest.py` — 1109 lines |
+| atomic_io.py fully implemented | `src/janus/integrations/atomic_io.py` — 224 lines |
+| data_protection.py deleted | No longer in repository (PR #204) |
+| **GAP-005 and GAP-007 UPDATE (t_ this task):** | **CLOSED** — `data_protection.py` deleted; all `protected_write` callers migrated; 0 grep matches for `protected_write` in `src/janus/` |
+| CI grep gate not in verification.py | `src/janus/verification.py:1144` — `check_files_immutable` is immutable-files check, not write-path gate |
+| Vault IS versioned (decision executed) | `/mnt/c/Users/dan11/Documents/HermesVault` — `.git` exists with commits `fcf155d`, `a534147` |
+| data/ directory removed from git | `git log --oneline 80b1e8e` — "removed data files from git"; `ls data/` → not found at HEAD |
+| Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
+| **GAP-004 and GAP-006 UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR-004 Phases 3-5 implemented; §Neutral updated to Option B |
+| Consolidated ADR docs on HEAD | `adr-003-004-005-consolidated-decisions.md` is canonical on HEAD; `adr-consolidated-decisions.md` removed |
+| **GAP-003 UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — Hermes-side fix `5c275ad8b` (PR #29) removed Model B language from `KANBAN_GUIDANCE`; 0 grep matches, 31 kanban review tests pass |
 
 ---
 
 ## 8. Recommendations Summary
 
 ### Immediate (next 24 hours)
-1. **Remove `tmp_*.py` files** — 11 scratch files committed by 2dc1b72 should be deleted
+
+1. **Remove `tmp_*.py` files** — 11 scratch files committed by 2dc1b72 should be deleted (but see update below — no tmp_*.py files present at current HEAD)
 
 ### This week
+
 2. **Patch prompt_builder.py** — ~~remove Model B language (ADR-003 GAP-003)~~ ✅ RESOLVED
    (commit `5c275ad8b` in Hermes agent repo, Sep 16)
 3. **Back-port consolidated ADR docs** — `adr-003-004-005-consolidated-decisions.md`
@@ -354,11 +296,13 @@ are reflected as CLOSED in this report.
    on HEAD. Back-port to HEAD or document as master-only.
 
 ### Implementation backlog (requires dedicated tasks)
-7. **ADR-004 Phases 3-5** — implement pre-completion gate, safe integration, completion gating
+
+7. **ADR-004 Phases 3-5** — implement pre-completion gate, safe integration, completion gating (**CLOSED**)
 8. **ADR-005 migration** — route service functions through `atomic_io` instead of
-   `data_protection`
-9. **ADR-005 CI grep gate** — add write-path verification to `verification.py`
-10. **ADR-002 curation gate** — implement human-approval step for Obsidian promotion
+   `data_protection` (**CLOSED** by PR #204)
+9. **ADR-005 CI grep gate** — add write-path verification to `verification.py` (**OPEN — GAP-008**)
+10. **ADR-002 curation gate** — implement human-approval step for Obsidian promotion (**OPEN — GAP-001**)
+11. **ADR-003 prompt Model B language** — remove from KANBAN_GUIDANCE (**CLOSED** — Hermes-side fix `5c275ad8b`)
 
 ---
 
@@ -384,11 +328,11 @@ are reflected as CLOSED in this report.
 
 All three ADR status fields are now UP-TO-DATE at HEAD:
 
-| ADR | File | Status at HEAD `893a963` | Previously (2026-09-18) | Change |
-|-----|------|--------------------------|-------------------------|--------|
+|| ADR | File | Status at HEAD `893a963` | Previously (2026-09-18) | Change ||
+|-------------|------|--------------------------|-------------------------|--------||
 | ADR-003 | `docs/decisions/003-canonical-review-topology.md:3` | **Accepted** | Proposed | ✓ RESOLVED |
-|| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted** | Accepted with implementation caveats | ✓ RESOLVED |
-|| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted** | Accepted (on consolidation) | ✓ RESOLVED |
+| ADR-004 | `docs/decisions/004-safe-sync-integrate-workflow.md:5` | **Accepted** | Accepted with implementation caveats | ✓ RESOLVED |
+| ADR-005 | `docs/decisions/005-activity-data-ingestion-layer.md:5` | **Accepted** | Accepted (on consolidation) | ✓ RESOLVED |
 
 > **Note:** The ADR-004 status was updated as part of the post-PR #176/#178 work. The status
 > field now reads "Accepted," accurately reflecting that all 5 phases are implemented
@@ -406,8 +350,8 @@ All three ADR status fields are now UP-TO-DATE at HEAD:
 
 ### Phase implementation status at HEAD `893a963`
 
-| Phase | Status | Location | Tests |
-|-------|--------|----------|-------|
+|| Phase | Status | Location | Tests ||
+|-------- | ------ | -------- | ----- ||
 | Phase 1 — Auto-invoke sync before implementation | **IMPLEMENTED** | `plugins/janus_sync/__init__.py:on_task_claimed` (line 197) → `_run_auto_sync` (line 238) → `sync_branch()` (line 276). Hook: `kanban_task_claimed`. Registration: line 929. | `tests/plugins/test_janus_sync_plugin.py`: TestAutoInvokeOnClaim — **9 passed** |
 | Phase 2 — Implementation in worktree | N/A (worker's job) | Task worktree + branch per task (dispatcher-managed) | — |
 | Phase 3 — Pre-completion gate | **IMPLEMENTED** | `src/janus/services/tasks.py:run_completion_gates` (line 287). Checks: working_tree_clean, tests_pass_after_rebase, git_diff_check. Evidence artifact: `pre_completion_report.json`. | `tests/test_task_complete_gates.py`: **15 passed** |
@@ -538,13 +482,14 @@ test_janus_sync_plugin.py cover other plugin functionality.
 
 ## 9.7 Summary of Changes Since 2026-09-18
 
-| # | Item | 2026-09-18 | 2026-09-22 (HEAD `893a963`) |
+|| # | Item | 2026-09-18 | 2026-09-22 (HEAD `893a963`) ||
+|--- | --- | -------- | -------------------------- ||
 | 1 | ADR-003 status | Proposed | **Accepted** ✓ |
 | 2 | ADR-004 status | Proposed | **Accepted with implementation caveats** ✓ |
 | 3 | ADR-005 status | Proposed | **Accepted (on consolidation)** ✓ |
 | 4 | GAP-004 (Phases 3-5) | OPEN — P0 | **CLOSED** — all 5 phases implemented, 48 gate tests pass ✓ |
 | 5 | GAP-006 (separate agent claim) | OPEN — P1 | **CLOSED** via commit `2f2ffa3` — §Neutral updated to Option B ✓ |
-| 6 | GAP-001, GAP-005, GAP-007, GAP-008 | OPEN | **UNCHANGED** — still genuinely open; GAP-008 remains OPEN (addressed further below) ✓ |
+| 6 | GAP-005, GAP-007, GAP-008 | OPEN | **GAP-005 and GAP-007 CLOSED** (PR #204 / Amendment 01); **GAP-008 remains OPEN** ✓ |
 | 7 | GAP-003 (prompt Model B language) | OPEN | **RESOLVED** — Hermes-side fix `5c275ad8b` (PR #29) removed Model B language from `KANBAN_GUIDANCE`; 0 grep matches, 31 kanban review tests pass ✓ |
 
 ---

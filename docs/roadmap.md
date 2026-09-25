@@ -124,7 +124,8 @@ existing design and planning artifacts in this repository.
 - [x] Add unit and CLI test coverage. specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Document the audit specification in [`docs/design/goal_integrity_audit.md`](../docs/design/goal_integrity_audit.md)
 - [x] Consolidate the goal execution planning extension into the Janus domain layer and add automated tests for boundary cases.
-- [x] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+- [~] Complete the knowledge curation gate for artifact promotion into the Obsidian vault.
+  - `curation_gate.py` + `CurationProposal` state machine implemented; `create_curation_proposal` in `knowledge_pipeline.py`. `promote_to_vault` wired in `research_cli.py`. Full `human_approval()` → `promote_to_vault()` flow not yet end-to-end verified in production.
 - [x] Expose deterministic goal next-action derivation through `janus goal next <title>` and integrate it into user-facing reviews.
 
 ## Agency-First Janus
