@@ -494,6 +494,43 @@ class TestCreateStrategicSummary:
             == "stalled"
         )
 
+    def test_stalled_goal_recommendation_populated_with_remediation(self):
+        """End-to-end: create_strategic_summary derives remediation_action
+        from the health assessment through create_recommended_actions."""
+
+        goals = [
+            _make_goal(
+                title="G",
+                related_tasks=["Task A"],
+            )
+        ]
+
+        assessments = [
+            _make_assessment(
+                "G",
+                health_state="stalled",
+                dominant_signal=_sig(
+                    "goal_overdue",
+                    100,
+                    "passed deadline",
+                ),
+                progress=0.0,
+                progress_delta=0.0,
+                days_since_last_activity=5,
+            )
+        ]
+
+        summary = create_strategic_summary(
+            goals=goals,
+            assessments=assessments,
+            today=FIXED_TODAY,
+            now=FIXED_NOW,
+        )
+
+        assert len(summary.recommended_actions) == 1
+        assert summary.recommended_actions[0].remediation_action is not None
+        assert "Deadline has passed" in summary.recommended_actions[0].remediation_action
+
     def test_stalled_goal_appears_in_stalled_and_recommendations(self):
         """An overdue active goal is surfaced in both sections."""
         goal = _make_goal(
@@ -1459,6 +1496,81 @@ class TestStatusRendering:
 
         assert "No stalled goals." in output
         assert "No neglected goals." in output
+
+    def test_render_includes_remediation_action(self):
+        """Renderer surfaces remediation_action on recommended actions."""
+        summary = StrategicSummary(
+            generated_at=FIXED_NOW,
+            portfolio_health_counts=PortfolioHealthCounts(
+                total_active=1, stalled=1,
+            ),
+            recommended_actions=[
+                RecommendedAction(
+                    goal_title="Stalled G",
+                    health_state="stalled",
+                    dominant_signal="goal_stalled",
+                    dominant_signal_score=40,
+                    dominant_signal_reason="All tasks done",
+                    progress=0.0,
+                    progress_delta=0.0,
+                    days_since_last_activity=5,
+                    suggested_next_step="Define next milestone",
+                    remediation_action="All linked tasks are completed. Define the next milestone.",
+                    cross_links=[],
+                )
+            ],
+            cross_domain_links=[],
+        )
+        output = render_strategic_summary(summary)
+        assert "Remediation: All linked tasks are completed" in output
+        assert "Suggested action: Define next milestone" in output
+
+    def test_render_omits_remediation_when_none(self):
+        """No remediation_action on a recommendation - not rendered."""
+        summary = StrategicSummary(
+            generated_at=FIXED_NOW,
+            portfolio_health_counts=PortfolioHealthCounts(
+                total_active=1, healthy=1,
+            ),
+            recommended_actions=[
+                RecommendedAction(
+                    goal_title="Healthy G",
+                    health_state="healthy",
+                    dominant_signal="",
+                    dominant_signal_score=0,
+                    dominant_signal_reason="",
+                )
+            ],
+            cross_domain_links=[],
+        )
+        output = render_strategic_summary(summary)
+        assert "Remediation:" not in output
+
+    def test_recommended_action_model_accepts_remediation_field(self):
+        """The strategic summary RecommendedAction model supports remediation_action."""
+        from janus.models.strategic_summary import RecommendedAction as SSA
+        ra = SSA(
+            goal_title="G",
+            health_state="stalled",
+            dominant_signal="goal_overdue",
+            dominant_signal_score=100,
+            dominant_signal_reason="overdue",
+            remediation_action="Deadline has passed.",
+        )
+        assert ra.remediation_action == "Deadline has passed."
+        assert ra.remediation_action is not None
+
+    def test_recommended_action_remediation_defaults_none(self):
+        """remediation_action defaults to None on RecommendedAction."""
+        from janus.models.strategic_summary import RecommendedAction as SSA
+        ra = SSA(
+            goal_title="G",
+            health_state="healthy",
+            dominant_signal="",
+            dominant_signal_score=0,
+            dominant_signal_reason="",
+        )
+        assert ra.remediation_action is None
 
 
 # ===========================================================================
