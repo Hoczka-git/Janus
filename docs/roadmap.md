@@ -112,9 +112,10 @@ existing design and planning artifacts in this repository.
   tracking actionable items that do not yet belong to an active task
 - [x] Close the research → finding → decision → action loop by connecting research artifacts with decisions, goals, projects, and follow-up tasks
 - [x] Implement Janus ↔ Hermes execution feedback, including task handoff, execution results, evidence, and resulting state updates
-- [x] Verify the complete Goal → Task → Execution → Completion → Review loop
+- [x] Complete and verify the Goal → Task → Execution → Completion → Review loop
   - Status transitions and execution evidence verified.
   - Production verification of Completion → Goal Update and Review complete (ADR-002 curation gate with VAULTED state).
+  - Verified end-to-end (E2E checks pass; see `.verifications/goal_task_execution_loop_report.md`).
 - [x] Add evidence-based skill tracking linking completed work and project outcomes to career-development goals
 - [x] Add strategic state summaries that surface meaningful changes, neglected goals, stalled work, and recommended next actions
 - [x] Define the `GoalIntegrityReport` and `GoalIntegrityIssue` domain models. specification in [`docs/design/goal_integrity_audit.md`
@@ -136,8 +137,6 @@ Janus should optimize for increasing user capability and agency,
 not maximizing autonomous agent execution.
 
 Key phases:
-- [x] Complete Goal → Task → Execution → Completion → Review
-  - Verified end-to-end (E2E checks pass; see `.verifications/goal_task_execution_loop_report.md`).
 - [~] Evidence & Audit
   - ADR-011 (goal-level gates) proposed; ADR-012 (evidence model) proposed. See `docs/decisions/adr-011-goal-level-completion-gates.md`.
 - [~] Agency-First phase — P0 (ADR-005 migration, ADR-011 gates) and P1 (ADR-012 evidence, ADR-013 curation) planned; P2/P3 deferred until P0/P1 stable. See `docs/triage_architectural_roadmap_next_phase.md` §8/§9.
