@@ -137,12 +137,28 @@ Janus should optimize for increasing user capability and agency,
 not maximizing autonomous agent execution.
 
 Key phases:
-- [~] Evidence & Audit
-  - ADR-011 (goal-level gates) proposed; ADR-012 (evidence model) proposed. See `docs/decisions/adr-011-goal-level-completion-gates.md`.
-- [~] Agency-First phase — P0 (ADR-005 migration, ADR-011 gates) and P1 (ADR-012 evidence, ADR-013 curation) planned; P2/P3 deferred until P0/P1 stable. See `docs/triage_architectural_roadmap_next_phase.md` §8/§9.
-- [ ] Personal State Model
-- [ ] Agency-Aware Planning
-- [ ] Policy & Approval
-- [ ] Connector Protocol
-- [ ] Self-Extending Skills
-- [ ] Multi-Agent Orchestration
+- [~] Phase A — Complete the Core Loop (P0)
+  - Goal → Planning → Task → Execution → Completion → Review. Foundational; must not be bypassed by adding autonomous features.
+  - Status: ADR-005 migration, ADR-011 gates planned. See `docs/triage/architectural_roadmap_next_phase.md` §8/§9.
+- [~] Phase B — Evidence & Audit (P1)
+  - First-class evidence, verification results, outcome records, decision records, audit trail. Goal: make Janus able to explain how it knows that progress occurred.
+  - Status: ADR-011 (goal-level gates) proposed; ADR-012 (evidence model) proposed. See `docs/decisions/adr-011-goal-level-completion-gates.md`.
+  - Depends on: Phase A.
+- [ ] Phase C — Personal State Model (P1)
+  - Structured model of goals, metrics, tasks, projects, commitments, routines, constraints, preferences, activities, evidence, decisions. Goal: give Janus a coherent model of the user's current situation.
+  - Depends on: Phase A.
+- [ ] Phase D — Agency-Aware Planning (P1)
+  - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
+  - Depends on: Phases A, C.
+- [ ] Phase E — Policy & Approval (P1/P2)
+  - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
+  - Depends on: Phases A, B.
+- [ ] Phase F — Connector Protocol (P2)
+  - Common interface for external data and actions (source, capabilities, permissions, read, propose, execute, evidence). Optimize for clean capability model, not number of integrations.
+  - Depends on: Phases A, B.
+- [ ] Phase G — Self-Extending Skills (P2)
+  - Identify missing capabilities, propose new skills. Lifecycle: proposal → generate → tests → sandbox → verification → approval → install. Generated capabilities must not silently become trusted.
+  - Depends on: Phases A, E.
+- [ ] Phase H — Multi-Agent Orchestration (P3)
+  - Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
+  - Depends on: Phases A–G.
