@@ -4,7 +4,7 @@
 
 Accepted
 
-**Last verified:** 2026-09-24
+**Last verified:** 2026-09-25
 
 > **Status note (2026-09-24):** The earlier "Accepted (on consolidation)" qualifier is
 > superseded. The consolidation condition was discharged by Amendment 01

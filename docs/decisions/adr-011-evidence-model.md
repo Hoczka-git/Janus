@@ -1,6 +1,7 @@
 # ADR-011: Evidence Model for Goal Tracking
 
 Status: Proposed
+**Last verified:** 2026-09-25
 
 Context: No formal `Evidence` concept exists in Janus. Goal completion is state-based (`set_goal_state()`), not evidence-based. The Agency-First development phase (docs/janus-agency-first-development-phase.md) identifies evidence and audit as the next strategic gap after the Goal → Task → Execution → Completion → Review loop is closed.
 
