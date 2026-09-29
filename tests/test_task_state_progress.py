@@ -103,7 +103,7 @@ class TestMarkdownParsing:
 
     def test_parse_task_without_state(self, tmp_path):
         tasks = self._write_and_load(tmp_path, "- [ ] Test task\n")
-        assert tasks[0].state is None
+        assert tasks[0].state == "todo"
 
     def test_parse_task_without_progress(self, tmp_path):
         tasks = self._write_and_load(tmp_path, "- [ ] Test task\n")
@@ -135,7 +135,7 @@ class TestMarkdownParsing:
         assert tasks[0].state == "todo"
         assert tasks[1].state == "in_progress"
         assert tasks[2].state == "blocked"
-        assert tasks[3].state is None
+        assert tasks[3].state == "todo"
 
     def test_parse_progress_edge_values(self, tmp_path):
         tasks = self._write_and_load(
@@ -360,7 +360,7 @@ class TestSetTaskProgress:
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
         task = set_task_progress("Test task", 100)
         assert task.progress == 100
-        assert task.state is None
+        assert task.state == "todo"
         content = tasks_file.read_text()
         assert "[x]" not in content
 

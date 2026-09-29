@@ -69,7 +69,7 @@ def handle_task_list(args: list[str]) -> None:
             parts.append(f"due: {task.due_date.isoformat()}")
         if task.priority != 1:
             parts.append(f"priority: {task.priority}")
-        if task.state is not None:
+        if task.state is not None and task.state != "todo":
             parts.append(f"state: {task.state}")
         if task.progress is not None:
             parts.append(f"progress: {task.progress}%")
