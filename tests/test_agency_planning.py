@@ -5,6 +5,7 @@ Covers the mode-selection algorithm across representative scenarios:
 - Support mode selection (EXPLAIN, COACH, SCAFFOLD, REVIEW, EXECUTE)
 - TaskAgency classification
 - AgencyContext derivation
+- Full planning cycle integration (Phase A → Phase C → Phase D)
 """
 
 from datetime import date
@@ -524,3 +525,238 @@ class TestRecommendTasksAgencyWiring:
         assert len(result) > 0
         assert result[0].agency is not None
         assert len(result[0].agency.reason) > 0
+
+
+# ── Full planning cycle integration (Phase A → Phase C → Phase D) ─────────────
+#
+# Phase A: Core Loop — goals, tasks, milestones, projects (the planning data)
+# Phase C: Personal State Model — AgencyContext derived from user state
+# Phase D: Agency-Aware Planning — mode selection (execution_mode, support_mode)
+#
+# These tests exercise the full pipeline: construct a goal with milestones
+# and tasks (Phase A), derive an AgencyContext from user state (Phase C),
+# then run derive_next_action / recommend_tasks with the context (Phase D)
+# and verify the least-substitutive mode is chosen and propagated.
+
+
+class TestFullPlanningCycle:
+    """Integration tests for Phase A → Phase C → Phase D planning cycle."""
+
+    def test_admin_task_full_cycle(self):
+        """Admin task: Phase A data → Phase C context → Phase D JANUS+EXECUTE."""
+        # Phase A: goal with milestone and admin task
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Sync data files"],
+        )
+        tasks = [Task(title="Sync data files")]
+
+        # Phase C: user has no skill evidence, goal is healthy
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+
+        # Phase D: derive_next_action with agency context
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action is not None
+        assert action.kind == "task"
+        assert action.agency is not None
+        assert action.agency.execution_mode == ExecutionMode.JANUS
+        assert action.agency.support_mode == SupportMode.EXECUTE
+
+    def test_learning_task_no_evidence_full_cycle(self):
+        """Learning task, no evidence: Phase A → Phase C → Phase D USER+EXPLAIN."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action is not None
+        assert action.agency.execution_mode == ExecutionMode.USER
+        assert action.agency.support_mode == SupportMode.EXPLAIN
+
+    def test_learning_task_with_evidence_full_cycle(self):
+        """Learning task with evidence: Phase A → Phase C → Phase D USER+SCAFFOLD."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=2, goal_health="healthy")
+
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action is not None
+        assert action.agency.execution_mode == ExecutionMode.USER
+        assert action.agency.support_mode == SupportMode.SCAFFOLD
+
+    def test_stalled_goal_full_cycle(self):
+        """Stalled goal: Phase A → Phase C → Phase D COACH support mode."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(
+            skill_evidence_count=2,
+            goal_health="stalled",
+            goal_stalled=True,
+        )
+
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action is not None
+        assert action.agency.support_mode == SupportMode.COACH
+
+    def test_high_complexity_full_cycle(self):
+        """High complexity task: Phase A → Phase C → Phase D COLLABORATIVE."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Design system"],
+        )
+        tasks = [Task(title="Design system", extra_metadata=["estimate: 8 hours"])]
+        context = AgencyContext(skill_evidence_count=2, goal_health="healthy")
+
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action is not None
+        assert action.agency.execution_mode == ExecutionMode.COLLABORATIVE
+
+    def test_recommend_tasks_full_cycle(self):
+        """recommend_tasks: Phase A → Phase C → Phase D propagates agency."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Sync data files"],
+        )
+        tasks = [Task(title="Sync data files")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+
+        result = recommend_tasks(
+            [goal], tasks, set(), date.today(), agency_context=context
+        )
+        assert len(result) > 0
+        assert result[0].agency is not None
+        assert result[0].agency.execution_mode == ExecutionMode.JANUS
+        assert result[0].agency.support_mode == SupportMode.EXECUTE
+
+    def test_no_context_backward_compatible(self):
+        """Without agency_context, actions have no agency (backward compat)."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Sync data files"],
+        )
+        tasks = [Task(title="Sync data files")]
+
+        action = derive_next_action(goal, tasks, set(), date.today())
+        assert action is not None
+        assert action.agency is None
+
+        result = recommend_tasks([goal], tasks, set(), date.today())
+        assert len(result) > 0
+        assert result[0].agency is None
+
+    def test_least_substitutive_mode_chosen(self):
+        """Verify least-substitutive mode is chosen across all task types."""
+        # Admin task → JANUS (most substitutive execution)
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Sync data"],
+        )
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        action = derive_next_action(
+            goal, tasks, set(), date.today(), agency_context=context
+        )
+        assert action.agency.execution_mode == ExecutionMode.JANUS
+
+        # Learning task → USER (least substitutive execution)
+        goal2 = Goal(
+            title="G2",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks2 = [Task(title="Learn Python")]
+        action2 = derive_next_action(
+            goal2, tasks2, set(), date.today(), agency_context=context
+        )
+        assert action2.agency.execution_mode == ExecutionMode.USER
+
+        # High complexity → COLLABORATIVE (middle)
+        goal3 = Goal(
+            title="G3",
+            milestones=[_milestone("M1")],
+            related_tasks=["Design system"],
+        )
+        tasks3 = [Task(title="Design system", extra_metadata=["estimate: 8 hours"])]
+        action3 = derive_next_action(
+            goal3, tasks3, set(), date.today(), agency_context=context
+        )
+        assert action3.agency.execution_mode == ExecutionMode.COLLABORATIVE
+
+    def test_agency_propagated_through_recommendation(self):
+        """Agency classification propagates from derive_next_action to Recommendation."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+
+        result = recommend_tasks(
+            [goal], tasks, set(), date.today(), agency_context=context
+        )
+        assert len(result) > 0
+        rec = result[0]
+        assert rec.agency is not None
+        assert rec.agency.execution_mode == ExecutionMode.USER
+        assert rec.agency.support_mode == SupportMode.EXPLAIN
+        assert rec.agency.confidence >= 0.5
+        assert len(rec.agency.reason) > 0
+
+    def test_multiple_goals_agency_independent(self):
+        """Each goal's next action gets its own agency classification."""
+        goal1 = Goal(
+            title="G1",
+            milestones=[_milestone("M1")],
+            related_tasks=["Sync data"],
+        )
+        goal2 = Goal(
+            title="G2",
+            milestones=[_milestone("M1")],
+            related_tasks=["Learn Python"],
+        )
+        tasks = [Task(title="Sync data"), Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+
+        result = recommend_tasks(
+            [goal1, goal2], tasks, set(), date.today(), agency_context=context
+        )
+        assert len(result) >= 2
+
+        # Find recommendations for each goal
+        g1_recs = [r for r in result if r.goal_title == "G1"]
+        g2_recs = [r for r in result if r.goal_title == "G2"]
+        assert len(g1_recs) > 0
+        assert len(g2_recs) > 0
+
+        # G1 (admin task) → JANUS
+        assert g1_recs[0].agency.execution_mode == ExecutionMode.JANUS
+        # G2 (learning task) → USER
+        assert g2_recs[0].agency.execution_mode == ExecutionMode.USER
