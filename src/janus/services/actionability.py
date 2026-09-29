@@ -293,6 +293,7 @@ def _default_task_creator(title: str, metadata: dict[str, Any]) -> Task:
         extra_metadata.append(f"goal: {metadata['goal']}")
 
     task = add_task(title=title)
+    task.state = "todo"
     if extra_metadata:
         task.extra_metadata = extra_metadata
     return task
