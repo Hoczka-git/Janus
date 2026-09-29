@@ -202,11 +202,11 @@ class TestMarkdownSerializer:
         assert "priority: 2" in line
         assert "state: in_progress" in line
 
-    def test_format_state_todo_is_output(self):
-        # state: todo is valid but redundant; still serialized
+    def test_format_state_todo_is_not_output(self):
+        # state: todo is the default; not serialized to keep lines clean
         task = Task(title="Test", state="todo")
         line = _format_task_line(task)
-        assert "state: todo" in line
+        assert "state: todo" not in line
 
     def test_format_order_due_priority_state_progress(self):
         task = Task(

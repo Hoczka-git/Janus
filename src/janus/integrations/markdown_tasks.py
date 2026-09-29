@@ -230,7 +230,7 @@ def _format_task_line(task: Task) -> str:
     if task.priority != 1:
         parts.append(f"priority: {task.priority}")
 
-    if task.state is not None:
+    if task.state is not None and task.state != "todo":
         parts.append(f"state: {task.state}")
 
     if task.progress is not None:

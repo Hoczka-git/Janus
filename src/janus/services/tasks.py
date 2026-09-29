@@ -824,13 +824,13 @@ def _validate_due_date(due_date: date | None) -> None:
             raise ValueError(f"Invalid due date: {due_date}")
 
 
-def add_task(title: str, due_date: date | None = None, priority: int = 1) -> Task:
+def add_task(title: str, due_date: date | None = None, priority: int = 1, state: str = "todo") -> Task:
     """Validate input, create a Task, append it to data/tasks.md, and return it."""
     _validate_title(title)
     _validate_priority(priority)
     _validate_due_date(due_date)
 
-    task = Task(title=title, due_date=due_date, priority=priority)
+    task = Task(title=title, due_date=due_date, priority=priority, state=state)
     _append_task(task)
 
     emit(
@@ -1025,7 +1025,7 @@ def _format_task_line(task: Task) -> str:
     if task.priority != 1:
         parts.append(f"priority: {task.priority}")
 
-    if task.state is not None:
+    if task.state is not None and task.state != "todo":
         parts.append(f"state: {task.state}")
 
     if task.progress is not None:
