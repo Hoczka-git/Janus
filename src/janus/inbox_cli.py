@@ -144,14 +144,25 @@ def handle_inbox_triage(args: list[str]) -> None:
 
 
 def _derive_title(text: str) -> str:
-    """Derive an actionable title from raw captured text."""
+    """Derive an actionable title from raw captured text.
+
+    Preserves the ``[plan]`` replenishment marker even when truncating.
+    """
     text = text.strip()
+    # Extract and preserve the [plan] marker before any other processing.
+    # The marker may appear anywhere in the text (e.g., after a long prefix).
+    plan_marker = ""
+    if "[plan]" in text:
+        plan_marker = "[plan] "
+        text = text.replace("[plan]", "", 1).strip()
     # Remove common prefixes
     for prefix in ("remember to ", "need to ", "have to ", "should "):
         if text.lower().startswith(prefix):
-            text = text[len(prefix):]
+            text = text[len(prefix):].lstrip()
             break
     # Truncate to reasonable length
     if len(text) > 80:
         text = text[:77] + "..."
-    return text
+    result = plan_marker + text
+    # Avoid trailing space when text is empty (e.g., input was just "[plan]").
+    return result.rstrip() if not text else result
