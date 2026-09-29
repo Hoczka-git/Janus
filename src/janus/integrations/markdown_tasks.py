@@ -148,14 +148,14 @@ def _parse_priority(metadata: str, line_num: int) -> int:
         )
 
 
-def _parse_state(metadata: str, line_num: int) -> str | None:
-    """Parse state from metadata. Returns None if not present.
+def _parse_state(metadata: str, line_num: int) -> str:
+    """Parse state from metadata. Defaults to 'todo' if not present.
 
     Odrzuca 'done' jako invalid — jedynym autorytetem jest checkbox [x].
     """
     match = re.search(r"state:\s*(\S+)", metadata)
     if not match:
-        return None
+        return "todo"
 
     state_str = match.group(1)
     if state_str not in ALLOWED_STATES:
@@ -230,7 +230,7 @@ def _format_task_line(task: Task) -> str:
     if task.priority != 1:
         parts.append(f"priority: {task.priority}")
 
-    if task.state is not None:
+    if task.state is not None and task.state != "todo":
         parts.append(f"state: {task.state}")
 
     if task.progress is not None:

@@ -1508,6 +1508,13 @@ def handle_goal_audit(args: list[str]) -> None:
 
     report = audit_goal_integrity(goals=goals, tasks=tasks, now=now)
 
+    # Actionability filter: score detected problems and create tasks for actionable ones.
+    if report.issues:
+        from janus.services.actionability import run_actionability_pipeline
+        _, created_tasks = run_actionability_pipeline(report.issues)
+        if created_tasks and not as_json:
+            print(f"\nCreated {len(created_tasks)} task(s) for actionable issues.")
+
     if as_json:
         print(json.dumps(report.to_dict(), indent=2, default=str))
     else:

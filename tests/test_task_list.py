@@ -157,7 +157,7 @@ class TestTaskListCLI:
 
         out = capsys.readouterr().out
         assert "Simple task" in out
-        # default priority (1) and no state should not appear
+        # default priority (1) and default state (todo) should not appear
         assert "priority:" not in out
         assert "state:" not in out
         assert "progress:" not in out
