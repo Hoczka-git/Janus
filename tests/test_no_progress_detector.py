@@ -22,8 +22,10 @@ from janus.services.activity_ingest import ActivityRecord, ActivityType
 from janus.services.no_progress_detector import (
     NoProgressClass,
     NoProgressResult,
+    _EXECUTION_SIGNALS,
     classify_all_goals,
     classify_no_progress,
+    detect_no_execution,
     is_stale,
     stale_reason_summary,
 )
@@ -797,3 +799,319 @@ class TestIsStale:
             progress=50.0,
         )
         assert not is_stale(result)
+
+
+# ===========================================================================
+# I. detect_no_execution() — dedicated no-execution detector
+# ===========================================================================
+
+class TestDetectNoExecution:
+    """Tests for the dedicated detect_no_execution() function."""
+
+    def test_no_execution_metric_goal_no_activity(self):
+        """Metric goal with config but no activity → no_execution=True."""
+        goal = _make_metric_goal()
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_with_recent_activity_record(self):
+        """Activity record within window → no_execution=False."""
+        goal = _make_metric_goal()
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[recent]
+        )
+        assert no_exec is False
+        assert "activity_records" in fired
+
+    def test_no_execution_with_old_activity_record(self):
+        """Activity record older than window → no_execution=True."""
+        goal = _make_metric_goal()
+        old = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=35)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[old]
+        )
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_with_recent_activity_entry(self):
+        """goal.recent_activity with recent completed_at → no_execution=False."""
+        goal = _make_metric_goal(
+            recent_activity=[{
+                "task_id": "t1",
+                "summary": "Recent",
+                "completed_at": (
+                    datetime.now(timezone.utc) - timedelta(days=2)
+                ).isoformat(),
+                "changed_files": [],
+                "tests_passed": 0,
+                "pr_url": None,
+            }],
+        )
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is False
+        assert "recent_activity" in fired
+
+    def test_no_execution_with_old_recent_activity_entry(self):
+        """goal.recent_activity with old completed_at → no_execution=True."""
+        goal = _make_metric_goal(
+            recent_activity=[{
+                "task_id": "t1",
+                "summary": "Old",
+                "completed_at": (
+                    datetime.now(timezone.utc) - timedelta(days=45)
+                ).isoformat(),
+                "changed_files": [],
+                "tests_passed": 0,
+                "pr_url": None,
+            }],
+        )
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_with_completed_task_dates_in_window(self):
+        """completed_task_dates within window → no_execution=False."""
+        goal = _make_goal(
+            title="Task Goal",
+            related_tasks=["Task A"],
+        )
+        dates = {"Task A": FIXED_TODAY - timedelta(days=5)}
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, completed_task_dates=dates
+        )
+        assert no_exec is False
+        assert "completed_task_dates" in fired
+
+    def test_no_execution_with_completed_task_dates_outside_window(self):
+        """completed_task_dates outside window → no_execution=True."""
+        goal = _make_goal(
+            title="Task Goal",
+            related_tasks=["Task A"],
+        )
+        dates = {"Task A": FIXED_TODAY - timedelta(days=45)}
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, completed_task_dates=dates
+        )
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_no_data_goal(self):
+        """Goal with no config, no tasks, no activity → no_execution=False (it's NO_DATA)."""
+        goal = _make_goal(title="Bare")
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is False
+        assert fired == []
+
+    def test_no_execution_non_active_goal(self):
+        """Non-active goal → no_execution=False."""
+        goal = _make_metric_goal(status="completed")
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is False
+        assert fired == []
+
+    def test_no_execution_per_goal_window_override(self):
+        """Per-goal inactivity_window_days=14: evidence 20 days ago is stale."""
+        goal = _make_metric_goal(inactivity_window_days=14)
+        old = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=20)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[old]
+        )
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_per_goal_window_override_fresh(self):
+        """Per-goal inactivity_window_days=60: evidence 45 days ago is fresh."""
+        goal = _make_metric_goal(inactivity_window_days=60)
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=45)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[recent]
+        )
+        assert no_exec is False
+        assert "activity_records" in fired
+
+    def test_no_execution_custom_window(self):
+        """Custom window_days parameter."""
+        goal = _make_metric_goal()
+        old = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=10)
+        # With window=5, 10-day-old evidence is outside
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[old], window_days=5
+        )
+        assert no_exec is True
+        # With window=15, 10-day-old evidence is inside
+        no_exec2, fired2 = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[old], window_days=15
+        )
+        assert no_exec2 is False
+
+    def test_no_execution_multiple_signals_fire(self):
+        """Multiple signals can fire simultaneously."""
+        goal = _make_metric_goal(
+            related_tasks=["Task A"],
+            recent_activity=[{
+                "task_id": "t1",
+                "summary": "Recent",
+                "completed_at": (
+                    datetime.now(timezone.utc) - timedelta(days=1)
+                ).isoformat(),
+                "changed_files": [],
+                "tests_passed": 0,
+                "pr_url": None,
+            }],
+        )
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=2)
+        dates = {"Task A": FIXED_TODAY - timedelta(days=3)}
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY,
+            activity_records=[recent],
+            completed_task_dates=dates,
+        )
+        assert no_exec is False
+        assert len(fired) >= 2  # at least activity_records and recent_activity
+
+    def test_no_execution_task_goal_no_completions(self):
+        """Task-based goal with tasks but no completions → no_execution=True."""
+        goal = _make_goal(
+            title="Task Goal",
+            related_tasks=["Task A", "Task B"],
+        )
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_boundary_no_data_vs_no_execution(self):
+        """Boundary: goal with related_tasks but no completions is NO_EXECUTION, not NO_DATA."""
+        goal = _make_goal(
+            title="Boundary",
+            related_tasks=["Task A"],
+        )
+        # detect_no_execution should return True (has data but no execution)
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is True
+        # classify_no_progress should return NO_EXECUTION
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles={"Task A"}, all_task_titles={"Task A"},
+        )
+        assert result.classification == NoProgressClass.NO_EXECUTION
+
+    def test_no_execution_boundary_no_execution_vs_execution_without_effect(self):
+        """Boundary: execution evidence + no effect = EXECUTION_WITHOUT_EFFECT."""
+        goal = _make_metric_goal()
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        snapshots = [_snap("Body fat", "Body fat %", 20.0, 15)]
+        # detect_no_execution should return False (execution evidence exists)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[recent]
+        )
+        assert no_exec is False
+        # classify_no_progress should return EXECUTION_WITHOUT_EFFECT
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert result.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+    def test_no_execution_boundary_no_execution_vs_making_progress(self):
+        """Boundary: execution evidence + effect = MAKING_PROGRESS."""
+        goal = _make_metric_goal()
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        snapshots = [_snap("Body fat", "Body fat %", 22.0, 15)]
+        # detect_no_execution should return False (execution evidence exists)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[recent]
+        )
+        assert no_exec is False
+        # classify_no_progress should return MAKING_PROGRESS
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert result.classification == NoProgressClass.MAKING_PROGRESS
+
+    def test_no_execution_boundary_no_execution_vs_goal_achieved(self):
+        """Boundary: 100% progress = GOAL_ACHIEVED, not NO_EXECUTION.
+
+        detect_no_execution returns True (data exists, no execution evidence),
+        but classify_no_progress correctly returns GOAL_ACHIEVED because it
+        checks progress == 100% first.
+        """
+        goal = _make_metric_goal(
+            current_value=15.0,
+            target_value=15.0,
+        )
+        # detect_no_execution returns True (has data, no execution evidence)
+        no_exec, fired = detect_no_execution(goal, FIXED_TODAY)
+        assert no_exec is True
+        # classify_no_progress should return GOAL_ACHIEVED (progress check first)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.classification == NoProgressClass.GOAL_ACHIEVED
+
+    def test_no_execution_signals_list_defined(self):
+        """_EXECUTION_SIGNALS should contain the three expected signals."""
+        signal_names = [name for name, _ in _EXECUTION_SIGNALS]
+        assert "activity_records" in signal_names
+        assert "recent_activity" in signal_names
+        assert "completed_task_dates" in signal_names
+
+    def test_no_execution_with_milestone_completed_activity(self):
+        """MILESTONE_COMPLETED activity type counts as execution evidence."""
+        goal = _make_metric_goal()
+        milestone = _activity(ActivityType.MILESTONE_COMPLETED, "Body fat", days_ago=2)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[milestone]
+        )
+        assert no_exec is False
+        assert "activity_records" in fired
+
+    def test_no_execution_with_goal_progress_activity(self):
+        """GOAL_PROGRESS activity type counts as execution evidence."""
+        goal = _make_metric_goal()
+        gp = _activity(ActivityType.GOAL_PROGRESS, "Body fat", days_ago=2)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[gp]
+        )
+        assert no_exec is False
+        assert "activity_records" in fired
+
+    def test_no_execution_ignores_non_execution_activity_types(self):
+        """Non-execution activity types (e.g., TASK_UPDATED) don't count."""
+        goal = _make_metric_goal()
+        note = _activity(ActivityType.TASK_UPDATED, "Body fat", days_ago=2)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[note]
+        )
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_activity_record_wrong_goal(self):
+        """Activity record for a different goal doesn't count."""
+        goal = _make_metric_goal(title="Goal A")
+        other = _activity(ActivityType.TASK_COMPLETED, "Goal B", days_ago=2)
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, activity_records=[other]
+        )
+        assert no_exec is True
+        assert fired == []
+
+    def test_no_execution_completed_task_dates_wrong_task(self):
+        """completed_task_dates for non-related task doesn't count."""
+        goal = _make_goal(
+            title="Goal A",
+            related_tasks=["Task A"],
+        )
+        dates = {"Task B": FIXED_TODAY - timedelta(days=3)}
+        no_exec, fired = detect_no_execution(
+            goal, FIXED_TODAY, completed_task_dates=dates
+        )
+        assert no_exec is True
+        assert fired == []

@@ -480,6 +480,163 @@ def classify_no_progress(
     )
 
 
+# ── No-execution detection (brak wykonania) ─────────────────────────────────
+
+# Signals that indicate an execution attempt has been made.
+# Each signal is a callable that takes (goal, today, context) and returns
+# True if the signal fires (i.e., execution evidence exists).
+#
+# The signals are checked in order; the first one that fires determines
+# whether execution evidence exists.
+
+def _signal_activity_records(
+    goal: Goal,
+    today: date,
+    window_days: int,
+    activity_records: list[ActivityRecord] | None = None,
+    **kwargs,
+) -> bool:
+    """Signal: ActivityRecord with execution type exists within window."""
+    if not activity_records:
+        return False
+    now = datetime.now().astimezone()
+    window_start = now - timedelta(days=window_days)
+    for record in activity_records:
+        if record.type not in _EXECUTION_ACTIVITY_TYPES:
+            continue
+        if record.goal_title and record.goal_title != goal.title:
+            continue
+        if record.timestamp >= window_start:
+            return True
+    return False
+
+
+def _signal_recent_activity(
+    goal: Goal,
+    today: date,
+    window_days: int,
+    **kwargs,
+) -> bool:
+    """Signal: goal.recent_activity has entry with completed_at in window."""
+    if not goal.recent_activity:
+        return False
+    now = datetime.now().astimezone()
+    window_start = now - timedelta(days=window_days)
+    for entry in goal.recent_activity:
+        completed_at = entry.get("completed_at")
+        if completed_at is None:
+            continue
+        try:
+            dt = datetime.fromisoformat(completed_at)
+            if dt >= window_start:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
+
+
+def _signal_completed_task_dates(
+    goal: Goal,
+    today: date,
+    window_days: int,
+    completed_task_dates: dict[str, date] | None = None,
+    **kwargs,
+) -> bool:
+    """Signal: completed_task_dates has entry within window for related task."""
+    if not completed_task_dates or not goal.related_tasks:
+        return False
+    now = datetime.now().astimezone()
+    window_start = now - timedelta(days=window_days)
+    for task_title in goal.related_tasks:
+        if task_title not in completed_task_dates:
+            continue
+        completion_dt = datetime.combine(
+            completed_task_dates[task_title], datetime.min.time()
+        ).astimezone()
+        if completion_dt >= window_start:
+            return True
+    return False
+
+
+# Ordered list of execution-evidence signals.
+# Each entry: (name, callable). The callable signature is:
+#   (goal, today, context) -> bool
+# where context is a dict with keys: activity_records, completed_task_dates.
+_EXECUTION_SIGNALS = [
+    ("activity_records", _signal_activity_records),
+    ("recent_activity", _signal_recent_activity),
+    ("completed_task_dates", _signal_completed_task_dates),
+]
+
+
+def detect_no_execution(
+    goal: Goal,
+    today: date,
+    activity_records: list[ActivityRecord] | None = None,
+    completed_task_dates: dict[str, date] | None = None,
+    window_days: int | None = None,
+) -> tuple[bool, list[str]]:
+    """Detect whether a goal has data but no execution evidence.
+
+    This is the dedicated no-execution detector. It checks whether the
+    goal has configuration/data that implies what execution should look
+    like, but no evidence that any execution activity has occurred within
+    the lookback window.
+
+    Args:
+        goal: The goal to check.
+        today: Current date.
+        activity_records: Optional list of ActivityRecord objects.
+        completed_task_dates: Optional mapping of task title → completion date.
+        window_days: Lookback window in days. Defaults to
+                     NO_EXECUTION_LOOKBACK_DAYS or goal.inactivity_window_days.
+
+    Returns:
+        A tuple (no_execution, fired_signals):
+        - no_execution: True if the goal has data but no execution evidence.
+        - fired_signals: List of signal names that fired (empty if no
+          execution evidence was found).
+
+    Criteria for NO_EXECUTION (all must hold):
+    1. Goal status is 'active'.
+    2. Goal has data: metric config OR related_tasks OR recent_activity OR
+       metric_snapshots.
+    3. No execution evidence within the lookback window.
+
+    Distinction from NO_DATA:
+    - NO_DATA: no metric config AND no related_tasks AND no activity data.
+    - NO_EXECUTION: has at least one of (metric config, related_tasks,
+      activity data) but no execution evidence in the window.
+    """
+    if goal.status != "active":
+        return False, []
+
+    if window_days is None:
+        window_days = _get_lookback_days(goal, NO_EXECUTION_LOOKBACK_DAYS)
+
+    # Check if goal has data (distinguishes from NO_DATA)
+    has_metric_config = _has_metric_config(goal)
+    has_tasks = bool(goal.related_tasks)
+    has_activity_data = bool(goal.recent_activity)
+
+    if not has_metric_config and not has_tasks and not has_activity_data:
+        # This is NO_DATA, not NO_EXECUTION
+        return False, []
+
+    # Check execution evidence signals
+    context = {
+        "activity_records": activity_records,
+        "completed_task_dates": completed_task_dates,
+    }
+    fired = []
+    for name, signal_fn in _EXECUTION_SIGNALS:
+        if signal_fn(goal, today, window_days=window_days, **context):
+            fired.append(name)
+
+    no_execution = len(fired) == 0
+    return no_execution, fired
+
+
 # ── Batch entry point ────────────────────────────────────────────────────────
 
 def classify_all_goals(
