@@ -57,7 +57,7 @@ def _parse_followup_line(line: str, line_num: int) -> FollowUp:
 
     # Extract title (before first metadata key) and metadata
     meta_match = re.search(
-        r"\b(state:|priority:|due:|scheduled:|assigned_to:|created_at:|completed_at:|created_by:|note:|goal:|linked_task:|converted_to_task:)\s*",
+        r"\s*\|\s*(state:|priority:|due:|scheduled:|assigned_to:|created_at:|completed_at:|created_by:|note:|goal:|linked_task:|converted_to_task:)\s*",
         rest,
     )
     if meta_match:

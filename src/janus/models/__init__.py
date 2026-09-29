@@ -26,6 +26,8 @@ Exports:
     ExecutionMode
     SupportMode
     TaskAgency
+    PersonalState
+    PersonalStateStatus
 """
 
 from janus.models.task import Task
@@ -56,6 +58,16 @@ from janus.models.metric_snapshot import MetricSnapshot
 from janus.models.execution_mode import ExecutionMode
 from janus.models.support_mode import SupportMode
 from janus.models.task_agency import TaskAgency
+from janus.models.personal_state import (
+    PersonalState,
+    PersonalStateStatus,
+    GOAL_STATUS_TRANSITIONS,
+    TASK_STATE_TRANSITIONS,
+    FOLLOWUP_STATE_TRANSITIONS,
+    is_valid_goal_transition,
+    is_valid_task_transition,
+    is_valid_followup_transition,
+)
 
 __all__ = [
     "Task",
@@ -90,4 +102,12 @@ __all__ = [
     "ExecutionMode",
     "SupportMode",
     "TaskAgency",
+    "PersonalState",
+    "PersonalStateStatus",
+    "GOAL_STATUS_TRANSITIONS",
+    "TASK_STATE_TRANSITIONS",
+    "FOLLOWUP_STATE_TRANSITIONS",
+    "is_valid_goal_transition",
+    "is_valid_task_transition",
+    "is_valid_followup_transition",
 ]
