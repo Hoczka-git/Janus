@@ -19,6 +19,7 @@ class GoalReview:
     days_since_last_activity: int | None = None
     progress_delta: float | None = None    # progress change over lookback window
     remediation_action: str | None = None  # concrete actionable step tied to health state
+    structured_remediation: dict | None = None  # structured remediation from engine
     projects: list[ProjectProgress] = field(default_factory=list)
 
 

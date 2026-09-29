@@ -81,6 +81,19 @@ def format_weekly_message(review: "WeeklyReview") -> str:
             if gr.remediation_action:
                 lines.append("Remediation:")
                 lines.append(f"! {gr.remediation_action}")
+            if gr.structured_remediation:
+                sr = gr.structured_remediation
+                primary = sr.get("primary", {})
+                action_type = primary.get("action_type", "none")
+                priority = primary.get("priority", 0)
+                if action_type != "none":
+                    lines.append(f"Action: {action_type} (priority: {priority})")
+                secondaries = sr.get("secondaries", [])
+                if secondaries:
+                    sec_types = ", ".join(
+                        s.get("action_type", "?") for s in secondaries
+                    )
+                    lines.append(f"Also: {sec_types}")
             if gr.all_related_tasks_completed:
                 lines.append("✓ All currently linked tasks completed")
             if gr.missing_related_tasks:

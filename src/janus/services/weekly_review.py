@@ -116,6 +116,80 @@ def _parse_completion_date(raw: str) -> date | None:
         return None
 
 
+def _attach_structured_remediation(
+    goal_reviews: list,
+    assessments_by_goal: dict,
+    goals: list,
+    tasks: list,
+    all_task_titles: set,
+    today,
+) -> None:
+    """Attach structured remediation suggestions to goal reviews.
+
+    Runs the structured remediation engine (services/remediation.py) over
+    the collected health assessments and populates each GoalReview's
+    ``structured_remediation`` field with a dict containing the primary
+    action and any secondary actions for that goal.
+    """
+    from janus.services.goal_integrity import audit_goal_integrity
+    from janus.services.remediation import (
+        RemediationContext,
+        create_remediation_suggestions,
+    )
+
+    # Run integrity audit for structural issue detection.
+    integrity_report = audit_goal_integrity(goals, tasks)
+
+    # Build the remediation context from collected data.
+    ctx = RemediationContext(
+        assessments=list(assessments_by_goal.values()),
+        goals=goals,
+        open_task_titles={t.title for t in tasks},
+        all_task_titles=all_task_titles,
+        integrity_issues=integrity_report.issues,
+        today=today,
+    )
+
+    suggestions = create_remediation_suggestions(ctx)
+
+    # Index suggestions by goal title.
+    suggestions_by_goal: dict[str, list] = {}
+    for action in suggestions.per_goal:
+        suggestions_by_goal.setdefault(action.goal_title, []).append(action)
+
+    # Attach to each goal review.
+    for review in goal_reviews:
+        goal_actions = suggestions_by_goal.get(review.goal.title, [])
+        # Filter out 'none' actions (healthy goals need no remediation).
+        real_actions = [a for a in goal_actions if a.action_type != "none"]
+        if not real_actions:
+            continue
+
+        # Build a structured dict for the review.
+        primary = real_actions[0]
+        review.structured_remediation = {
+            "primary": {
+                "action_type": primary.action_type,
+                "priority": primary.priority,
+                "requires_confirmation": primary.requires_confirmation,
+                "parameters": primary.parameters,
+            },
+            "secondaries": [
+                {
+                    "action_type": a.action_type,
+                    "priority": a.priority,
+                    "requires_confirmation": a.requires_confirmation,
+                    "parameters": a.parameters,
+                }
+                for a in real_actions[1:]
+            ],
+            "summary": {
+                "goals_with_actions": suggestions.summary.goals_with_actions,
+                "by_type": suggestions.summary.by_type,
+            },
+        }
+
+
 def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     """Create a weekly review from current tasks and goals.
 
@@ -150,6 +224,7 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
     )
 
     goal_reviews: list[GoalReview] = []
+    assessments_by_goal: dict[str, object] = {}  # goal_title -> GoalHealthAssessment
 
     for goal in goals:
         if goal.status != "active":
@@ -221,6 +296,7 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
             review.health_state = assessment.health_state
             review.progress_delta = assessment.progress_delta
             review.days_since_last_activity = assessment.days_since_last_activity
+            assessments_by_goal[goal.title] = assessment
 
             # Derive remediation action from health diagnostics (R1).
             # Only populated for unhealthy goals; healthy goals get None.
@@ -230,6 +306,15 @@ def create_weekly_review(trace_id: str | None = None) -> WeeklyReview:
                 review.remediation_action = remediation.action
 
         goal_reviews.append(review)
+
+    # ── Structured remediation engine integration ──────────────────────────
+    # Run the structured remediation engine over the collected assessments
+    # to produce typed action suggestions alongside the advisory text above.
+    if assessments_by_goal:
+        _attach_structured_remediation(
+            goal_reviews, assessments_by_goal, goals, tasks,
+            all_task_titles, today,
+        )
 
     duration_ms = (time.monotonic() - start) * 1000
     emit(logger, "briefing.generation.finished",

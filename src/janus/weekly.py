@@ -50,6 +50,19 @@ def show_weekly(trace_id: str | None = None) -> None:
             if gr.remediation_action:
                 print("Remediation:")
                 print(f"! {gr.remediation_action}")
+            if gr.structured_remediation:
+                sr = gr.structured_remediation
+                primary = sr.get("primary", {})
+                action_type = primary.get("action_type", "none")
+                priority = primary.get("priority", 0)
+                if action_type != "none":
+                    print(f"Action: {action_type} (priority: {priority})")
+                secondaries = sr.get("secondaries", [])
+                if secondaries:
+                    sec_types = ", ".join(
+                        s.get("action_type", "?") for s in secondaries
+                    )
+                    print(f"Also: {sec_types}")
             if gr.projects:
                 print("  Projects:")
                 for pp in gr.projects:
