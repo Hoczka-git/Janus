@@ -23,6 +23,8 @@ Exports:
     GoalStateSnapshot
     MeaningfulChange
     MetricSnapshot
+    PersonalState
+    PersonalStateStatus
 """
 
 from janus.models.task import Task
@@ -50,7 +52,16 @@ from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
 from janus.models.curation_proposal import CurationProposal, APPROVAL_STATES
 from janus.models.metric_snapshot import MetricSnapshot
-from janus.models.personal_state import PersonalState
+from janus.models.personal_state import (
+    PersonalState,
+    PersonalStateStatus,
+    GOAL_STATUS_TRANSITIONS,
+    TASK_STATE_TRANSITIONS,
+    FOLLOWUP_STATE_TRANSITIONS,
+    is_valid_goal_transition,
+    is_valid_task_transition,
+    is_valid_followup_transition,
+)
 
 __all__ = [
     "Task",
@@ -83,4 +94,11 @@ __all__ = [
     "CurationProposal",
     "RecentActivityEntry",
     "PersonalState",
+    "PersonalStateStatus",
+    "GOAL_STATUS_TRANSITIONS",
+    "TASK_STATE_TRANSITIONS",
+    "FOLLOWUP_STATE_TRANSITIONS",
+    "is_valid_goal_transition",
+    "is_valid_task_transition",
+    "is_valid_followup_transition",
 ]
