@@ -50,6 +50,7 @@ from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
 from janus.models.curation_proposal import CurationProposal, APPROVAL_STATES
 from janus.models.metric_snapshot import MetricSnapshot
+from janus.models.personal_state import PersonalState
 
 __all__ = [
     "Task",
@@ -81,4 +82,5 @@ __all__ = [
     "FollowUp",
     "CurationProposal",
     "RecentActivityEntry",
+    "PersonalState",
 ]
