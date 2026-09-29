@@ -16,12 +16,13 @@ janus/t_57e1acdc-plan-agency-aware-planning).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 
-from janus.models.execution_mode import ExecutionMode
+from janus.models.execution_mode import EXECUTION_MODE_ORDER, ExecutionMode
 from janus.models.goal import Goal
-from janus.models.support_mode import SupportMode
+from janus.models.support_mode import SUPPORT_MODE_ORDER, SupportMode
 from janus.models.task import Task
 from janus.models.task_agency import TaskAgency
 
@@ -116,7 +117,6 @@ def _is_high_complexity(task: Task) -> bool:
         meta_lower = meta.lower()
         if "estimate" in meta_lower or "duration" in meta_lower:
             # Simple heuristic: if metadata contains a number > 4, assume hours
-            import re
             numbers = re.findall(r'\d+', meta)
             for num_str in numbers:
                 if int(num_str) > 4:
@@ -128,6 +128,26 @@ def _is_high_complexity(task: Task) -> bool:
 # ── Execution mode selection ─────────────────────────────────────────────────
 
 
+def _execution_mode_conditions(
+    task: Task,
+    nature: str,
+) -> dict[ExecutionMode, bool]:
+    """Map each execution mode to whether its condition is satisfied.
+
+    This is the single source of truth for execution-mode selection.
+    The ordering tuple ``EXECUTION_MODE_ORDER`` is iterated by
+    :func:`select_execution_mode` to pick the least substitutive match.
+    """
+    return {
+        # USER: learning tasks (capability building) or default
+        ExecutionMode.USER: nature == "learning",
+        # JANUS: administrative or routine tasks (automate)
+        ExecutionMode.JANUS: nature in ("administrative", "routine"),
+        # COLLABORATIVE: high complexity (user needs assistance)
+        ExecutionMode.COLLABORATIVE: _is_high_complexity(task),
+    }
+
+
 def select_execution_mode(
     task: Task,
     goal: Goal,
@@ -135,41 +155,54 @@ def select_execution_mode(
 ) -> ExecutionMode:
     """Select the least substitutive execution mode that enables progress.
 
-    The substitutability ordering is: USER → JANUS → COLLABORATIVE.
-
-    Rules are evaluated in priority order.  The first matching rule wins.
-    The default is USER (least substitutive).
-
-    Rules:
-        1. Administrative task → JANUS (low-value, automate)
-        2. Learning task → USER (capability building, user must do it)
-        3. High complexity → COLLABORATIVE (user needs assistance)
-        4. Routine task → JANUS (automate routine work)
-        5. Default → USER (user is the primary actor)
+    Iterates over ``EXECUTION_MODE_ORDER`` (USER → JANUS → COLLABORATIVE)
+    and returns the first mode whose condition is satisfied.  If no
+    condition matches, returns the first mode in the ordering (USER —
+    the least substitutive default).
     """
     nature = _classify_task_nature(task)
+    conditions = _execution_mode_conditions(task, nature)
 
-    # Rule 1: Administrative tasks → JANUS
-    if nature == "administrative":
-        return ExecutionMode.JANUS
+    for mode in EXECUTION_MODE_ORDER:
+        if conditions.get(mode, False):
+            return mode
 
-    # Rule 2: Learning tasks → USER
-    if nature == "learning":
-        return ExecutionMode.USER
-
-    # Rule 3: High complexity → COLLABORATIVE
-    if _is_high_complexity(task):
-        return ExecutionMode.COLLABORATIVE
-
-    # Rule 4: Routine tasks → JANUS
-    if nature == "routine":
-        return ExecutionMode.JANUS
-
-    # Rule 5: Default → USER
-    return ExecutionMode.USER
+    # Default: least substitutive mode
+    return EXECUTION_MODE_ORDER[0]
 
 
 # ── Support mode selection ───────────────────────────────────────────────────
+
+
+def _support_mode_conditions(
+    task: Task,
+    context: AgencyContext,
+    execution_mode: ExecutionMode | None,
+) -> dict[SupportMode, bool]:
+    """Map each support mode to whether its condition is satisfied.
+
+    This is the single source of truth for support-mode selection.
+    The ordering tuple ``SUPPORT_MODE_ORDER`` is iterated by
+    :func:`select_support_mode` to pick the least substitutive match.
+    """
+    return {
+        # EXPLAIN: no skill evidence (need to understand first)
+        SupportMode.EXPLAIN: context.skill_evidence_count == 0,
+        # COACH: some evidence + goal stalled (need guidance to restart)
+        SupportMode.COACH: (
+            context.skill_evidence_count > 0
+            and (context.goal_stalled or context.goal_health == "stalled")
+        ),
+        # SCAFFOLD: evidence + goal active (need structure/tools)
+        SupportMode.SCAFFOLD: (
+            context.skill_evidence_count > 0
+            and context.goal_health in ("healthy", "watch")
+        ),
+        # REVIEW: task in review phase (user did it, Janus reviews)
+        SupportMode.REVIEW: _is_review_phase(task),
+        # EXECUTE: execution mode is JANUS (Janus executes)
+        SupportMode.EXECUTE: execution_mode == ExecutionMode.JANUS,
+    }
 
 
 def select_support_mode(
@@ -180,43 +213,26 @@ def select_support_mode(
 ) -> SupportMode:
     """Select the least substitutive support mode that enables progress.
 
-    The substitutability ordering is: EXPLAIN → COACH → SCAFFOLD →
-    REVIEW → EXECUTE.
+    When ``execution_mode`` is JANUS, returns EXECUTE immediately (Janus
+    executes, user reviews — this overrides all other rules).
 
-    Rules are evaluated in priority order.  The first matching rule wins.
-    The default is SCAFFOLD (safe default — provide structure).
-
-    Rules:
-        1. No skill evidence → EXPLAIN (need to understand first)
-        2. Some evidence + goal stalled → COACH (need guidance to restart)
-        3. Evidence + goal active → SCAFFOLD (need structure/tools)
-        4. Task in review phase → REVIEW (user did it, Janus reviews)
-        5. Execution mode is JANUS → EXECUTE (Janus executes)
-        6. Default → SCAFFOLD (safe default)
+    Otherwise, iterates over ``SUPPORT_MODE_ORDER`` (EXPLAIN → COACH →
+    SCAFFOLD → REVIEW → EXECUTE) and returns the first mode whose
+    condition is satisfied.  If no condition matches, returns the first
+    mode in the ordering (EXPLAIN — the least substitutive default).
     """
-    # Rule 5: If execution mode is JANUS, support mode is EXECUTE
+    # Override: JANUS execution → EXECUTE support
     if execution_mode == ExecutionMode.JANUS:
         return SupportMode.EXECUTE
 
-    # Rule 1: No skill evidence → EXPLAIN
-    if context.skill_evidence_count == 0:
-        return SupportMode.EXPLAIN
+    conditions = _support_mode_conditions(task, context, execution_mode)
 
-    # Rule 2: Some evidence + goal stalled → COACH
-    if context.goal_stalled or context.goal_health == "stalled":
-        return SupportMode.COACH
+    for mode in SUPPORT_MODE_ORDER:
+        if conditions.get(mode, False):
+            return mode
 
-    # Rule 3: Evidence + goal active → SCAFFOLD
-    if context.goal_health in ("healthy", "watch"):
-        return SupportMode.SCAFFOLD
-
-    # Rule 4: Task in review phase → REVIEW
-    # (This would be determined by task state/metadata in a fuller implementation)
-    if _is_review_phase(task):
-        return SupportMode.REVIEW
-
-    # Rule 6: Default → SCAFFOLD
-    return SupportMode.SCAFFOLD
+    # Default: least substitutive mode
+    return SUPPORT_MODE_ORDER[0]
 
 
 def _is_review_phase(task: Task) -> bool:

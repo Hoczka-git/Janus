@@ -11,8 +11,10 @@ from datetime import date
 
 import pytest
 
+from janus.domain.planning import derive_next_action
 from janus.models.execution_mode import ExecutionMode
 from janus.models.goal import Goal
+from janus.models.milestone import Milestone
 from janus.models.support_mode import SupportMode
 from janus.models.task import Task
 from janus.models.task_agency import TaskAgency
@@ -368,3 +370,83 @@ class TestIntegrationScenarios:
         agency = classify_task(task, goal, context)
         assert agency.execution_mode == ExecutionMode.JANUS
         assert agency.support_mode == SupportMode.EXECUTE
+
+
+# ── derive_next_action agency wiring ─────────────────────────────────────────
+
+
+def _milestone(title: str, order: int = 0, status: str = "open") -> dict:
+    return {"title": title, "goal_title": "G", "status": status, "order": order}
+
+
+class TestDeriveNextActionAgencyWiring:
+    """Tests that agency classification is wired into derive_next_action."""
+
+    def test_no_agency_context_returns_none_agency(self):
+        """When agency_context is not provided, action.agency is None."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["T1"])
+        tasks = [Task(title="T1")]
+        action = derive_next_action(goal, tasks, set(), date.today())
+        assert action is not None
+        assert action.kind == "task"
+        assert action.agency is None
+
+    def test_agency_context_classifies_task(self):
+        """When agency_context is provided, action.agency is derived."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.agency is not None
+        assert action.agency.execution_mode == ExecutionMode.JANUS
+        assert action.agency.support_mode == SupportMode.EXECUTE
+
+    def test_agency_context_with_learning_task(self):
+        """Learning task with agency context → USER + EXPLAIN."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Learn Python"])
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.agency.execution_mode == ExecutionMode.USER
+        assert action.agency.support_mode == SupportMode.EXPLAIN
+
+    def test_agency_context_with_high_complexity_task(self):
+        """High complexity task with agency context → COLLABORATIVE."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Design system"])
+        tasks = [Task(title="Design system", extra_metadata=["estimate: 8 hours"])]
+        context = AgencyContext(skill_evidence_count=2, goal_health="healthy")
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.agency.execution_mode == ExecutionMode.COLLABORATIVE
+
+    def test_agency_context_milestone_action_has_no_agency(self):
+        """Milestone/project actions don't have agency (only tasks do)."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=[])
+        tasks: list[Task] = []
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.kind == "milestone"
+        assert action.agency is None
+
+    def test_agency_confidence_populated(self):
+        """Agency confidence is computed and populated."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=3, goal_health="healthy", task_completion_history=5)
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.agency is not None
+        assert action.agency.confidence > 0.5
+
+    def test_agency_reason_populated(self):
+        """Agency reason string is populated."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        action = derive_next_action(goal, tasks, set(), date.today(), agency_context=context)
+        assert action is not None
+        assert action.agency is not None
+        assert len(action.agency.reason) > 0
