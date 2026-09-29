@@ -60,7 +60,7 @@ def _parse_inbox_line(line: str, line_num: int) -> InboxItem:
     captured_text = rest
 
     # Find the first metadata key pattern and split there
-    meta_match = re.search(r"\b(source:|captured_at:|context:|state:|triage_note:|triage_at:|goal:|research:)\s*", rest)
+    meta_match = re.search(r"\s*\|\s*(source:|captured_at:|context:|state:|triage_note:|triage_at:|goal:|research:)\s*", rest)
     if meta_match:
         split_pos = meta_match.start()
         captured_text = rest[:split_pos].strip()

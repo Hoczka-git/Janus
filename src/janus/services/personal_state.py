@@ -153,8 +153,8 @@ def _derive_active_goals(goals: list[Goal]) -> list[Goal]:
 
 
 def _derive_open_tasks(tasks: list[Task]) -> list[Task]:
-    """Derive open tasks (state in ALLOWED_STATES)."""
-    return [t for t in tasks if t.state in ALLOWED_STATES]
+    """Derive open tasks (state in ALLOWED_STATES or None, which means todo)."""
+    return [t for t in tasks if (t.state or "todo") in ALLOWED_STATES]
 
 
 def _derive_blocked_tasks(tasks: list[Task]) -> list[Task]:
