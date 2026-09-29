@@ -23,11 +23,13 @@ from typing import Literal
 from janus.models.goal import Goal
 from janus.models.project import Project
 from janus.models.task import Task
+from janus.models.task_agency import TaskAgency
 from janus.domain.planning import (
     NextAction,
     project_objs,
     derive_next_action,
 )
+from janus.services.agency_planning import AgencyContext
 
 
 @dataclass
@@ -45,6 +47,9 @@ class Recommendation:
         milestone_title: The Milestone context, if applicable.
         due_date: Task due date, if available.
         priority: Task priority, if available.
+        agency: Agency-aware classification for this recommendation,
+            derived at planning time. None when agency classification
+            is not available.
     """
 
     title: str
@@ -56,6 +61,7 @@ class Recommendation:
     milestone_title: str | None = None
     due_date: str | None = None
     priority: int | None = None
+    agency: TaskAgency | None = None
 
 
 # ── Scoring helpers ────────────────────────────────────────────
@@ -193,6 +199,7 @@ def _recommendation_from_next_action(
         milestone_title=milestone_title,
         due_date=due_date,
         priority=priority,
+        agency=action.agency,
     )
 
 
@@ -209,6 +216,7 @@ def recommend_tasks(
     kind_filter: Literal["task", "project", "milestone"] | None = None,
     min_score: int = 0,
     max_results: int = 10,
+    agency_context: AgencyContext | None = None,
 ) -> list[Recommendation]:
     """Generate goal-aware task recommendations.
 
@@ -223,6 +231,8 @@ def recommend_tasks(
         kind_filter: Only recommend items of this kind (task/project/milestone).
         min_score: Minimum recommendation score to include.
         max_results: Maximum number of recommendations to return.
+        agency_context: Optional agency context for agency-aware classification.
+            When provided, each recommendation includes a TaskAgency classification.
 
     Returns:
         Ranked list of recommendations sorted by score descending.
@@ -271,6 +281,7 @@ def recommend_tasks(
             completed_task_titles,
             today,
             projects=projects if projects else None,
+            agency_context=agency_context,
         )
 
         if action is None:
@@ -314,6 +325,7 @@ def recommend_for_goal(
     tasks: list[Task],
     completed_task_titles: set[str] | None = None,
     today: date | None = None,
+    agency_context: AgencyContext | None = None,
     **filters,
 ) -> list[Recommendation]:
     """Generate recommendations for a single goal.
@@ -326,6 +338,7 @@ def recommend_for_goal(
         completed_task_titles=completed_task_titles,
         today=today,
         goal_filter=goal.title,
+        agency_context=agency_context,
         **filters,
     )
 
@@ -335,6 +348,7 @@ def recommend_next_actions(
     tasks: list[Task],
     completed_task_titles: set[str] | None = None,
     today: date | None = None,
+    agency_context: AgencyContext | None = None,
 ) -> list[Recommendation]:
     """Generate recommendations focused on next actions only (kind=task).
 
@@ -347,6 +361,7 @@ def recommend_next_actions(
         today=today,
         kind_filter="task",
         max_results=5,
+        agency_context=agency_context,
     )
 
 

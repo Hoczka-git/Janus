@@ -29,6 +29,8 @@ from janus.models.goal import Goal
 from janus.models.milestone import Milestone
 from janus.models.project import Project
 from janus.models.task import Task
+from janus.models.task_agency import TaskAgency
+from janus.services.agency_planning import AgencyContext, classify_task
 
 
 @dataclass
@@ -38,6 +40,8 @@ class NextAction:
     ``kind`` is "task", "milestone", or "project".
     ``score`` is 0 by default — the attention engine assigns scores based
     on urgency; next actions are not self-scoring.
+    ``agency`` is the agency-aware classification for the next action,
+    derived at planning time when ``AgencyContext`` is provided.
     """
 
     title: str
@@ -45,6 +49,7 @@ class NextAction:
     reason: str
     goal_title: str
     score: int = 0
+    agency: TaskAgency | None = None
 
 
 # ── Object reconstruction helpers ─────────────────────────────────────────────
@@ -229,6 +234,7 @@ def derive_next_action(
     completed_task_titles: set[str],
     today: date,
     projects: list[Project] | None = None,
+    agency_context: AgencyContext | None = None,
 ) -> NextAction | None:
     """Derive the next action for a goal.
 
@@ -263,6 +269,15 @@ def derive_next_action(
 
     open_titles = _open_task_titles(tasks)
     milestone_objs_list = milestone_objs(goal)
+    task_map = {t.title: t for t in tasks}
+
+    def _agency_for_task(task_title: str) -> TaskAgency | None:
+        if agency_context is None:
+            return None
+        task = task_map.get(task_title)
+        if task is None:
+            return None
+        return classify_task(task, goal, agency_context)
 
     # When no Projects are provided, use legacy dynamic derivation.
     # This preserves backward compatibility (D9): goals without Projects
@@ -281,6 +296,7 @@ def derive_next_action(
                         kind="task",
                         reason=f"Next task in milestone '{current_ms.title}'",
                         goal_title=goal.title,
+                        agency=_agency_for_task(rt),
                     )
 
         # --- R2: Open task outside any milestone ---
@@ -295,6 +311,7 @@ def derive_next_action(
                         kind="task",
                         reason="No milestone assigned",
                         goal_title=goal.title,
+                        agency=_agency_for_task(rt),
                     )
 
         # --- R3: Next open or in_progress milestone (no open tasks found) ---
@@ -339,6 +356,7 @@ def derive_next_action(
                             f"within milestone '{current_ms.title}'"
                         ),
                         goal_title=goal.title,
+                        agency=_agency_for_task(t),
                     )
             # P3: Current Project has no open Tasks
             return NextAction(
@@ -363,6 +381,7 @@ def derive_next_action(
                     kind="task",
                     reason=f"Next unassigned task in milestone '{current_ms.title}'",
                     goal_title=goal.title,
+                    agency=_agency_for_task(rt),
                 )
 
     # P4: Next Milestone has an eligible Project
@@ -423,6 +442,7 @@ def derive_next_action(
                     kind="task",
                     reason=f"Unassigned task in milestone '{m.title}'",
                     goal_title=goal.title,
+                    agency=_agency_for_task(rt),
                 )
 
     # P6: Next Milestone exists but has no actionable Project/Task
