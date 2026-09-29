@@ -1,6 +1,6 @@
 # Hermes / Janus Roadmap
 
-**Last verified:** 2026-09-28
+**Last verified:** 2026-09-29
 
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
@@ -143,12 +143,15 @@ Key phases:
 - [~] Phase B — Evidence & Audit (P1)
   - First-class evidence, verification results, outcome records, decision records, audit trail. Goal: make Janus able to explain how it knows that progress occurred.
   - Status: ADR-011 (goal-level gates) proposed; ADR-012 (evidence model) proposed. See `docs/decisions/adr-011-goal-level-completion-gates.md`.
+  - Progress: Goal remediation engine implemented (structured action suggestions); integrated with weekly review (PR #267).
   - Depends on: Phase A.
-- [ ] Phase C — Personal State Model (P1)
+- [x] Phase C — Personal State Model (P1)
   - Structured model of goals, metrics, tasks, projects, commitments, routines, constraints, preferences, activities, evidence, decisions. Goal: give Janus a coherent model of the user's current situation.
+  - Status: Implemented. PersonalState dataclass (read-model aggregate root), PersonalStateBuilder service (constructs aggregate from data files with fingerprint caching, integrity checks), persistence layer, and comprehensive tests. See PRs #268, #269, #270.
   - Depends on: Phase A.
 - [ ] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
+  - Status: Design doc created on feature branch (t_57e1acdc), not yet merged. Implementation not yet started.
   - Depends on: Phases A, C.
 - [ ] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
