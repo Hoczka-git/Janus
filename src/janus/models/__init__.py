@@ -23,6 +23,9 @@ Exports:
     GoalStateSnapshot
     MeaningfulChange
     MetricSnapshot
+    ExecutionMode
+    SupportMode
+    TaskAgency
     PersonalState
     PersonalStateStatus
 """
@@ -52,6 +55,9 @@ from janus.models.inbox import InboxItem
 from janus.models.follow_up import FollowUp
 from janus.models.curation_proposal import CurationProposal, APPROVAL_STATES
 from janus.models.metric_snapshot import MetricSnapshot
+from janus.models.execution_mode import ExecutionMode
+from janus.models.support_mode import SupportMode
+from janus.models.task_agency import TaskAgency
 from janus.models.personal_state import (
     PersonalState,
     PersonalStateStatus,
@@ -93,6 +99,9 @@ __all__ = [
     "FollowUp",
     "CurationProposal",
     "RecentActivityEntry",
+    "ExecutionMode",
+    "SupportMode",
+    "TaskAgency",
     "PersonalState",
     "PersonalStateStatus",
     "GOAL_STATUS_TRANSITIONS",
