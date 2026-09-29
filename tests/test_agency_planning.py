@@ -30,6 +30,7 @@ from janus.services.agency_planning import (
     select_execution_mode,
     select_support_mode,
 )
+from janus.services.recommendations import recommend_tasks
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -450,3 +451,76 @@ class TestDeriveNextActionAgencyWiring:
         assert action is not None
         assert action.agency is not None
         assert len(action.agency.reason) > 0
+
+
+# ── recommend_tasks agency wiring ────────────────────────────────────────────
+
+
+class TestRecommendTasksAgencyWiring:
+    """Tests that agency classification is wired into recommend_tasks."""
+
+    def test_no_agency_context_returns_none_agency(self):
+        """When agency_context is not provided, recommendation.agency is None."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["T1"])
+        tasks = [Task(title="T1")]
+        result = recommend_tasks([goal], tasks, set(), date.today())
+        assert len(result) > 0
+        assert result[0].agency is None
+
+    def test_agency_context_classifies_task(self):
+        """When agency_context is provided, recommendation.agency is derived."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        result = recommend_tasks([goal], tasks, set(), date.today(), agency_context=context)
+        assert len(result) > 0
+        assert result[0].agency is not None
+        assert result[0].agency.execution_mode == ExecutionMode.JANUS
+        assert result[0].agency.support_mode == SupportMode.EXECUTE
+
+    def test_agency_context_with_learning_task(self):
+        """Learning task with agency context → USER + EXPLAIN."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Learn Python"])
+        tasks = [Task(title="Learn Python")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        result = recommend_tasks([goal], tasks, set(), date.today(), agency_context=context)
+        assert len(result) > 0
+        assert result[0].agency.execution_mode == ExecutionMode.USER
+        assert result[0].agency.support_mode == SupportMode.EXPLAIN
+
+    def test_agency_context_with_high_complexity_task(self):
+        """High complexity task with agency context → COLLABORATIVE."""
+        goal = Goal(
+            title="G",
+            milestones=[_milestone("M1")],
+            related_tasks=["Design system"],
+        )
+        tasks = [Task(title="Design system", extra_metadata=["estimate: 8 hours"])]
+        context = AgencyContext(skill_evidence_count=2, goal_health="healthy")
+        result = recommend_tasks([goal], tasks, set(), date.today(), agency_context=context)
+        assert len(result) > 0
+        assert result[0].agency.execution_mode == ExecutionMode.COLLABORATIVE
+
+    def test_agency_confidence_populated(self):
+        """Agency confidence is computed and populated in recommendations."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(
+            skill_evidence_count=3,
+            goal_health="healthy",
+            task_completion_history=5,
+        )
+        result = recommend_tasks([goal], tasks, set(), date.today(), agency_context=context)
+        assert len(result) > 0
+        assert result[0].agency is not None
+        assert result[0].agency.confidence > 0.5
+
+    def test_agency_reason_populated(self):
+        """Agency reason string is populated in recommendations."""
+        goal = Goal(title="G", milestones=[_milestone("M1")], related_tasks=["Sync data"])
+        tasks = [Task(title="Sync data")]
+        context = AgencyContext(skill_evidence_count=0, goal_health="healthy")
+        result = recommend_tasks([goal], tasks, set(), date.today(), agency_context=context)
+        assert len(result) > 0
+        assert result[0].agency is not None
+        assert len(result[0].agency.reason) > 0
