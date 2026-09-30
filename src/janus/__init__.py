@@ -9,7 +9,7 @@ from janus.today import show_today, show_telegram
 from janus.telegram_weekly_cli import send_weekly_telegram
 from janus.weekly import show_weekly
 from janus.strategic_cli import show_status
-from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, print_task_help
+from janus.tasks_cli import handle_task_add, handle_task_complete, handle_task_state, handle_task_progress, handle_task_list, handle_task_sync, print_task_help
 from janus.workout_cli import handle_workout_add, handle_workout_show, handle_workout_summary, print_workout_help
 from janus.inbox_cli import (
     handle_inbox_list,
@@ -121,6 +121,8 @@ def main() -> None:
                 handle_task_state(filtered[2:])
             elif sub == "progress":
                 handle_task_progress(filtered[2:])
+            elif sub == "sync":
+                handle_task_sync(filtered[2:])
             else:
                 print(f"Unknown task subcommand: {sub}")
                 print("Usage: janus task add <title> [--due YYYY-MM-DD] [--priority N]")
@@ -128,6 +130,7 @@ def main() -> None:
                 print("       janus task list")
                 print("       janus task state <title> --state <todo|in_progress|blocked>")
                 print("       janus task progress <title> --pct <0-100>")
+                print("       janus task sync [--target <branch>]")
         elif command == "workout":
             if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
                 print_workout_help()
