@@ -20,11 +20,14 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from janus.models.agent_assignment import AgentAssignment
+from janus.models.agent_role import AgentRole
 from janus.models.execution_mode import EXECUTION_MODE_ORDER, ExecutionMode
 from janus.models.goal import Goal
 from janus.models.support_mode import SUPPORT_MODE_ORDER, SupportMode
 from janus.models.task import Task
 from janus.models.task_agency import TaskAgency
+from janus.services.agent_registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -370,3 +373,141 @@ def derive_agency_context(
         goal_stalled=goal_stalled,
         task_completion_history=task_completion_history,
     )
+
+
+# ── Multi-agent dispatch (Phase H) ───────────────────────────────────────────
+
+#: Keyword-to-capability mapping for task classification.
+#: Maps keywords found in task titles to capability strings that
+#: can be matched against the agent registry.
+CAPABILITY_KEYWORDS: dict[str, list[str]] = {
+    # Planner capabilities
+    "plan": ["plan-roadmap"],
+    "roadmap": ["plan-roadmap"],
+    "milestone": ["plan-roadmap"],
+    "decompose": ["plan-roadmap"],
+    "break down": ["plan-roadmap"],
+    "sequence": ["task-sequencing"],
+    # Researcher capabilities
+    "research": ["research-literature"],
+    "literature": ["research-literature"],
+    "search": ["research-literature"],
+    "find": ["research-literature"],
+    "gather": ["data-gathering"],
+    "synthesize": ["data-gathering"],
+    # Executor capabilities
+    "implement": ["implement-feature"],
+    "code": ["implement-feature"],
+    "fix": ["implement-feature"],
+    "write": ["implement-feature"],
+    "build": ["implement-feature"],
+    "test": ["run-tests"],
+    "run": ["run-tests"],
+    # Reviewer capabilities
+    "review": ["review-code"],
+    "verify": ["verify-implementation"],
+    "audit": ["verify-implementation"],
+    "check": ["verify-implementation"],
+    # Coach capabilities
+    "explain": ["explain-concept"],
+    "teach": ["explain-concept"],
+    "learn": ["explain-concept"],
+    "understand": ["explain-concept"],
+    "help": ["explain-concept"],
+    "guide": ["skill-development"],
+    "coach": ["skill-development"],
+}
+
+
+def _extract_required_capabilities(task: Task, goal: Goal) -> list[str]:
+    """Extract required capabilities from task and goal context.
+
+    Uses keyword matching against task title, description, and goal
+    domain. Returns a list of capability strings that can be matched
+    against the skill registry.
+    """
+    capabilities: list[str] = []
+    title_lower = task.title.lower()
+
+    for keyword, caps in CAPABILITY_KEYWORDS.items():
+        if keyword in title_lower:
+            for cap in caps:
+                if cap not in capabilities:
+                    capabilities.append(cap)
+
+    return capabilities
+
+
+def _match_agent_role(
+    required_capabilities: list[str],
+    context: AgencyContext,
+) -> AgentRole | None:
+    """Match required capabilities to an agent role.
+
+    Uses the agent registry to determine which agent role
+    has the capabilities needed for this task. Returns None if no
+    specialized agent is needed (the task is handled by the existing
+    flow).
+    """
+    registry = AgentRegistry()
+    return registry.match_capabilities(required_capabilities)
+
+
+def dispatch_task(
+    task: Task,
+    goal: Goal,
+    context: AgencyContext,
+) -> AgentAssignment:
+    """Classify a task and determine which agent should handle it.
+
+    Extends classify_task() with agent-role granularity. Falls back to
+    classify_task() (with agent_role=None) on any failure.
+
+    Args:
+        task: The task to classify.
+        goal: The parent goal (provides context).
+        context: Agency context signals.
+
+    Returns:
+        An AgentAssignment with the full dispatch decision.
+    """
+    try:
+        # Step 1: Existing classification (execution_mode + support_mode)
+        agency = classify_task(task, goal, context)
+
+        # Step 2: Determine required capabilities from task
+        required_capabilities = _extract_required_capabilities(task, goal)
+
+        # Step 3: Match capabilities to agent role
+        agent_role = _match_agent_role(required_capabilities, context)
+
+        # Step 4: Build assignment
+        return AgentAssignment(
+            execution_mode=agency.execution_mode,
+            support_mode=agency.support_mode,
+            agent_role=agent_role,
+            reason=agency.reason,
+            confidence=agency.confidence,
+            required_capabilities=required_capabilities,
+        )
+    except Exception:
+        # Graceful degradation: fall back to existing classification
+        logger.warning("Multi-agent dispatch failed, falling back to classify_task()")
+        try:
+            agency = classify_task(task, goal, context)
+            return AgentAssignment(
+                execution_mode=agency.execution_mode,
+                support_mode=agency.support_mode,
+                agent_role=None,
+                reason=f"Fallback: {agency.reason}",
+                confidence=agency.confidence * 0.8,
+            )
+        except Exception:
+            # Ultimate fallback: return a minimal assignment
+            return AgentAssignment(
+                execution_mode=ExecutionMode.USER,
+                support_mode=SupportMode.EXPLAIN,
+                agent_role=None,
+                reason="Fallback: dispatch failed, using defaults",
+                confidence=0.3,
+            )

@@ -26,6 +26,9 @@ Exports:
     ExecutionMode
     SupportMode
     TaskAgency
+    AgentRole
+    AgentAssignment
+    AgentLifecycle
     PersonalState
     PersonalStateStatus
 """
@@ -58,6 +61,9 @@ from janus.models.metric_snapshot import MetricSnapshot
 from janus.models.execution_mode import ExecutionMode
 from janus.models.support_mode import SupportMode
 from janus.models.task_agency import TaskAgency
+from janus.models.agent_role import AgentRole
+from janus.models.agent_assignment import AgentAssignment
+from janus.models.agent_lifecycle import AgentLifecycle
 from janus.models.personal_state import (
     PersonalState,
     PersonalStateStatus,
@@ -102,6 +108,9 @@ __all__ = [
     "ExecutionMode",
     "SupportMode",
     "TaskAgency",
+    "AgentRole",
+    "AgentAssignment",
+    "AgentLifecycle",
     "PersonalState",
     "PersonalStateStatus",
     "GOAL_STATUS_TRANSITIONS",
