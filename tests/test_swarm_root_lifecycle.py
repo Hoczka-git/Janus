@@ -105,34 +105,44 @@ class TestIsSwarmRoot:
 
 
 class TestChildrenAllDone:
+    """Tests for _children_all_done with mocked kanban_db.
+
+    hermes_cli may not be importable in all environments (e.g. CI),
+    so we inject a fake module into sys.modules before patching.
+    """
+
+    def _fake_kanban_module(self):
+        """Create a fake hermes_cli.kanban_db module."""
+        fake_module = mock.MagicMock()
+        fake_module.connect = mock.MagicMock()
+        return fake_module
+
     def test_no_children_returns_true(self):
         """When there are no children, _children_all_done returns True."""
-        with mock.patch("hermes_cli.kanban_db.connect") as mock_connect:
+        fake_module = self._fake_kanban_module()
+        with mock.patch.dict("sys.modules", {"hermes_cli": mock.MagicMock(), "hermes_cli.kanban_db": fake_module}):
             mock_conn = mock.MagicMock()
-            mock_connect.return_value = mock_conn
-            # list_tasks returns empty list
-            mock_conn.execute.return_value.fetchall.return_value = []
-            # children_ids returns empty list
+            fake_module.connect.return_value = mock_conn
             mock_conn.execute.return_value.fetchall.return_value = []
             result = _children_all_done("Swarm: Test")
             assert result is True
 
     def test_all_children_done_returns_true(self):
         """When all children are done, returns True."""
-        with mock.patch("hermes_cli.kanban_db.connect") as mock_connect:
+        fake_module = self._fake_kanban_module()
+        with mock.patch.dict("sys.modules", {"hermes_cli": mock.MagicMock(), "hermes_cli.kanban_db": fake_module}):
             mock_conn = mock.MagicMock()
-            mock_connect.return_value = mock_conn
-            # Simulate: list_tasks finds the parent, children_ids returns [child1, child2]
-            # get_task returns done children
+            fake_module.connect.return_value = mock_conn
             mock_conn.execute.return_value.fetchall.return_value = []
             result = _children_all_done("Swarm: Test")
             assert result is True
 
     def test_some_children_not_done_returns_false(self):
         """When some children are not done, returns False."""
-        with mock.patch("hermes_cli.kanban_db.connect") as mock_connect:
+        fake_module = self._fake_kanban_module()
+        with mock.patch.dict("sys.modules", {"hermes_cli": mock.MagicMock(), "hermes_cli.kanban_db": fake_module}):
             mock_conn = mock.MagicMock()
-            mock_connect.return_value = mock_conn
+            fake_module.connect.return_value = mock_conn
             mock_conn.execute.return_value.fetchall.return_value = []
             result = _children_all_done("Swarm: Test")
             # With no children found, returns True (vacuously)
@@ -140,9 +150,9 @@ class TestChildrenAllDone:
 
     def test_kanban_db_unavailable_returns_true(self):
         """When kanban_db is unavailable, fail-open returns True."""
-        with mock.patch(
-            "hermes_cli.kanban_db.connect", side_effect=Exception("no db")
-        ):
+        fake_module = self._fake_kanban_module()
+        fake_module.connect.side_effect = Exception("no db")
+        with mock.patch.dict("sys.modules", {"hermes_cli": mock.MagicMock(), "hermes_cli.kanban_db": fake_module}):
             result = _children_all_done("Swarm: Test")
             assert result is True
 
