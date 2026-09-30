@@ -149,19 +149,21 @@ Key phases:
   - Structured model of goals, metrics, tasks, projects, commitments, routines, constraints, preferences, activities, evidence, decisions. Goal: give Janus a coherent model of the user's current situation.
   - Status: Implemented. PersonalState dataclass (read-model aggregate root), PersonalStateBuilder service (constructs aggregate from data files with fingerprint caching, integrity checks), persistence layer, and comprehensive tests. See PRs #268, #269, #270.
   - Depends on: Phase A.
-- [ ] Phase D — Agency-Aware Planning (P1)
+- [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
   - Status: Design doc created on feature branch (t_57e1acdc), not yet merged. Implementation not yet started.
   - Depends on: Phases A, C.
-- [ ] Phase E — Policy & Approval (P1/P2)
+- [x] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
   - Depends on: Phases A, B.
 - [ ] Phase F — Connector Protocol (P2)
   - Common interface for external data and actions (source, capabilities, permissions, read, propose, execute, evidence). Optimize for clean capability model, not number of integrations.
   - Depends on: Phases A, B.
-- [ ] Phase G — Self-Extending Skills (P2) Identify missing capabilities, propose new skills. Lifecycle: proposal → generate → tests → sandbox → verification → approval → install. Generated capabilities must not silently become trusted.
+- [x] Phase G — Self-Extending Skills (P2)
+  - Identify missing capabilities, propose new skills. Lifecycle: proposal → generate → tests → sandbox → verification → approval → install. Generated capabilities must not silently become trusted.
   - Depends on: Phases A, E.
-- [ ] Phase H — Multi-Agent Orchestration (P3) Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
+- [x] Phase H — Multi-Agent Orchestration (P3)
+  - Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
   - Depends on: Phases A–G.
 - [ ] Finalize "integration_required" policy and implement deterministic type-based auto-detection with explicit metadata precedence, safe ambiguous fallback, non-worktree handling, and independent parent/child semantics.
 - [ ] Close the Janus completion-gates lifecycle gap and make completion-gate execution deterministic, idempotent, auditable, and correctly integrated with task completion.
