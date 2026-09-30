@@ -38,6 +38,38 @@ Exports:
     PolicyDecisionRecord
     RiskLevel
     ImpactLevel
+    OutcomeRecord
+    OutcomeStatus
+    VerificationResult
+    VerificationStatus
+    EvidenceType
+    EVIDENCE_TYPE_TRANSITIONS
+    is_valid_evidence_transition
+    Commitment
+    CommitmentStatus
+    Routine
+    RoutineFrequency
+    Constraint
+    ConstraintType
+    Preference
+    PreferenceCategory
+    Resource
+    ResourceType
+    GapDetection
+    GapStatus
+    SkillProposal
+    ProposalStatus
+    GeneratedCapability
+    CapabilityStatus
+    TrustModel
+    TrustLevel
+    TRUST_LEVEL_TRANSITIONS
+    is_valid_trust_transition
+    NarrativeExplanation
+    ExplanationType
+    NarrativeEngine
+    DecisionRecord
+    DecisionRecordStatus
 """
 
 from janus.models.task import Task
@@ -90,6 +122,33 @@ from janus.models.policy import (
     RiskLevel,
     ImpactLevel,
 )
+from janus.models.outcome_record import OutcomeRecord, OutcomeStatus
+from janus.models.verification_result import VerificationResult, VerificationStatus
+from janus.models.evidence_type import (
+    EvidenceType,
+    EVIDENCE_TYPE_TRANSITIONS,
+    is_valid_evidence_transition,
+)
+from janus.models.commitment import Commitment, CommitmentStatus
+from janus.models.routine import Routine, RoutineFrequency
+from janus.models.constraint import Constraint, ConstraintType
+from janus.models.preference import Preference, PreferenceCategory
+from janus.models.resource import Resource, ResourceType
+from janus.models.gap_detection import GapDetection, GapStatus
+from janus.models.skill_proposal import SkillProposal, ProposalStatus
+from janus.models.generated_capability import GeneratedCapability, CapabilityStatus
+from janus.models.trust_model import (
+    TrustModel,
+    TrustLevel,
+    TRUST_LEVEL_TRANSITIONS,
+    is_valid_trust_transition,
+)
+from janus.models.narrative_engine import (
+    NarrativeExplanation,
+    ExplanationType,
+    NarrativeEngine,
+)
+from janus.models.decision_record import DecisionRecord, DecisionRecordStatus
 
 __all__ = [
     "Task",
@@ -142,4 +201,36 @@ __all__ = [
     "PolicyDecisionRecord",
     "RiskLevel",
     "ImpactLevel",
+    "OutcomeRecord",
+    "OutcomeStatus",
+    "VerificationResult",
+    "VerificationStatus",
+    "EvidenceType",
+    "EVIDENCE_TYPE_TRANSITIONS",
+    "is_valid_evidence_transition",
+    "Commitment",
+    "CommitmentStatus",
+    "Routine",
+    "RoutineFrequency",
+    "Constraint",
+    "ConstraintType",
+    "Preference",
+    "PreferenceCategory",
+    "Resource",
+    "ResourceType",
+    "GapDetection",
+    "GapStatus",
+    "SkillProposal",
+    "ProposalStatus",
+    "GeneratedCapability",
+    "CapabilityStatus",
+    "TrustModel",
+    "TrustLevel",
+    "TRUST_LEVEL_TRANSITIONS",
+    "is_valid_trust_transition",
+    "NarrativeExplanation",
+    "ExplanationType",
+    "NarrativeEngine",
+    "DecisionRecord",
+    "DecisionRecordStatus",
 ]
