@@ -31,6 +31,10 @@ Exports:
     AgentLifecycle
     PersonalState
     PersonalStateStatus
+    SkillProposal
+    SkillStage
+    TrustLevel
+    TrustRecord
 """
 
 from janus.models.task import Task
@@ -74,6 +78,8 @@ from janus.models.personal_state import (
     is_valid_task_transition,
     is_valid_followup_transition,
 )
+from janus.models.skill_proposal import SkillProposal, SkillStage
+from janus.models.trust_model import TrustLevel, TrustRecord
 
 __all__ = [
     "Task",
@@ -119,4 +125,8 @@ __all__ = [
     "is_valid_goal_transition",
     "is_valid_task_transition",
     "is_valid_followup_transition",
+    "SkillProposal",
+    "SkillStage",
+    "TrustLevel",
+    "TrustRecord",
 ]
