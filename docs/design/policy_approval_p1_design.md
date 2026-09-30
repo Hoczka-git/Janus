@@ -4,7 +4,9 @@
 **Date:** 2026-09-30
 **Scope:** P1-tier policy rules and approval gates only
 **Requirements spec:** `docs/specs/p1-policy-approval-requirements.md`
-**Parent task:** t_4a3bc8f3 (child of t_16d8884f — Phase E plan)
+**Task:** t_4a3bc8f3
+**Decomposition parent:** t_16d8884f (Phase E plan)
+**Requirements spec:** t_58f3186c (docs/specs/p1-policy-approval-requirements.md)
 
 ---
 
