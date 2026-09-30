@@ -28,3 +28,6 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[obsidian]
+vault_path = "/mnt/c/Users/dan11/Documents/HermesVault/Obsidian"
