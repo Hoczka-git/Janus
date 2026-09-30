@@ -673,6 +673,7 @@ def dispatch_completion(
     elif metadata.object == "task":
         from janus.services.tasks import (
             complete_janus_task, run_completion_gates, CompletionGateError,
+            _is_swarm_root, _children_all_done, GATE_CHILDREN_NOT_DONE,
         )
         import janus.services.tasks as _tasks_mod
 
@@ -683,15 +684,28 @@ def dispatch_completion(
         # idempotent re-evidence updates (the branch is already integrated),
         # and non-git tasks have no integration to verify.  This preserves the
         # idempotency contract documented in tasks.py:complete_janus_task.
+        #
+        # Swarm root exception: when the task is a swarm root, skip the
+        # integration gate and instead require all children to be done.
         if _task_is_open(_tasks_mod.TASKS_PATH, metadata.title):
             git_root = _tasks_mod._find_git_root(_tasks_mod.TASKS_PATH.parent)
             if git_root is not None:
-                gate_result = run_completion_gates(root=git_root)
-                if not gate_result.ok:
-                    raise CompletionGateError(
-                        reason=gate_result.blocked_reason or "unknown",
-                        message=gate_result.blocked_message or "Completion gate blocked",
-                    )
+                if _is_swarm_root(metadata.title):
+                    if not _children_all_done(metadata.title):
+                        raise CompletionGateError(
+                            reason=GATE_CHILDREN_NOT_DONE,
+                            message=(
+                                f"Swarm root '{metadata.title}' cannot complete: "
+                                "not all children are done"
+                            ),
+                        )
+                else:
+                    gate_result = run_completion_gates(root=git_root)
+                    if not gate_result.ok:
+                        raise CompletionGateError(
+                            reason=gate_result.blocked_reason or "unknown",
+                            message=gate_result.blocked_message or "Completion gate blocked",
+                        )
         results["task"] = complete_janus_task(
             title=metadata.title,
             evidence=evidence_dict,

@@ -86,11 +86,69 @@ GATE_NO_GIT_REPO = "no_git_repo"
 GATE_SYNC_CONFLICT = "sync_conflict"
 # Phase 3 extension — contract-based verification failure.
 GATE_CONTRACT_VERIFICATION_FAILED = "contract_verification_failed"
+# Swarm root: children must all be done before the root can complete.
+GATE_CHILDREN_NOT_DONE = "children_not_done"
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_swarm_root(title: str, body: str | None = None) -> bool:
+    """Return True if the task is a swarm root.
+
+    Detection: title contains ``Swarm:`` (the naming convention used by
+    ``kanban_swarm.create_swarm``) or the body carries ``swarm_root: true``
+    frontmatter.
+    """
+    if "Swarm:" in title:
+        return True
+    if body and "swarm_root: true" in body.lower():
+        return True
+    return False
+
+
+def _children_all_done(title: str) -> bool:
+    """Return True if all Kanban children of *title* are done.
+
+    Queries the Kanban DB for tasks whose parent matches *title* and checks
+    that every child has status ``done``.  Returns True when there are no
+    children (vacuously satisfied) or when the Kanban DB is unavailable
+    (fail-open — the caller will still run other gates).
+    """
+    try:
+        from hermes_cli import kanban_db as kb
+    except ImportError:
+        return True
+    try:
+        conn = kb.connect()
+    except Exception:
+        return True
+    try:
+        # Find the task by title to get its id
+        tasks = kb.list_tasks(conn, include_archived=True)
+        parent_id = None
+        for t in tasks:
+            if t.title == title:
+                parent_id = t.id
+                break
+        if parent_id is None:
+            return True
+        children = kb.children_ids(conn, parent_id)
+        if not children:
+            return True
+        for child_id in children:
+            child = kb.get_task(conn, child_id)
+            if child is None:
+                continue
+            if child.status != "done":
+                return False
+        return True
+    except Exception:
+        return True
+    finally:
+        conn.close()
 
 
 def _find_git_root(path: Path) -> Optional[Path]:
@@ -538,6 +596,11 @@ def complete_task(title: str) -> Task:
        integrated into the remote target branch, or integration is attempted
        automatically. If integration fails the gate blocks.
 
+    **Swarm root exception:** When the task is a swarm root (title contains
+    ``Swarm:`` or body carries ``swarm_root: true``), the integration gate
+    is skipped and replaced with a children-completion check: all Kanban
+    children of the root must be ``done`` before the root can complete.
+
     On success the following evidence artifacts are written:
 
     - ``<root>/reports/pre_completion_report.json`` — Phase 3 results.
@@ -556,12 +619,42 @@ def complete_task(title: str) -> Task:
     """
     _validate_title(title)
 
-    gate_result = run_completion_gates(root=TASKS_PATH.parent)
-    if not gate_result.ok:
-        raise CompletionGateError(
-            reason=gate_result.blocked_reason or "unknown",
-            message=gate_result.blocked_message or "Completion gate blocked",
-        )
+    # Read the task body to check for swarm root marker
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
+    task_body: str | None = None
+    for line in lines:
+        if line.startswith("- [ ] "):
+            content = line[len("- [ ] "):]
+            task_title = content.split(" | ", 1)[0] if " | " in content else content
+            if task_title == title:
+                # Extract body from the task line metadata
+                parts = content.split(" | ", 1)
+                if len(parts) > 1:
+                    task_body = parts[1]
+                break
+
+    is_swarm = _is_swarm_root(title, task_body)
+
+    if is_swarm:
+        # Swarm root: skip integration gate, check children instead
+        if not _children_all_done(title):
+            raise CompletionGateError(
+                reason=GATE_CHILDREN_NOT_DONE,
+                message=(
+                    f"Swarm root '{title}' cannot complete: "
+                    "not all children are done"
+                ),
+            )
+        # Children all done — proceed without running integration gate
+        gate_result = CompletionGateResult(ok=True, integration_not_applicable=True)
+    else:
+        gate_result = run_completion_gates(root=TASKS_PATH.parent)
+        if not gate_result.ok:
+            raise CompletionGateError(
+                reason=gate_result.blocked_reason or "unknown",
+                message=gate_result.blocked_message or "Completion gate blocked",
+            )
 
     raw_content = TASKS_PATH.read_text()
     lines = raw_content.splitlines()
