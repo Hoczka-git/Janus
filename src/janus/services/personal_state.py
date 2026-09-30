@@ -29,6 +29,11 @@ from janus.models.goal_integrity_report import GoalIntegrityReport, GoalIntegrit
 from janus.models.strategic_summary import StrategicSummary
 from janus.models.recommended_action import RecommendedAction
 from janus.models.personal_state import PersonalState
+from janus.models.commitment import Commitment
+from janus.models.routine import Routine
+from janus.models.constraint import Constraint
+from janus.models.preference import Preference
+from janus.models.resource import Resource
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +148,51 @@ def _load_metric_snapshots() -> list[MetricSnapshot]:
                 if snap is not None:
                     snapshots.append(snap)
         return snapshots
+    except (FileNotFoundError, Exception):
+        return []
+
+
+def _load_commitments() -> list[Commitment]:
+    """Load commitments from data/commitments.md. Returns [] if unavailable."""
+    try:
+        from janus.integrations.markdown_commitments import load_commitments
+        return load_commitments()
+    except (FileNotFoundError, Exception):
+        return []
+
+
+def _load_routines() -> list[Routine]:
+    """Load routines from data/routines.md. Returns [] if unavailable."""
+    try:
+        from janus.integrations.markdown_routines import load_routines
+        return load_routines()
+    except (FileNotFoundError, Exception):
+        return []
+
+
+def _load_constraints() -> list[Constraint]:
+    """Load constraints from data/constraints.md. Returns [] if unavailable."""
+    try:
+        from janus.integrations.markdown_constraints import load_constraints
+        return load_constraints()
+    except (FileNotFoundError, Exception):
+        return []
+
+
+def _load_preferences() -> list[Preference]:
+    """Load preferences from data/preferences.md. Returns [] if unavailable."""
+    try:
+        from janus.integrations.markdown_preferences import load_preferences
+        return load_preferences()
+    except (FileNotFoundError, Exception):
+        return []
+
+
+def _load_resources() -> list[Resource]:
+    """Load resources from data/resources.md. Returns [] if unavailable."""
+    try:
+        from janus.integrations.markdown_resources import load_resources
+        return load_resources()
     except (FileNotFoundError, Exception):
         return []
 
@@ -403,6 +453,11 @@ class PersonalStateBuilder:
         decisions = _load_decisions()
         workouts = _load_workouts()
         metric_snapshots = _load_metric_snapshots()
+        commitments = _load_commitments()
+        routines = _load_routines()
+        constraints = _load_constraints()
+        preferences = _load_preferences()
+        resources = _load_resources()
 
         # Derive computed views.
         active_goals = _derive_active_goals(goals)
@@ -458,6 +513,11 @@ class PersonalStateBuilder:
             workouts=workouts,
             decisions=decisions,
             research_artifacts=research_artifacts,
+            commitments=commitments,
+            routines=routines,
+            constraints=constraints,
+            preferences=preferences,
+            resources=resources,
             strategic_summary=strategic_summary,
             recommended_actions=recommended_actions,
             integrity_issues=integrity_issues,
