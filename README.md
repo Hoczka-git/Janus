@@ -8,7 +8,7 @@ Hermes is responsible for **execution**.
 
 Janus is responsible for **knowing what matters, why it matters, what should happen next, and whether it actually happened**.
 
-Janus keeps structured personal state in local files and exposes deterministic CLI workflows for goals, tasks, workouts, reviews, calendars, research, decisions, and execution feedback.
+Janus keeps structured personal state in local files and exposes deterministic CLI workflows for goals, tasks, workouts, reviews, calendars, research, decisions, knowledge curation, and execution feedback.
 
 ---
 
@@ -47,7 +47,7 @@ The core loop is:
                           │
                           ▼
                     ┌───────────┐
-                    │  Evidence │
+                    │  Evidence  │
                     └─────┬─────┘
                           │
                           ▼
@@ -82,6 +82,8 @@ Long-term outcomes with:
 * direction of change
 * related tasks
 * completion state
+* skill tracking
+* milestones and projects
 
 Example:
 
@@ -98,6 +100,47 @@ Related tasks:
 ```
 
 Goals provide context for tasks rather than being isolated lists of aspirations.
+
+### Goal health and integrity
+
+Janus can assess goal health and audit structural integrity:
+
+```bash
+# Health assessment (stall detection, progress signals)
+uv run janus goal health
+
+# Integrity audit (orphaned tasks, broken references, circular deps)
+uv run janus goal audit
+
+# Repair workflow (dry-run by default, --apply to execute)
+uv run janus goal repair --dry-run
+uv run janus goal repair --apply
+```
+
+The integrity audit detects issues such as unknown goal references, invalid related tasks, circular references, orphaned tasks, and relationship count mismatches. The repair service provides configurable, reversible fixes with atomic I/O and confirmation gates for destructive actions.
+
+### Agency-aware planning
+
+Janus classifies each task's execution mode and support mode at planning time, choosing the least substitutive mode that still enables progress:
+
+```text
+Execution mode:  USER > JANUS > COLLABORATIVE
+Support mode:    EXPLAIN > COACH > SCAFFOLD > REVIEW > EXECUTE
+```
+
+The classification is derived from task properties, goal context, and user state — it is not persisted as a task field. This allows Janus to recommend the right level of autonomy for each task.
+
+### No-progress detection
+
+Janus classifies each active goal into one of five categories:
+
+1. **NO_DATA** — insufficient information to determine progress
+2. **NO_EXECUTION** — config/data exists but no execution evidence
+3. **EXECUTION_WITHOUT_EFFECT** — execution happened but outcome unchanged
+4. **GOAL_ACHIEVED** — goal outcome reached
+5. **MAKING_PROGRESS** — execution happened and effect is non-negligible
+
+This helps distinguish goals that are genuinely progressing from those that are stalled or lack data.
 
 ---
 
@@ -325,6 +368,47 @@ I am actually making progress toward something important
 
 Those are not always the same thing.
 
+### Milestones and projects
+
+Goals can be decomposed into milestones and projects:
+
+```bash
+# Add a milestone
+uv run janus goal milestone add "Complete autumn endurance challenge" "Base building phase"
+
+# Add a project under a milestone
+uv run janus goal project add "Complete autumn endurance challenge" "Base building phase" "Weekly volume increase"
+
+# List milestones
+uv run janus goal milestone list "Complete autumn endurance challenge"
+
+# Complete a milestone
+uv run janus goal milestone complete "Complete autumn endurance challenge" "Base building phase"
+```
+
+### Skill tracking
+
+Goals can be associated with skills to track capability development:
+
+```bash
+# Set the skill for a goal
+uv run janus goal set-skill "Improve AI/agent engineering capability" --skill "AI/LLM systems"
+
+# Clear the skill
+uv run janus goal set-skill "Improve AI/agent engineering capability" --clear
+
+# List all tracked skills with evidence counts
+uv run janus goal skills
+```
+
+### Next action derivation
+
+```bash
+uv run janus goal next "Complete autumn endurance challenge"
+```
+
+This derives the next actionable step based on goal state, milestones, and related tasks.
+
 ---
 
 # Example: professional development
@@ -490,6 +574,87 @@ This keeps research connected to execution.
 
 ---
 
+# Knowledge curation pipeline
+
+Janus includes a research knowledge pipeline that takes artifacts from research through curation to an Obsidian vault.
+
+The pipeline stages:
+
+```text
+Research artifact
+   │
+   ▼
+Validation
+   │
+   ▼
+Summary generation
+   │
+   ▼
+Curation gate (human approval)
+   │
+   ▼
+Promotion to Obsidian vault
+```
+
+### Curation commands
+
+```bash
+# Promote a research artifact to the vault
+uv run janus knowledge promote <artifact> --vault /path/to/vault
+
+# List pending curation proposals
+uv run janus knowledge list
+
+# Approve a pending proposal
+uv run janus knowledge approve <proposal-id>
+
+# Reject a pending proposal
+uv run janus knowledge reject <proposal-id>
+
+# Render an artifact to Obsidian markdown (no promotion)
+uv run janus knowledge render <artifact>
+```
+
+### Research proposal workflow
+
+```bash
+# Propose a research artifact for review
+uv run janus research propose <artifact>
+
+# Approve a proposal
+uv run janus research approve <proposal-id>
+
+# Reject a proposal
+uv run janus research reject <proposal-id>
+
+# Defer a proposal
+uv run janus research defer <proposal-id>
+
+# Promote an approved artifact
+uv run janus research promote <artifact>
+
+# Show proposal details
+uv run janus research show-proposal <proposal-id>
+
+# List all proposals
+uv run janus research list-proposals
+```
+
+### Decision proposals
+
+```bash
+# Propose a decision
+uv run janus decision propose <title>
+
+# Link a finding to a decision
+uv run janus decision link-finding <decision-id> <finding-id>
+
+# Link a goal to a decision
+uv run janus decision link-goal <decision-id> <goal-id>
+```
+
+---
+
 # Workouts and activity
 
 Janus can also track structured training data.
@@ -612,6 +777,47 @@ Calendar events become context for the daily briefing rather than another task d
 
 ---
 
+# Strategic status
+
+Janus provides a strategic status view that summarizes the overall state:
+
+```bash
+uv run janus status
+```
+
+This renders:
+
+* portfolio health counts (healthy, watch, stalled, completed)
+* stalled-work list
+* neglected goals
+* recommended next actions with cross-domain links
+
+The strategic summary is built deterministically from stored state and can be used for weekly reviews or ad-hoc check-ins.
+
+---
+
+# Execution feedback
+
+Janus can receive execution feedback from Hermes when work is completed.
+
+The feedback includes:
+
+* changed files
+* tests passed
+* PR URL
+* task summary
+* metric updates
+
+This creates a closed loop where execution results feed back into Janus state, enabling:
+
+* automatic goal progress updates
+* evidence-backed completion
+* strategic state refresh
+
+The feedback is consumed via the `janus.services.execution_feedback` module and can be triggered by Hermes hooks or manual CLI commands.
+
+---
+
 # Data model
 
 Janus deliberately keeps its persistent state simple.
@@ -623,7 +829,10 @@ data/
 ├── workouts.md
 ├── inbox.md
 ├── followups.md
-└── research.md
+├── research.md
+├── curation_proposals.md
+├── metric_snapshots.md
+└── activity_log.md
 ```
 
 The `data/` directory is created at runtime and is gitignored — the repository
@@ -632,14 +841,17 @@ reads/writes it.
 
 The current core data files contain:
 
-| File              | Purpose                                              |
-| ------------------ | ---------------------------------------------------- |
-| `data/tasks.md`    | Open and completed tasks                             |
-| `data/goals.md`    | Long-term goals, metrics and related tasks           |
-| `data/workouts.md` | Strength and running activity                        |
-| `data/inbox.md`    | Inbox items pending triage                           |
-| `data/followups.md`| Follow-up items linked to decisions or actions       |
-| `data/research.md` | Research findings, artifacts and knowledge summaries |
+| File                        | Purpose                                              |
+| --------------------------- | ---------------------------------------------------- |
+| `data/tasks.md`             | Open and completed tasks                             |
+| `data/goals.md`             | Long-term goals, metrics and related tasks           |
+| `data/workouts.md`          | Strength and running activity                        |
+| `data/inbox.md`             | Inbox items pending triage                           |
+| `data/followups.md`         | Follow-up items linked to decisions or actions       |
+| `data/research.md`          | Research findings, artifacts and knowledge summaries |
+| `data/curation_proposals.md` | Knowledge curation proposals pending approval       |
+| `data/metric_snapshots.md`  | Historical metric values for goal progress tracking   |
+| `data/activity_log.md`      | Activity records for execution evidence              |
 
 The data is human-readable and can be inspected directly without Janus.
 
@@ -749,6 +961,8 @@ At a high level:
                        │  Research      │
                        │  Decisions     │
                        │  Evidence      │
+                       │  Knowledge     │
+                       │  Curation      │
                        └───────┬───────┘
                                │
                                │ execution
@@ -783,6 +997,8 @@ Owns:
 * decisions
 * evidence
 * strategic state
+* knowledge curation
+* execution feedback
 
 ### Hermes
 
@@ -812,6 +1028,7 @@ Optional integrations:
 
 * Google Calendar OAuth credentials
 * Telegram bot token and chat ID
+* Obsidian vault path (for knowledge curation)
 
 Install dependencies:
 
@@ -857,15 +1074,100 @@ src/janus/
 ├── inbox_cli.py
 ├── followup_cli.py
 ├── research_cli.py
+├── knowledge_cli.py       # knowledge curation (ADR-002)
 ├── decision_cli.py
 ├── status_cli.py
 ├── strategic_cli.py
 ├── git_sync.py            # safe sync-and-integrate (ADR-004)
 ├── integration.py
 ├── verification.py
+├── domain/
+│   └── planning.py
 ├── integrations/
+│   ├── atomic_io.py
+│   ├── data_integrity.py
+│   ├── google_calendar.py
+│   ├── markdown_curation.py
+│   ├── markdown_followups.py
+│   ├── markdown_goals.py
+│   ├── markdown_inbox.py
+│   ├── markdown_research.py
+│   ├── markdown_tasks.py
+│   ├── metric_history.py
+│   ├── telegram.py
+│   ├── telegram_weekly.py
+│   └── workout_md.py
 ├── models/
+│   ├── attention.py
+│   ├── curation_proposal.py
+│   ├── daily_briefing.py
+│   ├── decision.py
+│   ├── event.py
+│   ├── execution_mode.py
+│   ├── follow_up.py
+│   ├── goal.py
+│   ├── goal_health_assessment.py
+│   ├── goal_integrity_report.py
+│   ├── goal_signal.py
+│   ├── inbox.py
+│   ├── knowledge_summary.py
+│   ├── metric_snapshot.py
+│   ├── metric_type.py
+│   ├── milestone.py
+│   ├── personal_state.py
+│   ├── project.py
+│   ├── project_progress.py
+│   ├── recent_activity.py
+│   ├── recommended_action.py
+│   ├── remediation.py
+│   ├── research_artifact.py
+│   ├── strategic_summary.py
+│   ├── support_mode.py
+│   ├── task.py
+│   ├── task_agency.py
+│   ├── time_block.py
+│   ├── weekly_review.py
+│   └── workout.py
 └── services/
+    ├── actionability.py
+    ├── activity_ingest.py
+    ├── agency_planning.py
+    ├── artifact_linking.py
+    ├── attention.py
+    ├── curation_gate.py
+    ├── curation_gate_error.py
+    ├── daily_briefing.py
+    ├── decisions.py
+    ├── execution_feedback.py
+    ├── followup.py
+    ├── freebusy.py
+    ├── goal_health.py
+    ├── goal_integrity.py
+    ├── goal_integrity_repair.py
+    ├── goal_progress.py
+    ├── goals.py
+    ├── inbox.py
+    ├── knowledge_pipeline.py
+    ├── measurement_collection.py
+    ├── measurement_log.py
+    ├── milestones.py
+    ├── next_action.py
+    ├── no_progress_detector.py
+    ├── obsidian_promoter.py
+    ├── overload.py
+    ├── personal_state.py
+    ├── placement.py
+    ├── project_progress.py
+    ├── projects.py
+    ├── recommendations.py
+    ├── recommended_actions.py
+    ├── remediation.py
+    ├── research_artifacts.py
+    ├── skill_tracking.py
+    ├── strategic_summary.py
+    ├── tasks.py
+    ├── weekly_review.py
+    └── workout_analytics.py
 
 data/
 config/
@@ -885,12 +1187,13 @@ janus telegram              Send daily briefing to Telegram
 janus telegram-weekly       Send weekly review to Telegram
 janus task add|list|state|progress|complete
 janus workout add|show|summary
-janus goal list|show|add|update|complete|milestone|project|next|health|audit|skills|set-skill
+janus goal list|show|add|update|complete|milestone|project|next|health|audit|repair|skills|set-skill
 janus weekly                Weekly review
 janus status                Strategic status summary
 janus inbox list|pending|triage
 janus followup list|add|show|update|complete|convert-to-task
-janus research add|show|list|link|promote-finding
+janus research add|show|list|link|promote-finding|propose|approve|reject|defer|promote|show-proposal|list-proposals
+janus knowledge promote|list|approve|reject|render
 janus decision propose|link-finding|link-goal|list|show
 ```
 
@@ -916,22 +1219,38 @@ The `models/` layer contains domain concepts such as:
 * `GoalSignal`
 * `GoalHealthAssessment`
 * `GoalIntegrityReport`
+* `GoalIntegrityIssue`
+* `StrategicSummary`
+* `StrategicStateSnapshot`
+* `GoalStateSnapshot`
+* `CurationProposal`
+* `RecentActivityEntry`
+* `RemediationAction`
+* `ExecutionMode`
+* `SupportMode`
+* `TaskAgency`
+* `PersonalState`
+* `PersonalStateStatus`
 
 The `services/` layer contains domain logic for:
 
 * briefing (daily / weekly)
-* goals (progress, health, integrity audit, skill tracking)
+* goals (progress, health, integrity audit, repair, skill tracking)
 * tasks (parsing, persistence, completion, placement, overload)
 * workouts (analytics, progression)
 * projects (hierarchy, progress)
 * milestones
-* planning (next-action derivation, milestone task inference)
-* research / knowledge pipeline (findings, artifacts, knowledge summaries)
+* planning (next-action derivation, milestone task inference, agency-aware mode selection)
+* research / knowledge pipeline (findings, artifacts, knowledge summaries, curation)
 * decisions and follow-ups
 * attention (ranking, recommendations)
 * evidence propagation / execution feedback
 * measurement collection and log
 * activity data ingestion (calendar free/busy, replenishment)
+* no-progress detection (four-class stale goal classifier)
+* actionability scoring (problem → task filter)
+* goal remediation (structured action suggestions)
+* strategic summary (portfolio health, stalled work, recommended actions)
 * git sync (ADR-004 sync primitive)
 
 ---
