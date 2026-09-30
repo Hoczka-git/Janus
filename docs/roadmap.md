@@ -159,9 +159,15 @@ Key phases:
 - [ ] Phase F — Connector Protocol (P2)
   - Common interface for external data and actions (source, capabilities, permissions, read, propose, execute, evidence). Optimize for clean capability model, not number of integrations.
   - Depends on: Phases A, B.
-- [ ] Phase G — Self-Extending Skills (P2)
-  - Identify missing capabilities, propose new skills. Lifecycle: proposal → generate → tests → sandbox → verification → approval → install. Generated capabilities must not silently become trusted.
+- [ ] Phase G — Self-Extending Skills (P2) Identify missing capabilities, propose new skills. Lifecycle: proposal → generate → tests → sandbox → verification → approval → install. Generated capabilities must not silently become trusted.
   - Depends on: Phases A, E.
-- [ ] Phase H — Multi-Agent Orchestration (P3)
-  - Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
+- [ ] Phase H — Multi-Agent Orchestration (P3) Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
   - Depends on: Phases A–G.
+- [ ] Finalize "integration_required" policy and implement deterministic type-based auto-detection with explicit metadata precedence, safe ambiguous fallback, non-worktree handling, and independent parent/child semantics.
+- [ ] Close the Janus completion-gates lifecycle gap and make completion-gate execution deterministic, idempotent, auditable, and correctly integrated with task completion.
+- [ ] Harden root/child lifecycle semantics so coordination roots wait through dependency gating without duplicating child work or incorrectly requiring integration.
+- [ ] Complete and verify the end-to-end Goal → Task → Execution → Completion → Review lifecycle across real Janus/Hermes execution.
+- [ ] Operationalize Agency-Aware Planning by integrating "execution_mode", "support_mode", and least-substitutive-mode selection into planner decisions.
+- [ ] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
+- [ ] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
+- [ ] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
