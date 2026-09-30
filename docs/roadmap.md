@@ -149,9 +149,9 @@ Key phases:
   - Structured model of goals, metrics, tasks, projects, commitments, routines, constraints, preferences, activities, evidence, decisions. Goal: give Janus a coherent model of the user's current situation.
   - Status: Implemented. PersonalState dataclass (read-model aggregate root), PersonalStateBuilder service (constructs aggregate from data files with fingerprint caching, integrity checks), persistence layer, and comprehensive tests. See PRs #268, #269, #270.
   - Depends on: Phase A.
-- [ ] Phase D — Agency-Aware Planning (P1)
+- [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
-  - Status: Design doc created on feature branch (t_57e1acdc), not yet merged. Implementation not yet started.
+  - Status: Implemented and merged on `master` via PRs #274 (taxonomy + classify) and #280 (Phase A/C integration). 62 agency tests pass. Design basis: `docs/janus-agency-first-development-phase.md` §Phase D. Spec conflict with triage doc §5.1 resolved by decision doc `docs/triage/t_f1e900e7-spec-conflict-decision.md` (design doc takes precedence). Integration with next-action engine and recommendation flow confirmed.
   - Depends on: Phases A, C.
 - [ ] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
