@@ -173,3 +173,10 @@ Key phases:
 - [ ] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
 - [ ] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
 - [ ] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
+- [ ] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
+- [ ] Dodać explainability dla Agency-Aware Planning: reason, confidence i źródła decyzji dla rekomendowanego next action.
+- [ ] Domknąć Policy & Approval Engine: klasyfikować akcje jako auto-allowed, approval-required lub user-only i egzekwować te reguły przed wykonaniem.
+- [ ] Zintegrować Policy & Approval z Hermes execution: przekazywać tylko akcje dozwolone przez politykę i obsługiwać wymagane approval requests.
+- [ ] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
+- [ ] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
+- [ ] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
