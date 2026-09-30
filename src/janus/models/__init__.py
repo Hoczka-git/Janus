@@ -38,6 +38,10 @@ Exports:
     PolicyDecisionRecord
     RiskLevel
     ImpactLevel
+    SkillProposal
+    SkillStage
+    TrustLevel
+    TrustRecord
 """
 
 from janus.models.task import Task
@@ -90,6 +94,8 @@ from janus.models.policy import (
     RiskLevel,
     ImpactLevel,
 )
+from janus.models.skill_proposal import SkillProposal, SkillStage
+from janus.models.trust_model import TrustLevel, TrustRecord
 
 __all__ = [
     "Task",
@@ -142,4 +148,8 @@ __all__ = [
     "PolicyDecisionRecord",
     "RiskLevel",
     "ImpactLevel",
+    "SkillProposal",
+    "SkillStage",
+    "TrustLevel",
+    "TrustRecord",
 ]
