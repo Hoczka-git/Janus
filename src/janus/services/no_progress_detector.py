@@ -53,6 +53,10 @@ EFFECT_THRESHOLD_PCT = 5.0
 EFFECT_THRESHOLD_TASK_COMPLETED = 0
 EFFECT_CURRENT_VALUE_TOLERANCE = 1e-6
 
+# Tolerance for timestamp boundary comparisons (accounts for timing differences
+# between when a timestamp was created and when "now" is computed in the function)
+_BOUNDARY_TOLERANCE = timedelta(seconds=1)
+
 # Activity types that count as execution evidence
 _EXECUTION_ACTIVITY_TYPES = frozenset({
     ActivityType.TASK_COMPLETED,
@@ -96,6 +100,12 @@ class NoProgressResult:
                 assigned. Suitable for display/debugging.
         evaluated_at: When the classification was computed.
         lookback_days: The lookback window used (may be per-goal override).
+        confidence: Evidence strength 0.0-1.0 (design §4). Higher means the
+                   classification is more certain.
+        progress_delta: Change in progress % over the effect lookback window,
+                       or None when not computable.
+        days_since_last_activity: Days since the most recent execution evidence,
+                                 or None when no evidence exists.
     """
 
     goal_title: str
@@ -106,6 +116,42 @@ class NoProgressResult:
     reason: str = ""
     evaluated_at: datetime | None = None
     lookback_days: int = 30
+    confidence: float = 0.0
+    progress_delta: float | None = None
+    days_since_last_activity: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialize to a plain dict (design §4 API surface)."""
+        return {
+            "goal_title": self.goal_title,
+            "classification": self.classification.value,
+            "progress": self.progress,
+            "signals": [
+                {
+                    "signal": s.signal,
+                    "score": s.score,
+                    "reason": s.reason,
+                    "category": s.category,
+                }
+                for s in self.signals
+            ],
+            "dominant_signal": (
+                {
+                    "signal": self.dominant_signal.signal,
+                    "score": self.dominant_signal.score,
+                    "reason": self.dominant_signal.reason,
+                    "category": self.dominant_signal.category,
+                }
+                if self.dominant_signal
+                else None
+            ),
+            "reason": self.reason,
+            "evaluated_at": self.evaluated_at.isoformat() if self.evaluated_at else None,
+            "lookback_days": self.lookback_days,
+            "confidence": self.confidence,
+            "progress_delta": self.progress_delta,
+            "days_since_last_activity": self.days_since_last_activity,
+        }
 
 
 # ── Query helpers ────────────────────────────────────────────────────────────
@@ -170,7 +216,7 @@ def _gather_execution_evidence(
                 continue
             if record.goal_title and record.goal_title != goal.title:
                 continue
-            if record.timestamp >= window_start:
+            if record.timestamp >= window_start - _BOUNDARY_TOLERANCE:
                 return True
 
     # 2. goal.recent_activity entries
@@ -181,7 +227,7 @@ def _gather_execution_evidence(
                 continue
             try:
                 dt = datetime.fromisoformat(completed_at)
-                if dt >= window_start:
+                if dt >= window_start - _BOUNDARY_TOLERANCE:
                     return True
             except (ValueError, TypeError):
                 continue
@@ -194,7 +240,7 @@ def _gather_execution_evidence(
             completion_dt = datetime.combine(
                 completion_date, datetime.min.time()
             ).astimezone()
-            if completion_dt >= window_start:
+            if completion_dt >= window_start - _BOUNDARY_TOLERANCE:
                 return True
 
     return False
@@ -230,7 +276,7 @@ def _has_negligible_effect(
             past_goal = _reconstruct_goal_as_of(goal, past_snapshot.value)
             past_progress = compute_goal_progress(past_goal, completed_task_titles)
             if past_progress is not None:
-                delta = current_progress - past_progress
+                delta = round(current_progress - past_progress, 10)
                 if 0 <= delta < EFFECT_THRESHOLD_PCT:
                     return True
                 # Also check: current_value has not moved beyond tolerance
@@ -279,6 +325,121 @@ def _value_moved_within_tolerance(
 
     most_recent = max(relevant, key=lambda s: s.timestamp)
     return abs(most_recent.value - goal.current_value) <= EFFECT_CURRENT_VALUE_TOLERANCE
+
+
+def _compute_days_since_last_activity(
+    goal: Goal,
+    activity_records: list[ActivityRecord] | None,
+    completed_task_dates: dict[str, date] | None,
+    today: date,
+) -> int | None:
+    """Return days since the most recent execution evidence, or None."""
+    now = datetime.now().astimezone()
+    latest: datetime | None = None
+
+    if activity_records:
+        for record in activity_records:
+            if record.type not in _EXECUTION_ACTIVITY_TYPES:
+                continue
+            if record.goal_title and record.goal_title != goal.title:
+                continue
+            if latest is None or record.timestamp > latest:
+                latest = record.timestamp
+
+    if goal.recent_activity:
+        for entry in goal.recent_activity:
+            completed_at = entry.get("completed_at")
+            if completed_at is None:
+                continue
+            try:
+                dt = datetime.fromisoformat(completed_at)
+                if latest is None or dt > latest:
+                    latest = dt
+            except (ValueError, TypeError):
+                continue
+
+    if completed_task_dates and goal.related_tasks:
+        for task_title in goal.related_tasks:
+            if task_title in completed_task_dates:
+                completion_dt = datetime.combine(
+                    completed_task_dates[task_title], datetime.min.time()
+                ).astimezone()
+                if latest is None or completion_dt > latest:
+                    latest = completion_dt
+
+    if latest is None:
+        return None
+    return (now - latest).days
+
+
+def _compute_progress_delta(
+    goal: Goal,
+    current_progress: float | None,
+    metric_snapshots: list[MetricSnapshot] | None,
+    completed_task_titles: set[str] | None,
+    today: date,
+) -> float | None:
+    """Return progress delta over the effect lookback window, or None."""
+    if current_progress is None:
+        return None
+
+    now = datetime.now().astimezone()
+    lookback_start = now - timedelta(days=EFFECT_LOOKBACK_DAYS)
+
+    if _has_metric_config(goal) and goal.metric_name and metric_snapshots:
+        relevant = [s for s in metric_snapshots if s.metric_name == goal.metric_name]
+        past_snapshots = [s for s in relevant if s.timestamp <= lookback_start]
+        if past_snapshots:
+            past_snapshot = max(past_snapshots, key=lambda s: s.timestamp)
+            past_goal = _reconstruct_goal_as_of(goal, past_snapshot.value)
+            past_progress = compute_goal_progress(past_goal, completed_task_titles)
+            if past_progress is not None:
+                return current_progress - past_progress
+
+    return None
+
+
+def _confidence_for(
+    classification: NoProgressClass,
+    has_data: bool,
+    has_execution_evidence: bool,
+) -> float:
+    """Return evidence strength 0.0-1.0 for a classification."""
+    if classification == NoProgressClass.GOAL_ACHIEVED:
+        return 0.95
+    if classification == NoProgressClass.NO_DATA:
+        return 0.90
+    if classification == NoProgressClass.NO_EXECUTION:
+        return 0.80 if has_data else 0.60
+    if classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT:
+        return 0.70 if has_execution_evidence else 0.50
+    # MAKING_PROGRESS
+    return 0.75
+
+
+def _enrich_result(
+    result: NoProgressResult,
+    goal: Goal,
+    today: date,
+    activity_records: list[ActivityRecord] | None,
+    completed_task_dates: dict[str, date] | None,
+    metric_snapshots: list[MetricSnapshot] | None,
+    completed_task_titles: set[str] | None,
+    has_data: bool,
+    has_execution_evidence: bool,
+) -> NoProgressResult:
+    """Populate confidence, progress_delta, and days_since_last_activity."""
+    result.confidence = _confidence_for(
+        result.classification, has_data, has_execution_evidence,
+    )
+    result.progress_delta = _compute_progress_delta(
+        goal, result.progress, metric_snapshots,
+        completed_task_titles, today,
+    )
+    result.days_since_last_activity = _compute_days_since_last_activity(
+        goal, activity_records, completed_task_dates, today,
+    )
+    return result
 
 
 def _attach_signals(
@@ -361,7 +522,7 @@ def classify_no_progress(
 
     # ── Non-active goals ──────────────────────────────────────────────────────
     if goal.status == "completed":
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.GOAL_ACHIEVED,
             progress=None,
@@ -369,8 +530,13 @@ def classify_no_progress(
             evaluated_at=now,
             lookback_days=lookback_days,
         )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=True, has_execution_evidence=False,
+        )
     if goal.status == "inactive":
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.GOAL_ACHIEVED,
             progress=None,
@@ -378,17 +544,27 @@ def classify_no_progress(
             evaluated_at=now,
             lookback_days=lookback_days,
         )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=True, has_execution_evidence=False,
+        )
 
     # ── Class 4: goal_achieved (check first — terminal state) ───────────────
     progress = compute_goal_progress(goal, completed_task_titles)
     if progress == 100.0:
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.GOAL_ACHIEVED,
             progress=progress,
             reason="Goal progress is 100% — target reached",
             evaluated_at=now,
             lookback_days=lookback_days,
+        )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=True, has_execution_evidence=False,
         )
 
     # ── Gather execution evidence ─────────────────────────────────────────────
@@ -407,7 +583,7 @@ def classify_no_progress(
             goal, today, open_task_titles, all_task_titles,
             metric_snapshots, completed_task_dates, now,
         )
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.NO_DATA,
             progress=progress,
@@ -420,6 +596,11 @@ def classify_no_progress(
             evaluated_at=now,
             lookback_days=lookback_days,
         )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=False, has_execution_evidence=False,
+        )
 
     # ── Class 2: no_execution ────────────────────────────────────────────────
     if not exec_evidence:
@@ -427,7 +608,7 @@ def classify_no_progress(
             goal, today, open_task_titles, all_task_titles,
             metric_snapshots, completed_task_dates, now,
         )
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.NO_EXECUTION,
             progress=progress,
@@ -439,6 +620,11 @@ def classify_no_progress(
             evaluated_at=now,
             lookback_days=lookback_days,
         )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=True, has_execution_evidence=False,
+        )
 
     # ── Class 3: execution_without_effect ────────────────────────────────────
     if _has_negligible_effect(
@@ -449,7 +635,7 @@ def classify_no_progress(
             goal, today, open_task_titles, all_task_titles,
             metric_snapshots, completed_task_dates, now,
         )
-        return NoProgressResult(
+        result = NoProgressResult(
             goal_title=goal.title,
             classification=NoProgressClass.EXECUTION_WITHOUT_EFFECT,
             progress=progress,
@@ -462,13 +648,18 @@ def classify_no_progress(
             evaluated_at=now,
             lookback_days=lookback_days,
         )
+        return _enrich_result(
+            result, goal, today, activity_records, completed_task_dates,
+            metric_snapshots, completed_task_titles,
+            has_data=True, has_execution_evidence=True,
+        )
 
     # ── Fallthrough: making_progress ──────────────────────────────────────────
     signals, dominant = _attach_signals(
         goal, today, open_task_titles, all_task_titles,
         metric_snapshots, completed_task_dates, now,
     )
-    return NoProgressResult(
+    result = NoProgressResult(
         goal_title=goal.title,
         classification=NoProgressClass.MAKING_PROGRESS,
         progress=progress,
@@ -477,6 +668,11 @@ def classify_no_progress(
         reason="Execution happened and effect is non-negligible",
         evaluated_at=now,
         lookback_days=lookback_days,
+    )
+    return _enrich_result(
+        result, goal, today, activity_records, completed_task_dates,
+        metric_snapshots, completed_task_titles,
+        has_data=True, has_execution_evidence=True,
     )
 
 
@@ -635,6 +831,52 @@ def detect_no_execution(
 
     no_execution = len(fired) == 0
     return no_execution, fired
+
+
+# ── Goal-achieved detection (cel osiągnięty) ────────────────────────────────
+
+def detect_goal_achieved(
+    goal: Goal,
+    completed_task_titles: set[str] | None = None,
+) -> tuple[bool, str]:
+    """Detect whether a goal has reached its intended outcome.
+
+    This is the dedicated goal-achieved detector. It checks whether the
+    goal's outcome has been reached, either through explicit status or
+    through progress computation.
+
+    Args:
+        goal: The goal to check.
+        completed_task_titles: Set of completed task titles. When None,
+                               task-based progress cannot be computed.
+
+    Returns:
+        A tuple (achieved, reason):
+        - achieved: True if the goal has reached its intended outcome.
+        - reason: Human-readable explanation.
+
+    Criteria for GOAL_ACHIEVED (any of):
+    1. Goal status is "completed" (explicit termination).
+    2. Goal status is "inactive" (out of scope — treated as achieved).
+    3. Metric-based: current_value meets target_value within direction
+       (progress == 100%).
+    4. Task-based: all related tasks are completed (progress == 100%).
+
+    Distinction from EXECUTION_WITHOUT_EFFECT:
+    - GOAL_ACHIEVED: progress == 100% (target reached).
+    - EXECUTION_WITHOUT_EFFECT: execution evidence exists but progress < 100%
+      and progress delta is negligible.
+    """
+    if goal.status == "completed":
+        return True, "Goal is explicitly marked as completed"
+    if goal.status == "inactive":
+        return True, "Goal is inactive — out of scope for stale detection"
+
+    progress = compute_goal_progress(goal, completed_task_titles)
+    if progress is not None and progress >= 100.0:
+        return True, f"Goal progress is {progress}% — target reached"
+
+    return False, "Goal has not yet reached its intended outcome"
 
 
 # ── Batch entry point ────────────────────────────────────────────────────────

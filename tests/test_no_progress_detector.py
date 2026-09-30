@@ -25,6 +25,7 @@ from janus.services.no_progress_detector import (
     _EXECUTION_SIGNALS,
     classify_all_goals,
     classify_no_progress,
+    detect_goal_achieved,
     detect_no_execution,
     is_stale,
     stale_reason_summary,
@@ -1115,3 +1116,558 @@ class TestDetectNoExecution:
         )
         assert no_exec is True
         assert fired == []
+
+
+# ===========================================================================
+# J. detect_goal_achieved() — dedicated goal-achieved detector
+# ===========================================================================
+
+class TestDetectGoalAchieved:
+    """Tests for the dedicated detect_goal_achieved() function."""
+
+    def test_achieved_metric_target_reached_increase(self):
+        """Increase goal: current_value >= target_value → achieved."""
+        goal = _make_metric_goal(
+            start_value=10.0,
+            current_value=15.0,
+            target_value=15.0,
+            direction="increase",
+        )
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is True
+        assert "target reached" in reason.lower() or "completed" in reason.lower()
+
+    def test_achieved_metric_target_reached_decrease(self):
+        """Decrease goal: current_value <= target_value → achieved."""
+        goal = _make_metric_goal(
+            start_value=23.0,
+            current_value=15.0,
+            target_value=15.0,
+            direction="decrease",
+        )
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is True
+
+    def test_achieved_all_tasks_completed(self):
+        """Task-based goal: all related tasks completed → achieved."""
+        goal = _make_goal(
+            title="All Done",
+            related_tasks=["Task A", "Task B"],
+        )
+        achieved, reason = detect_goal_achieved(
+            goal, completed_task_titles={"Task A", "Task B"}
+        )
+        assert achieved is True
+
+    def test_achieved_explicitly_completed_status(self):
+        """Goal with status='completed' → achieved."""
+        goal = _make_metric_goal(status="completed")
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is True
+        assert "completed" in reason.lower()
+
+    def test_achieved_inactive_goal(self):
+        """Goal with status='inactive' → achieved (out of scope)."""
+        goal = _make_metric_goal(status="inactive")
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is True
+        assert "inactive" in reason.lower()
+
+    def test_not_achieved_partial_progress(self):
+        """Goal with partial progress → not achieved."""
+        goal = _make_metric_goal()  # 37.5% progress
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is False
+
+    def test_not_achieved_no_progress(self):
+        """Goal with 0% progress → not achieved."""
+        goal = _make_metric_goal(
+            start_value=23.0,
+            current_value=23.0,
+            target_value=15.0,
+            direction="decrease",
+        )
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is False
+
+    def test_not_achieved_some_tasks_incomplete(self):
+        """Task-based goal: some tasks incomplete → not achieved."""
+        goal = _make_goal(
+            title="Partial",
+            related_tasks=["Task A", "Task B"],
+        )
+        achieved, reason = detect_goal_achieved(
+            goal, completed_task_titles={"Task A"}
+        )
+        assert achieved is False
+
+    def test_achieved_maintain_at_target(self):
+        """Degenerate maintain-at-X: start==target==current → achieved."""
+        goal = _make_metric_goal(
+            start_value=70.0,
+            current_value=70.0,
+            target_value=70.0,
+            direction="decrease",
+        )
+        achieved, reason = detect_goal_achieved(goal)
+        assert achieved is True
+
+    def test_achieved_distinction_from_execution_without_effect(self):
+        """GOAL_ACHIEVED requires 100%; EXECUTION_WITHOUT_EFFECT is < 100%."""
+        # Goal at 100% → achieved
+        goal_100 = _make_metric_goal(
+            current_value=15.0,
+            target_value=15.0,
+        )
+        achieved_100, _ = detect_goal_achieved(goal_100)
+        assert achieved_100 is True
+
+        # Goal at 50% → not achieved
+        goal_50 = _make_metric_goal(
+            start_value=23.0,
+            current_value=19.0,
+            target_value=15.0,
+            direction="decrease",
+        )
+        achieved_50, _ = detect_goal_achieved(goal_50)
+        assert achieved_50 is False
+
+
+# ===========================================================================
+# K. to_dict() serialization
+# ===========================================================================
+
+class TestToDict:
+    """Tests for NoProgressResult.to_dict()."""
+
+    def test_to_dict_basic_fields(self):
+        """to_dict includes all basic fields."""
+        goal = _make_goal(title="Dict Test")
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        d = result.to_dict()
+        assert d["goal_title"] == "Dict Test"
+        assert d["classification"] == "no_data"
+        assert d["progress"] is None
+        assert d["reason"] != ""
+        assert d["evaluated_at"] is not None
+        assert d["lookback_days"] == 30
+        assert "confidence" in d
+        assert "progress_delta" in d
+        assert "days_since_last_activity" in d
+
+    def test_to_dict_classification_value(self):
+        """classification is the string value, not the enum."""
+        goal = _make_metric_goal(
+            current_value=15.0,
+            target_value=15.0,
+        )
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        d = result.to_dict()
+        assert d["classification"] == "goal_achieved"
+        assert isinstance(d["classification"], str)
+
+    def test_to_dict_signals_list(self):
+        """signals is a list of dicts."""
+        goal = _make_metric_goal()
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        d = result.to_dict()
+        assert isinstance(d["signals"], list)
+        for s in d["signals"]:
+            assert "signal" in s
+            assert "score" in s
+            assert "reason" in s
+
+    def test_to_dict_dominant_signal_structure(self):
+        """dominant_signal is None or a dict with expected keys."""
+        goal = _make_goal(title="Signal Check")
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        d = result.to_dict()
+        if d["dominant_signal"] is not None:
+            assert "signal" in d["dominant_signal"]
+            assert "score" in d["dominant_signal"]
+            assert "reason" in d["dominant_signal"]
+
+    def test_to_dict_evaluated_at_isoformat(self):
+        """evaluated_at is ISO format string."""
+        goal = _make_goal(title="Timestamp")
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        d = result.to_dict()
+        assert isinstance(d["evaluated_at"], str)
+        # Should be parseable
+        datetime.fromisoformat(d["evaluated_at"])
+
+
+# ===========================================================================
+# L. Enriched fields (confidence, progress_delta, days_since_last_activity)
+# ===========================================================================
+
+class TestEnrichedFields:
+    """Tests for the new enriched fields on NoProgressResult."""
+
+    def test_confidence_no_data(self):
+        """NO_DATA has high confidence."""
+        goal = _make_goal(title="No Data")
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.confidence >= 0.8
+
+    def test_confidence_goal_achieved(self):
+        """GOAL_ACHIEVED has high confidence."""
+        goal = _make_metric_goal(
+            current_value=15.0,
+            target_value=15.0,
+        )
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.confidence >= 0.9
+
+    def test_confidence_no_execution(self):
+        """NO_EXECUTION has moderate-high confidence."""
+        goal = _make_metric_goal()
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.confidence >= 0.7
+
+    def test_progress_delta_making_progress(self):
+        """MAKING_PROGRESS has positive progress_delta."""
+        goal = _make_metric_goal()
+        snapshots = [_snap("Body fat", "Body fat %", 22.0, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert result.progress_delta is not None
+        assert result.progress_delta > 0
+
+    def test_progress_delta_execution_without_effect(self):
+        """EXECUTION_WITHOUT_EFFECT has near-zero progress_delta."""
+        goal = _make_metric_goal()
+        snapshots = [_snap("Body fat", "Body fat %", 20.0, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert result.progress_delta is not None
+        assert abs(result.progress_delta) < 5.0
+
+    def test_days_since_last_activity_with_evidence(self):
+        """days_since_last_activity is set when execution evidence exists."""
+        goal = _make_metric_goal()
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            activity_records=[recent],
+        )
+        assert result.days_since_last_activity is not None
+        assert result.days_since_last_activity <= 3
+
+    def test_days_since_last_activity_no_evidence(self):
+        """days_since_last_activity is None when no execution evidence."""
+        goal = _make_metric_goal()
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.days_since_last_activity is None
+
+
+# ===========================================================================
+# M. Unified pipeline — exactly one category per goal
+# ===========================================================================
+
+class TestUnifiedPipeline:
+    """Tests that the unified classifier produces exactly one category."""
+
+    def test_exactly_one_category_per_goal(self):
+        """Every goal gets exactly one classification."""
+        goals = [
+            _make_goal(title="Bare"),
+            _make_metric_goal(title="No Exec"),
+            _make_metric_goal(
+                title="Achieved",
+                current_value=15.0,
+                target_value=15.0,
+            ),
+            _make_goal(
+                title="Tasks",
+                related_tasks=["Task A"],
+            ),
+        ]
+        results = classify_all_goals(
+            goals, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert len(results) == 4
+        for r in results:
+            assert isinstance(r.classification, NoProgressClass)
+            # Each result has a valid classification
+            assert r.classification in (
+                NoProgressClass.NO_DATA,
+                NoProgressClass.NO_EXECUTION,
+                NoProgressClass.EXECUTION_WITHOUT_EFFECT,
+                NoProgressClass.GOAL_ACHIEVED,
+                NoProgressClass.MAKING_PROGRESS,
+            )
+
+    def test_mutual_exclusion_no_data_vs_no_execution(self):
+        """NO_DATA and NO_EXECUTION are mutually exclusive."""
+        # Bare goal → NO_DATA
+        bare = _make_goal(title="Bare")
+        r1 = classify_no_progress(
+            bare, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r1.classification == NoProgressClass.NO_DATA
+
+        # Goal with config but no activity → NO_EXECUTION
+        config = _make_metric_goal(title="Config")
+        r2 = classify_no_progress(
+            config, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r2.classification == NoProgressClass.NO_EXECUTION
+
+    def test_mutual_exclusion_no_execution_vs_execution_without_effect(self):
+        """NO_EXECUTION and EXECUTION_WITHOUT_EFFECT are mutually exclusive."""
+        # No activity → NO_EXECUTION
+        goal_no_exec = _make_metric_goal(title="No Exec")
+        r1 = classify_no_progress(
+            goal_no_exec, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r1.classification == NoProgressClass.NO_EXECUTION
+
+        # Activity but no effect → EXECUTION_WITHOUT_EFFECT
+        goal_no_effect = _make_metric_goal(title="No Effect")
+        snapshots = [_snap("No Effect", "Body fat %", 20.0, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "No Effect", days_ago=3)
+        r2 = classify_no_progress(
+            goal_no_effect, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert r2.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+    def test_mutual_exclusion_execution_without_effect_vs_making_progress(self):
+        """EXECUTION_WITHOUT_EFFECT and MAKING_PROGRESS are mutually exclusive."""
+        # No effect → EXECUTION_WITHOUT_EFFECT
+        goal_no_effect = _make_metric_goal(title="No Effect")
+        snapshots1 = [_snap("No Effect", "Body fat %", 20.0, 15)]
+        recent1 = _activity(ActivityType.TASK_COMPLETED, "No Effect", days_ago=3)
+        r1 = classify_no_progress(
+            goal_no_effect, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots1,
+            activity_records=[recent1],
+        )
+        assert r1.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+        # Effect → MAKING_PROGRESS
+        goal_progress = _make_metric_goal(title="Progress")
+        snapshots2 = [_snap("Progress", "Body fat %", 22.0, 15)]
+        recent2 = _activity(ActivityType.TASK_COMPLETED, "Progress", days_ago=3)
+        r2 = classify_no_progress(
+            goal_progress, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots2,
+            activity_records=[recent2],
+        )
+        assert r2.classification == NoProgressClass.MAKING_PROGRESS
+
+    def test_mutual_exclusion_goal_achieved_vs_all_others(self):
+        """GOAL_ACHIEVED takes precedence over all other categories."""
+        # Goal at 100% with no activity → GOAL_ACHIEVED (not NO_EXECUTION)
+        goal = _make_metric_goal(
+            title="Achieved No Activity",
+            current_value=15.0,
+            target_value=15.0,
+        )
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert result.classification == NoProgressClass.GOAL_ACHIEVED
+
+    def test_transition_no_data_to_no_execution(self):
+        """Transition: adding config moves goal from NO_DATA to NO_EXECUTION."""
+        # Start: bare goal → NO_DATA
+        bare = _make_goal(title="Transition")
+        r1 = classify_no_progress(
+            bare, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r1.classification == NoProgressClass.NO_DATA
+
+        # Add config → NO_EXECUTION
+        with_config = _make_metric_goal(title="Transition")
+        r2 = classify_no_progress(
+            with_config, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r2.classification == NoProgressClass.NO_EXECUTION
+
+    def test_transition_no_execution_to_execution_without_effect(self):
+        """Transition: adding activity moves goal to EXECUTION_WITHOUT_EFFECT."""
+        # Start: config but no activity → NO_EXECUTION
+        goal = _make_metric_goal(title="Transition")
+        r1 = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r1.classification == NoProgressClass.NO_EXECUTION
+
+        # Add activity but no effect → EXECUTION_WITHOUT_EFFECT
+        snapshots = [_snap("Transition", "Body fat %", 20.0, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Transition", days_ago=3)
+        r2 = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert r2.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+    def test_transition_execution_without_effect_to_making_progress(self):
+        """Transition: adding effect moves goal to MAKING_PROGRESS."""
+        # Start: activity but no effect → EXECUTION_WITHOUT_EFFECT
+        goal = _make_metric_goal(title="Transition")
+        snapshots1 = [_snap("Transition", "Body fat %", 20.0, 15)]
+        recent1 = _activity(ActivityType.TASK_COMPLETED, "Transition", days_ago=3)
+        r1 = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots1,
+            activity_records=[recent1],
+        )
+        assert r1.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+        # Add effect → MAKING_PROGRESS
+        snapshots2 = [_snap("Transition", "Body fat %", 22.0, 15)]
+        recent2 = _activity(ActivityType.TASK_COMPLETED, "Transition", days_ago=3)
+        r2 = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots2,
+            activity_records=[recent2],
+        )
+        assert r2.classification == NoProgressClass.MAKING_PROGRESS
+
+    def test_transition_making_progress_to_goal_achieved(self):
+        """Transition: reaching 100% moves goal to GOAL_ACHIEVED."""
+        # Start: making progress → MAKING_PROGRESS
+        goal = _make_metric_goal(title="Transition")
+        snapshots = [_snap("Transition", "Body fat %", 22.0, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Transition", days_ago=3)
+        r1 = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert r1.classification == NoProgressClass.MAKING_PROGRESS
+
+        # Reach 100% → GOAL_ACHIEVED
+        achieved_goal = _make_metric_goal(
+            title="Transition",
+            current_value=15.0,
+            target_value=15.0,
+        )
+        r2 = classify_no_progress(
+            achieved_goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+        )
+        assert r2.classification == NoProgressClass.GOAL_ACHIEVED
+
+    def test_ambiguous_case_exactly_at_threshold(self):
+        """Ambiguous: progress delta exactly at threshold (5%)."""
+        goal = _make_metric_goal()
+        # 15 days ago: value 20.4 → progress = 32.5%
+        # now: value 20.0 → progress = 37.5%
+        # delta = 5.0% — exactly at threshold
+        snapshots = [_snap("Body fat", "Body fat %", 20.4, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        # delta >= 5% → MAKING_PROGRESS (threshold is exclusive)
+        assert result.classification == NoProgressClass.MAKING_PROGRESS
+
+    def test_ambiguous_case_just_below_threshold(self):
+        """Ambiguous: progress delta just below threshold (4.9%)."""
+        goal = _make_metric_goal()
+        # 15 days ago: value 20.04 → progress = 37.0%
+        # now: value 20.0 → progress = 37.5%
+        # delta = 0.5% — below threshold
+        snapshots = [_snap("Body fat", "Body fat %", 20.04, 15)]
+        recent = _activity(ActivityType.TASK_COMPLETED, "Body fat", days_ago=3)
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[recent],
+        )
+        assert result.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+    def test_ambiguous_case_activity_at_window_boundary(self):
+        """Ambiguous: activity exactly at 30-day window boundary."""
+        goal = _make_metric_goal()
+        # Activity 30 days ago — exactly at boundary
+        boundary_activity = _activity(
+            ActivityType.TASK_COMPLETED, "Body fat", days_ago=30,
+        )
+        snapshots = [_snap("Body fat", "Body fat %", 20.0, 15)]
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            metric_snapshots=snapshots,
+            activity_records=[boundary_activity],
+        )
+        # Activity at exactly 30 days is within window (>=)
+        # Metric unchanged → EXECUTION_WITHOUT_EFFECT
+        assert result.classification == NoProgressClass.EXECUTION_WITHOUT_EFFECT
+
+    def test_ambiguous_case_activity_just_outside_window(self):
+        """Ambiguous: activity just outside 30-day window."""
+        goal = _make_metric_goal()
+        # Activity 31 days ago — outside window
+        outside_activity = _activity(
+            ActivityType.TASK_COMPLETED, "Body fat", days_ago=31,
+        )
+        result = classify_no_progress(
+            goal, FIXED_TODAY,
+            open_task_titles=set(), all_task_titles=set(),
+            activity_records=[outside_activity],
+        )
+        assert result.classification == NoProgressClass.NO_EXECUTION
