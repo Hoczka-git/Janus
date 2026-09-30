@@ -93,12 +93,14 @@ class TestCompleteTaskService:
         with pytest.raises(ValueError, match="Task not found: Missing task"):
             complete_task("Missing task")
 
-    def test_completed_task_cannot_be_completed_again(self, tmp_path, monkeypatch):
+    def test_completed_task_is_idempotent(self, tmp_path, monkeypatch):
+        """Completing an already-completed task returns early (idempotent)."""
         tasks_file = _write_tasks_file(tmp_path, "- [x] Done task\n")
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
 
-        with pytest.raises(ValueError, match="Task not found: Done task"):
-            complete_task("Done task")
+        # Should NOT raise — idempotent no-op
+        task = complete_task("Done task")
+        assert task.title == "Done task"
 
     def test_duplicate_open_task_titles_raises(self, tmp_path, monkeypatch):
         tasks_file = _write_tasks_file(
