@@ -590,9 +590,12 @@ def complete_task(title: str) -> Task:
     lives inside a git repository; they are silently skipped for non-git
     paths so that existing callers and tests continue to work):
 
-    1. **Phase 3 — pre-completion verification** — working tree clean,
+    1. **Policy evaluation** — the policy layer evaluates the action against
+       the P1 rule table. DENY blocks immediately; ASK triggers an approval
+       prompt; ALLOW proceeds to the ADR-004 gates.
+    2. **Phase 3 — pre-completion verification** — working tree clean,
        ``git diff --check``, and re-run of the test suite must all pass.
-    2. **Phase 4 — safe integration** — the task branch must already be
+    3. **Phase 4 — safe integration** — the task branch must already be
        integrated into the remote target branch, or integration is attempted
        automatically. If integration fails the gate blocks.
 
@@ -616,8 +619,41 @@ def complete_task(title: str) -> Task:
             or if the matching task is already completed.
         CompletionGateError: if a Phase 3 or Phase 4 gate blocks completion.
             The ``reason`` attribute carries the structured reason code.
+        PolicyDenialError: if the policy layer returns a DENY verdict.
+        PolicyApprovalRequired: if the policy layer returns an ASK verdict and
+            the user does not approve.
     """
     _validate_title(title)
+
+    # ── Policy evaluation (P1) ──────────────────────────────────────────────
+    from janus.services.policy import (
+        evaluate_policy,
+        build_approval_request,
+        present_approval_request,
+        record_approval,
+    )
+    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
+    from janus.models.policy import ApprovalResponse, ApprovalRecord, PolicyVerdict
+
+    policy_decision = evaluate_policy(action="task_completion", context="git_repo")
+    if policy_decision.verdict == PolicyVerdict.DENY:
+        raise PolicyDenialError(
+            rationale=policy_decision.rationale,
+            gate_id=policy_decision.gate_id,
+        )
+    elif policy_decision.verdict == PolicyVerdict.ASK:
+        approval_request = build_approval_request(
+            decision=policy_decision,
+            action="task_completion",
+            context=f"task_title={title}",
+        )
+        response = present_approval_request(approval_request)
+        record_approval(ApprovalRecord(
+            request=approval_request,
+            response=response,
+        ))
+        if response != ApprovalResponse.APPROVE:
+            raise PolicyApprovalRequired(approval_request)
 
     # Read the task body to check for swarm root marker
     raw_content = TASKS_PATH.read_text()

@@ -168,6 +168,10 @@ def promote_to_vault(proposal_id: str) -> Path:
     :class:`CurationGateError` when ``approval_state != 'approved'``, blocking
     any promotion that has not received explicit human approval.
 
+    Before the promotion, the policy layer evaluates the action against the
+    P1 rule table (R7). DENY blocks immediately; ASK triggers an approval
+    prompt; ALLOW proceeds to the existing curation gate.
+
     Args:
         proposal_id: The curation proposal to promote.
 
@@ -177,7 +181,40 @@ def promote_to_vault(proposal_id: str) -> Path:
     Raises:
         CurationGateError: if the proposal is not in ``approved`` state.
         ValueError: if the proposal is not found.
+        PolicyDenialError: if the policy layer returns a DENY verdict.
+        PolicyApprovalRequired: if the policy layer returns an ASK verdict and
+            the user does not approve.
     """
+    # ── Policy evaluation (P1) ──────────────────────────────────────────────
+    from janus.services.policy import (
+        evaluate_policy,
+        build_approval_request,
+        present_approval_request,
+        record_approval,
+    )
+    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
+    from janus.models.policy import ApprovalResponse, ApprovalRecord, PolicyVerdict
+
+    policy_decision = evaluate_policy(action="knowledge_promotion")
+    if policy_decision.verdict == PolicyVerdict.DENY:
+        raise PolicyDenialError(
+            rationale=policy_decision.rationale,
+            gate_id=policy_decision.gate_id,
+        )
+    elif policy_decision.verdict == PolicyVerdict.ASK:
+        approval_request = build_approval_request(
+            decision=policy_decision,
+            action="knowledge_promotion",
+            context=f"proposal_id={proposal_id}",
+        )
+        response = present_approval_request(approval_request)
+        record_approval(ApprovalRecord(
+            request=approval_request,
+            response=response,
+        ))
+        if response != ApprovalResponse.APPROVE:
+            raise PolicyApprovalRequired(approval_request)
+
     proposal = _get_proposal_or_raise(proposal_id)
 
     if proposal.approval_state != "approved":
