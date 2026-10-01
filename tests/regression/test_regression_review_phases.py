@@ -30,8 +30,12 @@ import pytest
 from janus.services.tasks import (
     CompletionGateResult,
     CompletionGateError,
+    UnifiedCompletionGateError,
+    UnifiedGateResult,
+    IntegrationGateResult,
     complete_task,
     run_completion_gates,
+    run_unified_completion_gates,
 )
 from janus.services.agency_planning import (
     AgencyContext,
@@ -151,8 +155,8 @@ class TestV2_ReviewApprovalCompletes:
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         tasks_file = _setup_tasks(tmp_path, monkeypatch, "- [ ] Review task | review: true\n")
 
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=CompletionGateResult(ok=True, integration_not_applicable=True)):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=UnifiedGateResult(overall="pass")):
             task = complete_task("Review task")
 
         assert task.title == "Review task"
@@ -363,8 +367,8 @@ class TestV12_ReviewWithIntegrationGate:
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         tasks_file = _setup_tasks(tmp_path, monkeypatch, "- [ ] Review integration task | review: true\n")
 
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=CompletionGateResult(ok=True, integration_not_applicable=True)):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=UnifiedGateResult(overall="pass")):
             task = complete_task("Review integration task")
 
         assert task.title == "Review integration task"
@@ -391,8 +395,15 @@ class TestV13_ReviewWithCompletionGate:
             blocked_message="Working tree not clean",
         )
 
-        with mock.patch("janus.services.tasks.run_completion_gates", return_value=failed_result):
-            with pytest.raises(CompletionGateError):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates") as mock_gates:
+            mock_gates.return_value = UnifiedGateResult(
+                overall="blocked",
+                blocked_reason="working_tree_not_clean",
+                blocked_message="Working tree not clean",
+                adr004=failed_result,
+                integration_required=IntegrationGateResult(passed=True, skipped=True),
+            )
+            with pytest.raises(UnifiedCompletionGateError):
                 complete_task("Review gate task")
 
 
@@ -449,8 +460,8 @@ class TestV15_FullLifecycleReviewCycle:
         assert _is_review_phase(task_rereview) is True
 
         # Step 5: Completion
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=CompletionGateResult(ok=True, integration_not_applicable=True)):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=UnifiedGateResult(overall="pass")):
             complete_task("Full cycle task")
 
         content = tasks_file.read_text()
