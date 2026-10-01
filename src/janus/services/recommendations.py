@@ -190,6 +190,56 @@ def _agency_score_boost(agency: TaskAgency | None) -> int:
     return boost
 
 
+# ── Agency-aware scoring ──────────────────────────────────────
+
+def _agency_score_boost(agency: TaskAgency | None) -> int:
+    """Compute a score boost based on agency classification.
+
+    The least-substitutive modes receive a higher boost, so that
+    USER-mode tasks are preferred over JANUS-mode tasks when urgency
+    is equal.  This operationalizes the least-substitutive-mode
+    selection principle in the ranking layer.
+
+    Boost values:
+        USER execution:           +20
+        COLLABORATIVE execution:  +10
+        JANUS execution:         +0
+
+    Support mode adds a smaller adjustment:
+        EXPLAIN:  +5
+        COACH:    +4
+        SCAFFOLD: +3
+        REVIEW:   +2
+        EXECUTE:  +0
+
+    When ``agency`` is None (no agency context provided), returns 0
+    — the ranking is unchanged (backward compatible).
+    """
+    if agency is None:
+        return 0
+
+    boost = 0
+
+    # Execution mode boost
+    if agency.execution_mode == ExecutionMode.USER:
+        boost += 20
+    elif agency.execution_mode == ExecutionMode.COLLABORATIVE:
+        boost += 10
+    # JANUS gets +0 (most substitutive)
+
+    # Support mode boost
+    support_boosts = {
+        SupportMode.EXPLAIN: 5,
+        SupportMode.COACH: 4,
+        SupportMode.SCAFFOLD: 3,
+        SupportMode.REVIEW: 2,
+        SupportMode.EXECUTE: 0,
+    }
+    boost += support_boosts.get(agency.support_mode, 0)
+
+    return boost
+
+
 # ── Scoring helpers ────────────────────────────────────────────
 
 def _task_base_score(task: Task, today: date) -> int:
