@@ -31,10 +31,13 @@ from janus.services.tasks import (
     GATE_WORKING_TREE_NOT_CLEAN,
     CompletionGateError,
     CompletionGateResult,
+    UnifiedCompletionGateError,
+    UnifiedGateResult,
     _children_all_done,
     _is_swarm_root,
     complete_task,
     run_completion_gates,
+    run_unified_completion_gates,
 )
 
 
@@ -98,10 +101,10 @@ class TestF1_WorkingTreeNotClean:
         tasks_file = _setup_tasks(tmp_path, monkeypatch, "- [ ] Dirty task\n")
         (tmp_path / "stray.txt").write_text("hello\n")
 
-        with pytest.raises(CompletionGateError) as exc_info:
+        with pytest.raises(UnifiedCompletionGateError) as exc_info:
             complete_task("Dirty task")
 
-        assert exc_info.value.reason == GATE_WORKING_TREE_NOT_CLEAN
+        assert exc_info.value.result.blocked_reason == GATE_WORKING_TREE_NOT_CLEAN
         content = tasks_file.read_text()
         assert "- [ ] Dirty task" in content
         assert "- [x] Dirty task" not in content
@@ -126,10 +129,10 @@ class TestF2_TestsFail:
         )
 
         with mock.patch("janus.services.tasks.run_completion_gates", return_value=failed_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Test task")
 
-        assert exc_info.value.reason == GATE_TESTS_FAILED
+        assert exc_info.value.result.blocked_reason == GATE_TESTS_FAILED
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -151,10 +154,10 @@ class TestF3_SyncConflict:
         )
 
         with mock.patch("janus.services.tasks.run_completion_gates", return_value=conflict_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Conflict task")
 
-        assert exc_info.value.reason == GATE_SYNC_CONFLICT
+        assert exc_info.value.result.blocked_reason == GATE_SYNC_CONFLICT
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -176,10 +179,10 @@ class TestF4_ContractVerificationFailure:
         )
 
         with mock.patch("janus.services.tasks.run_completion_gates", return_value=contract_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Contract task")
 
-        assert exc_info.value.reason == GATE_CONTRACT_VERIFICATION_FAILED
+        assert exc_info.value.result.blocked_reason == GATE_CONTRACT_VERIFICATION_FAILED
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -201,10 +204,10 @@ class TestF5_IntegrationFailure:
         )
 
         with mock.patch("janus.services.tasks.run_completion_gates", return_value=integration_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Integration task")
 
-        assert exc_info.value.reason == GATE_INTEGRATION_FAILED
+        assert exc_info.value.result.blocked_reason == GATE_INTEGRATION_FAILED
 
 
 # ──────────────────────────────────────────────────────────────────────

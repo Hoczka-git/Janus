@@ -2,6 +2,7 @@
 
 from datetime import date
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -173,3 +174,99 @@ class TestTaskAddIntegration:
 
         content = tasks_file.read_text()
         assert content == "- [x] Buy shoes\n- [ ] Buy shoes\n"
+
+
+class TestTaskSyncCLI:
+    """Tests for 'janus task sync' (Phase 1 pre-implementation sync)."""
+
+    def test_sync_success(self, capsys):
+        """Successful sync prints confirmation."""
+        from janus.tasks_cli import handle_task_sync
+        mock_result = type("SyncResult", (), {
+            "success": True,
+            "reason": None,
+            "task_branch": "wt/task-1",
+            "target_branch": "main",
+        })()
+        with patch("janus.tasks_cli._find_git_root", return_value=Path("/tmp")), \
+             patch("janus.tasks_cli._has_origin_remote", return_value=True), \
+             patch("janus.tasks_cli.sync_branch", return_value=mock_result):
+            handle_task_sync([])
+        out = capsys.readouterr().out
+        assert "Synced" in out
+
+    def test_sync_already_up_to_date(self, capsys):
+        """Already-up-to-date sync prints appropriate message."""
+        from janus.tasks_cli import handle_task_sync
+        mock_result = type("SyncResult", (), {
+            "success": True,
+            "reason": "already_up_to_date",
+            "task_branch": "wt/task-1",
+            "target_branch": "main",
+        })()
+        with patch("janus.tasks_cli._find_git_root", return_value=Path("/tmp")), \
+             patch("janus.tasks_cli._has_origin_remote", return_value=True), \
+             patch("janus.tasks_cli.sync_branch", return_value=mock_result):
+            handle_task_sync([])
+        out = capsys.readouterr().out
+        assert "already up to date" in out.lower()
+
+    def test_sync_failure(self, capsys):
+        """Failed sync prints error and exits."""
+        from janus.tasks_cli import handle_task_sync
+        mock_result = type("SyncResult", (), {
+            "success": False,
+            "reason": "sync_conflict",
+            "task_branch": "wt/task-1",
+            "target_branch": "main",
+            "error": "conflict in file.py",
+        })()
+        with patch("janus.tasks_cli._find_git_root", return_value=Path("/tmp")), \
+             patch("janus.tasks_cli._has_origin_remote", return_value=True), \
+             patch("janus.tasks_cli.sync_branch", return_value=mock_result):
+            with pytest.raises(SystemExit):
+                handle_task_sync([])
+        err = capsys.readouterr().err
+        assert "Sync failed" in err
+
+    def test_sync_not_git_repo(self, capsys):
+        """Exits with error when not in a git repository."""
+        from janus.tasks_cli import handle_task_sync
+        with patch("janus.tasks_cli._find_git_root", return_value=None):
+            with pytest.raises(SystemExit):
+                handle_task_sync([])
+        err = capsys.readouterr().err
+        assert "not in a git repository" in err
+
+    def test_sync_no_origin_remote(self, capsys):
+        """No origin remote: prints message, exits 0."""
+        from janus.tasks_cli import handle_task_sync
+        with patch("janus.tasks_cli._find_git_root", return_value=Path("/tmp")), \
+             patch("janus.tasks_cli._has_origin_remote", return_value=False):
+            handle_task_sync([])
+        err = capsys.readouterr().err
+        assert "No origin remote" in err
+
+    def test_sync_with_target_branch(self, capsys):
+        """--target flag is passed through to sync_branch."""
+        from janus.tasks_cli import handle_task_sync
+        mock_result = type("SyncResult", (), {
+            "success": True,
+            "reason": None,
+            "task_branch": "wt/task-1",
+            "target_branch": "develop",
+        })()
+        with patch("janus.tasks_cli._find_git_root", return_value=Path("/tmp")), \
+             patch("janus.tasks_cli._has_origin_remote", return_value=True), \
+             patch("janus.tasks_cli.sync_branch", return_value=mock_result) as mock_sync:
+            handle_task_sync(["--target", "develop"])
+        out = capsys.readouterr().out
+        assert "develop" in out
+
+    def test_sync_unknown_arg_exits(self, capsys):
+        """Unknown argument causes SystemExit."""
+        from janus.tasks_cli import handle_task_sync
+        with pytest.raises(SystemExit):
+            handle_task_sync(["--unknown"])
+        err = capsys.readouterr().err
+        assert "unknown argument" in err

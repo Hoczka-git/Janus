@@ -30,6 +30,7 @@ import pytest
 from janus.services.tasks import (
     CompletionGateResult,
     CompletionGateError,
+    UnifiedCompletionGateError,
     complete_task,
     run_completion_gates,
 )
@@ -392,7 +393,7 @@ class TestV13_ReviewWithCompletionGate:
         )
 
         with mock.patch("janus.services.tasks.run_completion_gates", return_value=failed_result):
-            with pytest.raises(CompletionGateError):
+            with pytest.raises(UnifiedCompletionGateError):
                 complete_task("Review gate task")
 
 

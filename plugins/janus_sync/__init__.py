@@ -156,9 +156,18 @@ def on_task_completed(
     emitted so the dispatcher surfaces the block.  No completion marker is
     stamped — the task never reaches ``done``.
     """
-    from janus.services.tasks import CompletionGateError
+    from janus.services.tasks import CompletionGateError, UnifiedCompletionGateError
     try:
         return _run_sync(task_id, board=board, run_id=run_id, summary=summary)
+    except UnifiedCompletionGateError as uce:
+        # Unified gate failure (ADR-004 + integration_required): block the task.
+        _handle_gate_block(task_id, board, uce)
+        return {
+            "status": "blocked",
+            "task_id": task_id,
+            "reason": uce.result.blocked_reason or "unified_gate_blocked",
+            "error": str(uce),
+        }
     except CompletionGateError as gce:
         # ADR-004 Phase 5: a gate failure must block, never silently complete.
         _handle_gate_block(task_id, board, gce)
@@ -354,28 +363,38 @@ def _handle_sync_conflict(conn, kb, task_id: str, result) -> None:
 
 
 def _handle_gate_block(
-    task_id: str, board: Optional[str], gate_error: CompletionGateError,
+    task_id: str, board: Optional[str], gate_error: Exception,
 ) -> None:
-    """Block a task for an ADR-004 completion-gate failure (design §6.5).
+    """Block a task for an ADR-004 or unified completion-gate failure.
 
-    A ``CompletionGateError`` raised by the Hermes execution-feedback path means
-    a Phase 1/3/4 gate failed and the task must NOT be marked completed.  This
-    helper transitions the task to ``blocked`` with ``reason=<gate reason>`` and
-    ``kind="capability"`` (matching the sync-conflict routing semantics so a
-    flaky gate cannot be auto-reclaimed into ``running``), records a diagnostic
-    audit comment, and emits a structured ``janus_sync_gated`` event.
+    A ``CompletionGateError`` or ``UnifiedCompletionGateError`` raised by the
+    Hermes execution-feedback path means a gate failed and the task must NOT be
+    marked completed.  This helper transitions the task to ``blocked`` with
+    ``reason=<gate reason>`` and ``kind="capability"`` (matching the
+    sync-conflict routing semantics so a flaky gate cannot be auto-reclaimed
+    into ``running``), records a diagnostic audit comment, and emits a
+    structured ``janus_sync_gated`` event.
 
     Best-effort on every sub-step: a failure to block or comment must not
     propagate out of the hook observer (``on_task_completed`` already caught it).
     """
     from hermes_cli import kanban_db as kb
 
+    # Extract reason from either error type
+    reason = getattr(gate_error, "reason", None)
+    if reason is None:
+        # UnifiedCompletionGateError carries result.blocked_reason
+        result = getattr(gate_error, "result", None)
+        if result is not None:
+            reason = getattr(result, "blocked_reason", None)
+    reason = reason or "completion_gate_failed"
+
     conn = None
     try:
         conn = kb.connect(board=board) if board else kb.connect()
         kb.block_task(
             conn, task_id,
-            reason=gate_error.reason or "completion_gate_failed",
+            reason=reason,
             kind="capability",
         )
         # Structured event so the dispatcher / dashboard surfaces the gate block.
@@ -383,7 +402,7 @@ def _handle_gate_block(
             conn, kb, task_id, "janus_sync_gated",
             {
                 "domain_object": "task",
-                "reason": gate_error.reason or "completion_gate_failed",
+                "reason": reason,
                 "error": str(gate_error),
             },
         )
