@@ -544,6 +544,7 @@ def _run_sync(
                     "domain_object": metadata.object,
                     "domain_title": metadata.title,
                     "state_changes": propagation.get("state_changes", []),
+                    "verification": propagation.get("verification"),
                     "synced_at": propagation.get("synced_at"),
                 },
             )
@@ -552,6 +553,8 @@ def _run_sync(
             # compatible shape: {"goal": ...} / {"task": ...} etc.) while the
             # top-level ``state_changes`` surfaces what Janus actually mutated —
             # the propagated state updates echoing back through the channel.
+            # ``verification`` carries the structured pass/fail record from the
+            # ADR-004 completion gates (design spec §5–§6).
             return {
                 "status": "synced",
                 "task_id": task_id,
@@ -559,6 +562,7 @@ def _run_sync(
                 "domain_title": metadata.title,
                 "dispatch": propagation.get("dispatch", {}),
                 "state_changes": propagation.get("state_changes", []),
+                "verification": propagation.get("verification"),
                 "synced_at": propagation.get("synced_at"),
             }
         finally:
@@ -815,20 +819,28 @@ def _try_add_audit_comment(conn, kb, task_id: str, metadata: Any,
     the sync (propagated back through the Janus↔Hermes channel) so the
     audit trail records *what changed*, not just the raw service return
     values.  ``dispatch_result`` is the structured payload produced by
-    :func:`propagate_state_updates` and carries ``state_changes`` and
-    ``synced_at``.
+    :func:`propagate_state_updates` and carries ``state_changes``,
+    ``verification``, and ``synced_at``.
     """
     try:
         obj = getattr(metadata, "object", None)
         title = getattr(metadata, "title", None)
         state_changes = dispatch_result.get("state_changes", [])
         synced_at = dispatch_result.get("synced_at")
+        verification = dispatch_result.get("verification")
         change_summary = (
             "; ".join(state_changes) if state_changes else "(no domain state changes)"
         )
         summary = (
             f"Janus sync completed for {obj}={title!r}: {change_summary}"
         )
+        if verification is not None:
+            v_ok = verification.get("ok")
+            v_reason = verification.get("blocked_reason")
+            if v_ok:
+                summary += " [verification: PASS]"
+            else:
+                summary += f" [verification: FAIL ({v_reason})]"
         if synced_at:
             summary += f" [synced_at={synced_at}]"
         kb.add_comment(conn, task_id, _AUDIT_COMMENT_AUTHOR, summary)
