@@ -5,7 +5,7 @@ Design reference: docs/design/policy_approval_p1_design.md §7.5
 
 from __future__ import annotations
 
-from janus.models.policy import ApprovalRequest
+from janus.models.policy_p1 import ApprovalRequest
 
 
 def format_approval_prompt(request: ApprovalRequest) -> str:
