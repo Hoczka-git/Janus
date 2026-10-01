@@ -118,12 +118,6 @@ from janus.models.policy import (
     RiskLevel,
     create_default_policy,
 )
-from janus.models.policy_p1 import (
-    ApprovalRecord,
-    ApprovalRequest,
-    ApprovalResponse,
-    PolicyVerdict,
-)
 from janus.models.skill_proposal import SkillProposal, SkillStage
 from janus.models.trust_model import TrustLevel, TrustRecord
 from janus.models.outcome_record import OutcomeRecord, OutcomeStatus
@@ -198,10 +192,6 @@ __all__ = [
     "PolicyRule",
     "RiskLevel",
     "create_default_policy",
-    "PolicyVerdict",
-    "ApprovalRequest",
-    "ApprovalResponse",
-    "ApprovalRecord",
     "SkillProposal",
     "SkillStage",
     "TrustLevel",

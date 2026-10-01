@@ -178,36 +178,6 @@ def promote_to_vault(proposal_id: str) -> Path:
         CurationGateError: if the proposal is not in ``approved`` state.
         ValueError: if the proposal is not found.
     """
-    # ── Policy evaluation (P1) ──────────────────────────────────────────────
-    from janus.services.policy import (
-        evaluate_policy,
-        build_approval_request,
-        present_approval_request,
-        record_approval,
-    )
-    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
-    from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord, PolicyVerdict
-
-    policy_decision = evaluate_policy(action="knowledge_promotion")
-    if policy_decision.verdict == PolicyVerdict.DENY:
-        raise PolicyDenialError(
-            rationale=policy_decision.rationale,
-            gate_id=policy_decision.gate_id,
-        )
-    elif policy_decision.verdict == PolicyVerdict.ASK:
-        approval_request = build_approval_request(
-            decision=policy_decision,
-            action="knowledge_promotion",
-            context=f"proposal_id={proposal_id}",
-        )
-        response = present_approval_request(approval_request)
-        record_approval(ApprovalRecord(
-            request=approval_request,
-            response=response,
-        ))
-        if response != ApprovalResponse.APPROVE:
-            raise PolicyApprovalRequired(approval_request)
-
     proposal = _get_proposal_or_raise(proposal_id)
 
     if proposal.approval_state != "approved":

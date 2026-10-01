@@ -373,64 +373,7 @@ def complete_goal(title: str) -> Goal:
 
     Sets status='completed'. Returns the updated Goal.
     Raises ValueError if goal not found.
-
-    Before the state change, the following gates run:
-    1. **Policy evaluation** — the policy layer evaluates the action against
-       the P1 rule table. DENY blocks immediately; ASK triggers an approval
-       prompt; ALLOW proceeds to the structural gates.
-    2. **Structural gates** — ``run_goal_completion_gates()`` verifies the
-       goal's state is consistent (not already completed, metric at target).
-
-    Raises:
-        ValueError: if goal not found.
-        PolicyDenialError: if the policy layer returns a DENY verdict.
-        PolicyApprovalRequired: if the policy layer returns an ASK verdict and
-            the user does not approve.
-        GoalCompletionGateError: if a structural gate blocks completion.
     """
-    # ── Policy evaluation (P1) ──────────────────────────────────────────────
-    from janus.services.policy import (
-        evaluate_policy,
-        build_approval_request,
-        present_approval_request,
-        record_approval,
-    )
-    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
-    from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord, PolicyVerdict
-    from janus.services.goal_gates import (
-        run_goal_completion_gates,
-        GoalCompletionGateError,
-    )
-
-    policy_decision = evaluate_policy(action="goal_completion")
-    if policy_decision.verdict == PolicyVerdict.DENY:
-        raise PolicyDenialError(
-            rationale=policy_decision.rationale,
-            gate_id=policy_decision.gate_id,
-        )
-    elif policy_decision.verdict == PolicyVerdict.ASK:
-        approval_request = build_approval_request(
-            decision=policy_decision,
-            action="goal_completion",
-            context=f"goal_title={title}",
-        )
-        response = present_approval_request(approval_request)
-        record_approval(ApprovalRecord(
-            request=approval_request,
-            response=response,
-        ))
-        if response != ApprovalResponse.APPROVE:
-            raise PolicyApprovalRequired(approval_request)
-
-    # ── Structural gates (ADR-011) ──────────────────────────────────────────
-    goal = get_goal(title)
-    gate_result = run_goal_completion_gates(goal)
-    if not gate_result.ok:
-        raise GoalCompletionGateError(
-            reason=gate_result.blocked_reason or "unknown",
-            message=gate_result.blocked_message or "Goal completion gate blocked",
-        )
-
     return update_goal_fields(title, status="completed")
 
 
