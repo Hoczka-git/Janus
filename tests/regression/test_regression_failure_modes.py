@@ -30,9 +30,10 @@ from janus.services.tasks import (
     GATE_TESTS_FAILED,
     GATE_WORKING_TREE_NOT_CLEAN,
     CompletionGateError,
-    CompletionGateResult,
     UnifiedCompletionGateError,
+    CompletionGateResult,
     UnifiedGateResult,
+    IntegrationGateResult,
     _children_all_done,
     _is_swarm_root,
     complete_task,
@@ -104,7 +105,7 @@ class TestF1_WorkingTreeNotClean:
         with pytest.raises(UnifiedCompletionGateError) as exc_info:
             complete_task("Dirty task")
 
-        assert exc_info.value.result.blocked_reason == GATE_WORKING_TREE_NOT_CLEAN
+        assert "working_tree_not_clean" in str(exc_info.value)
         content = tasks_file.read_text()
         assert "- [ ] Dirty task" in content
         assert "- [x] Dirty task" not in content
@@ -128,11 +129,18 @@ class TestF2_TestsFail:
             blocked_message="Pre-completion gate failed: tests did not pass after rebase",
         )
 
-        with mock.patch("janus.services.tasks.run_completion_gates", return_value=failed_result):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates") as mock_gates:
+            mock_gates.return_value = UnifiedGateResult(
+                overall="blocked",
+                blocked_reason=GATE_TESTS_FAILED,
+                blocked_message="Pre-completion gate failed: tests did not pass after rebase",
+                adr004=failed_result,
+                integration_required=IntegrationGateResult(passed=True, skipped=True),
+            )
             with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Test task")
 
-        assert exc_info.value.result.blocked_reason == GATE_TESTS_FAILED
+        assert GATE_TESTS_FAILED in str(exc_info.value)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -153,11 +161,18 @@ class TestF3_SyncConflict:
             blocked_message="Phase 1 re-sync conflict; Route to merge-reconciler.",
         )
 
-        with mock.patch("janus.services.tasks.run_completion_gates", return_value=conflict_result):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates") as mock_gates:
+            mock_gates.return_value = UnifiedGateResult(
+                overall="blocked",
+                blocked_reason=GATE_SYNC_CONFLICT,
+                blocked_message="Phase 1 re-sync conflict; Route to merge-reconciler.",
+                adr004=conflict_result,
+                integration_required=IntegrationGateResult(passed=True, skipped=True),
+            )
             with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Conflict task")
 
-        assert exc_info.value.result.blocked_reason == GATE_SYNC_CONFLICT
+        assert GATE_SYNC_CONFLICT in str(exc_info.value)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -178,11 +193,18 @@ class TestF4_ContractVerificationFailure:
             blocked_message="Contract verification failed: 2 check(s) failed.",
         )
 
-        with mock.patch("janus.services.tasks.run_completion_gates", return_value=contract_result):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates") as mock_gates:
+            mock_gates.return_value = UnifiedGateResult(
+                overall="blocked",
+                blocked_reason=GATE_CONTRACT_VERIFICATION_FAILED,
+                blocked_message="Contract verification failed: 2 check(s) failed.",
+                adr004=contract_result,
+                integration_required=IntegrationGateResult(passed=True, skipped=True),
+            )
             with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Contract task")
 
-        assert exc_info.value.result.blocked_reason == GATE_CONTRACT_VERIFICATION_FAILED
+        assert GATE_CONTRACT_VERIFICATION_FAILED in str(exc_info.value)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -203,11 +225,18 @@ class TestF5_IntegrationFailure:
             blocked_message="Integration failed (merge_conflict): could not merge",
         )
 
-        with mock.patch("janus.services.tasks.run_completion_gates", return_value=integration_result):
+        with mock.patch("janus.services.tasks.run_unified_completion_gates") as mock_gates:
+            mock_gates.return_value = UnifiedGateResult(
+                overall="blocked",
+                blocked_reason=GATE_INTEGRATION_FAILED,
+                blocked_message="Integration failed (merge_conflict): could not merge",
+                adr004=integration_result,
+                integration_required=IntegrationGateResult(passed=True, skipped=True),
+            )
             with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 complete_task("Integration task")
 
-        assert exc_info.value.result.blocked_reason == GATE_INTEGRATION_FAILED
+        assert GATE_INTEGRATION_FAILED in str(exc_info.value)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -223,9 +252,9 @@ class TestF6_HookError:
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Hook task\n")
 
-        # Mock run_completion_gates to pass
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=CompletionGateResult(ok=True, integration_not_applicable=True)):
+        # Mock run_unified_completion_gates to pass
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=UnifiedGateResult(overall="pass")):
             # emit errors propagate to the caller (not swallowed)
             with mock.patch("janus.services.tasks.emit", side_effect=RuntimeError("hook exploded")):
                 with pytest.raises(RuntimeError, match="hook exploded"):
@@ -322,7 +351,7 @@ class TestF10_GateException:
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Exception task\n")
 
-        with mock.patch("janus.services.tasks.run_completion_gates",
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
                         side_effect=RuntimeError("gate crashed")):
             with pytest.raises(RuntimeError, match="gate crashed"):
                 complete_task("Exception task")
