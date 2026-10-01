@@ -132,14 +132,14 @@ fu-fu-ba57aff9 | E2E Test Follow-up Task | priority: 3 | goal: E2E Test Goal 215
 | Zdefiniuj docelowy poziom majątku... | 2026-10-05 | UPCOMING | RELEVANT |
 | Wybierz 3 konkretne duże wyzwania outdoorowe... | 2026-10-01 | UPCOMING | RELEVANT — aligns with "Adventure & Travel" goal |
 | Wybierz i zaplanuj najbliższą przygodę outdoorową | 2026-09-20 | UPCOMING | RELEVANT |
-| Zweryfikuj kompletny workflow Goal → Task → Execution... | 2026-09-19 | **DUE TOMORROW** | RELEVANT — aligns with "Janus/Hermes" goal |
-| Zdefiniuj najbliższy milestone rozwoju Janusa/Hermesa | 2026-09-19 | **DUE TOMORROW** | RELEVANT |
+| Zweryfikuj kompletny workflow Goal → Task → Execution... | 2026-09-19 | COMPLETED | RELEVANT — aligns with "Janus/Hermes" goal |
+| Zdefiniuj najbliższy milestone rozwoju Janusa/Hermesa | 2026-09-19 |COMPLETED | RELEVANT |
 | Zakończenie naprawy workoutów i prac na raportach | none | NO DUE DATE | UNCLEAR — no linked goal, vague scope |
-| Ustal konkretne jesienne wyzwanie endurance... | 2026-09-16 | **OVERDUE** (2 days) | RELEVANT but SUBSUMED — detailed plan already exists (lines 19–25), dates are past (Sep 26–28). The challenge has occurred. |
-|| Zarezerwuj nocleg w Ochotnicy... | 2026-09-16 | **OVERDUE** | SUBSUMED by completed challenge |
+| Ustal konkretne jesienne wyzwanie endurance... | 2026-09-16 | COMPLETED | RELEVANT but SUBSUMED — detailed plan already exists (lines 19–25), dates are past (Sep 26–28). The challenge has occurred. |
+|| Zarezerwuj nocleg w Ochotnicy... | 2026-09-16 | COMPLETED | SUBSUMED by completed challenge |
 || Zarezerwuj nocleg na Turbaczu... | 2026-09-16 | COMPLETED | SUBSUMED by completed challenge — zadatkowy przelew wykonany, rezerwacja potwierdzona przez użytkownika |
 | Zweryfikuj i zapisz finalny przebieg trasy... | 2026-09-20 | UPCOMING | SUBSUMED — challenge dates are past |
-| Przygotuj plan przygotowania... | 2026-09-17 | **OVERDUE** (1 day) | SUBSUMED — challenge already occurred |
+| Przygotuj plan przygotowania... | 2026-09-17 | COMPLETED | SUBSUMED — challenge already occurred |
 | Przygotuj wyposażenie i logistykę... | 2026-09-23 | UPCOMING | SUBSUMED — challenge already occurred |
 
 **Summary:**
