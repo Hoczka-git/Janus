@@ -35,18 +35,3 @@ if _hermes_agent in sys.path:
 # Skip all tests in this directory if hermes_cli is not available
 import pytest
 pytest.importorskip("hermes_cli", reason="hermes_cli not available (install hermes-agent)")
-
-
-@pytest.fixture(autouse=True)
-def _bypass_enforcement_gate(monkeypatch):
-    """Bypass the enforcement gate for all plugin e2e tests.
-
-    The enforcement gate is tested separately in test_approval_request_handling.py.
-    These e2e tests focus on the lifecycle hook → dispatch → state mutation flow,
-    so the gate is bypassed to avoid interactive prompts.
-    """
-    from unittest.mock import MagicMock
-    monkeypatch.setattr(
-        "janus.services.enforcement_gate.enforce_or_raise",
-        lambda *a, **kw: MagicMock(allowed=True),
-    )

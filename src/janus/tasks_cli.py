@@ -3,9 +3,12 @@
 """
 
 from datetime import date
+from pathlib import Path
 import sys
 
 from janus.services.tasks import (
+    _find_git_root,
+    _has_origin_remote,
     add_task,
     complete_task,
     complete_task_via_ingest,
@@ -13,6 +16,7 @@ from janus.services.tasks import (
     set_task_state,
     set_task_progress,
 )
+from janus.git_sync import sync_branch
 
 ALLOWED_STATES = frozenset({"todo", "in_progress", "blocked"})
 
@@ -28,6 +32,7 @@ def print_task_help() -> None:
     print("  complete   Complete a task")
     print("  list       List open tasks")
     print("  state      Set task state")
+    print("  sync       Run Phase 1 pre-implementation sync")
     print("  progress   Set task progress")
     print("")
     print("Options:")
@@ -216,6 +221,63 @@ def handle_task_complete(args: list[str]) -> None:
         sys.exit(1)
 
     print(f"Completed task: {title}")
+
+
+def handle_task_sync(args: list[str]) -> None:
+    """Parse 'janus task sync' arguments and run Phase 1 pre-implementation sync.
+
+    Usage:
+        janus task sync
+        janus task sync --target main
+
+    Rebases the current task branch onto the target branch and force-pushes.
+    This is the CLI equivalent of the janus_sync plugin's on_task_claimed hook.
+    """
+    if args and args[0] in ("-h", "--help"):
+        print("Usage: janus task sync [--target <branch>]")
+        print("")
+        print("Run Phase 1 pre-implementation sync: rebase the current task branch")
+        print("onto the target branch and force-push.")
+        print("")
+        print("Options:")
+        print("  --target <branch>  Target branch (auto-detected if omitted)")
+        print("  -h, --help         Show this help message")
+        return
+
+    target_branch: str | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--target":
+            i += 1
+            if i >= len(args):
+                print("Error: --target requires a value", file=sys.stderr)
+                sys.exit(1)
+            target_branch = args[i]
+        else:
+            print(f"Error: unknown argument: {arg}", file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    git_root = _find_git_root(Path.cwd())
+    if git_root is None:
+        print("Error: not in a git repository", file=sys.stderr)
+        sys.exit(1)
+
+    if not _has_origin_remote(git_root):
+        print("No origin remote found; nothing to sync.", file=sys.stderr)
+        return
+
+    result = sync_branch(str(git_root), target_branch=target_branch)
+    if result.success:
+        if result.reason == "already_up_to_date":
+            print("Branch is already up to date.")
+        else:
+            print(f"Synced branch '{result.task_branch}' onto '{result.target_branch}'.")
+    else:
+        error_msg = result.error or "unknown error"
+        print(f"Sync failed ({result.reason}): {error_msg}", file=sys.stderr)
+        sys.exit(1)
 
 
 def handle_task_state(args: list[str]) -> None:

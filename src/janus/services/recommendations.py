@@ -20,8 +20,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from janus.models.execution_mode import ExecutionMode
 from janus.models.goal import Goal
 from janus.models.project import Project
+from janus.models.support_mode import SupportMode
 from janus.models.task import Task
 from janus.models.task_agency import TaskAgency
 from janus.domain.planning import (
@@ -62,6 +64,180 @@ class Recommendation:
     due_date: str | None = None
     priority: int | None = None
     agency: TaskAgency | None = None
+
+    def __post_init__(self) -> None:
+        """Validate field values after initialization."""
+        if not isinstance(self.title, str):
+            raise TypeError(f"title must be a str, got {type(self.title).__name__}")
+        if not isinstance(self.kind, str):
+            raise TypeError(f"kind must be a str, got {type(self.kind).__name__}")
+        if self.kind not in ("task", "project", "milestone"):
+            raise ValueError(
+                f"kind must be 'task', 'project', or 'milestone', got {self.kind!r}"
+            )
+        if not isinstance(self.goal_title, str):
+            raise TypeError(
+                f"goal_title must be a str, got {type(self.goal_title).__name__}"
+            )
+        if not isinstance(self.score, int):
+            raise TypeError(f"score must be an int, got {type(self.score).__name__}")
+        if not isinstance(self.reason, str):
+            raise TypeError(f"reason must be a str, got {type(self.reason).__name__}")
+        if self.agency is not None and not isinstance(self.agency, TaskAgency):
+            raise TypeError(
+                f"agency must be a TaskAgency or None, got {type(self.agency).__name__}"
+            )
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-friendly dict.
+
+        Returns:
+            Dict with all fields, agency as dict or None.
+        """
+        return {
+            "title": self.title,
+            "kind": self.kind,
+            "goal_title": self.goal_title,
+            "score": self.score,
+            "reason": self.reason,
+            "project_title": self.project_title,
+            "milestone_title": self.milestone_title,
+            "due_date": self.due_date,
+            "priority": self.priority,
+            "agency": self.agency.to_dict() if self.agency else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Recommendation":
+        """Deserialize from a plain dict (inverse of :meth:`to_dict`).
+
+        Tolerates missing keys — every field has a sensible default so a
+        partial or truncated dict reconstructs a valid Recommendation.
+
+        Args:
+            data: Dict with optional keys title, kind, goal_title, score,
+                reason, project_title, milestone_title, due_date, priority,
+                agency.
+
+        Returns:
+            A new Recommendation instance.
+        """
+        agency = None
+        raw_agency = data.get("agency")
+        if raw_agency is not None:
+            agency = TaskAgency.from_dict(raw_agency)
+        return cls(
+            title=data.get("title", ""),
+            kind=data.get("kind", "task"),
+            goal_title=data.get("goal_title", ""),
+            score=data.get("score", 0),
+            reason=data.get("reason", ""),
+            project_title=data.get("project_title"),
+            milestone_title=data.get("milestone_title"),
+            due_date=data.get("due_date"),
+            priority=data.get("priority"),
+            agency=agency,
+        )
+
+
+# ── Agency-aware scoring ──────────────────────────────────────
+
+def _agency_score_boost(agency: TaskAgency | None) -> int:
+    """Compute a score boost based on agency classification.
+
+    The least-substitutive modes receive a higher boost, so that
+    USER-mode tasks are preferred over JANUS-mode tasks when urgency
+    is equal.  This operationalizes the least-substitutive-mode
+    selection principle in the ranking layer.
+
+    Boost values:
+        USER execution:           +20
+        COLLABORATIVE execution:  +10
+        JANUS execution:         +0
+
+    Support mode adds a smaller adjustment:
+        EXPLAIN:  +5
+        COACH:    +4
+        SCAFFOLD: +3
+        REVIEW:   +2
+        EXECUTE:  +0
+
+    When ``agency`` is None (no agency context provided), returns 0
+    — the ranking is unchanged (backward compatible).
+    """
+    if agency is None:
+        return 0
+
+    boost = 0
+
+    # Execution mode boost
+    if agency.execution_mode == ExecutionMode.USER:
+        boost += 20
+    elif agency.execution_mode == ExecutionMode.COLLABORATIVE:
+        boost += 10
+    # JANUS gets +0 (most substitutive)
+
+    # Support mode boost
+    support_boosts = {
+        SupportMode.EXPLAIN: 5,
+        SupportMode.COACH: 4,
+        SupportMode.SCAFFOLD: 3,
+        SupportMode.REVIEW: 2,
+        SupportMode.EXECUTE: 0,
+    }
+    boost += support_boosts.get(agency.support_mode, 0)
+
+    return boost
+
+
+# ── Agency-aware scoring ──────────────────────────────────────
+
+def _agency_score_boost(agency: TaskAgency | None) -> int:
+    """Compute a score boost based on agency classification.
+
+    The least-substitutive modes receive a higher boost, so that
+    USER-mode tasks are preferred over JANUS-mode tasks when urgency
+    is equal.  This operationalizes the least-substitutive-mode
+    selection principle in the ranking layer.
+
+    Boost values:
+        USER execution:           +20
+        COLLABORATIVE execution:  +10
+        JANUS execution:         +0
+
+    Support mode adds a smaller adjustment:
+        EXPLAIN:  +5
+        COACH:    +4
+        SCAFFOLD: +3
+        REVIEW:   +2
+        EXECUTE:  +0
+
+    When ``agency`` is None (no agency context provided), returns 0
+    — the ranking is unchanged (backward compatible).
+    """
+    if agency is None:
+        return 0
+
+    boost = 0
+
+    # Execution mode boost
+    if agency.execution_mode == ExecutionMode.USER:
+        boost += 20
+    elif agency.execution_mode == ExecutionMode.COLLABORATIVE:
+        boost += 10
+    # JANUS gets +0 (most substitutive)
+
+    # Support mode boost
+    support_boosts = {
+        SupportMode.EXPLAIN: 5,
+        SupportMode.COACH: 4,
+        SupportMode.SCAFFOLD: 3,
+        SupportMode.REVIEW: 2,
+        SupportMode.EXECUTE: 0,
+    }
+    boost += support_boosts.get(agency.support_mode, 0)
+
+    return boost
 
 
 # ── Scoring helpers ────────────────────────────────────────────
@@ -188,6 +364,9 @@ def _recommendation_from_next_action(
     # Fallback: use action title as milestone title for milestone-kind actions
     if not milestone_title and action.kind == "milestone":
         milestone_title = action.title
+
+    # Apply agency-aware score boost (least-substitutive modes preferred)
+    score += _agency_score_boost(action.agency)
 
     return Recommendation(
         title=action.title,
