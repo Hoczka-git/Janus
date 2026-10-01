@@ -180,3 +180,13 @@ Key phases:
 - [ ] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
 - [ ] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
 - [ ] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
+- [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
