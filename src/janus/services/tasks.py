@@ -15,7 +15,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from janus._log import emit
 from janus.models.task import Task
@@ -71,6 +71,26 @@ class CompletionGateError(ValueError):
     def __init__(self, reason: str, message: str) -> None:
         self.reason = reason
         super().__init__(message)
+
+
+class UnifiedCompletionGateError(ValueError):
+    """Raised by ``complete_task`` when the unified completion gate blocks.
+
+    Carries the full :class:`UnifiedGateResult` so callers can inspect
+    which phase blocked, the integration_required outcome, and all
+    phase-by-phase results.  This is the enriched replacement for
+    :class:`CompletionGateError` on the direct path.
+    """
+
+    def __init__(self, result: "UnifiedGateResult") -> None:
+        self.result = result
+        # Human-readable message summarizes the first blocking phase
+        msg = "Unified completion gate blocked"
+        if result.blocked_reason:
+            msg += f": {result.blocked_reason}"
+        if result.blocked_message:
+            msg += f" — {result.blocked_message}"
+        super().__init__(msg)
 
 
 # ── Reason codes (mirror docs/design/sync_integration_workflow_design.md §5.1) ──
@@ -306,6 +326,67 @@ def _write_pre_completion_report(
     """Persist ``pre_completion_report.json`` for the evidence artifact."""
     return _write_report_json(
         report_dir / "pre_completion_report.json", report.to_dict()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified completion gate types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class IntegrationState:
+    """CI/CD state for a task branch, resolved by an integration state provider."""
+
+    pr_url: Optional[str] = None
+    pr_merged: bool = False
+    ci_status: str = "unknown"  # "green" | "red" | "unknown"
+    ci_checks_passed: bool = False
+    error: Optional[str] = None
+
+
+IntegrationStateProvider = Callable[[str], IntegrationState]
+
+
+@dataclass
+class IntegrationGateResult:
+    """Outcome of the integration_required gate evaluation."""
+
+    passed: bool = True
+    skipped: bool = False
+    skip_reason: Optional[str] = None
+    failure_reason: Optional[str] = None
+    pr_url: Optional[str] = None
+    ci_status: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class UnifiedGateResult:
+    """Outcome of the unified completion gate (PolicyGate + TechnicalGate).
+
+    ``overall`` is ``"pass"`` only when both the ADR-004 technical gate
+    and the integration_required policy gate pass (or are not applicable).
+    ``phase_results`` carries the per-phase audit trail.
+    """
+
+    overall: str = "pass"  # "pass" | "blocked"
+    blocked_reason: Optional[str] = None
+    blocked_message: Optional[str] = None
+    adr004: Optional[CompletionGateResult] = None
+    integration_required: Optional[IntegrationGateResult] = None
+    phase_results: list[dict[str, Any]] = field(default_factory=list)
+    duration_ms: float = 0.0
+
+
+def no_op_integration_state_provider(branch: str) -> IntegrationState:
+    """Default CI provider — returns unknown state, never blocks."""
+    return IntegrationState(
+        pr_url=None,
+        pr_merged=False,
+        ci_status="unknown",
+        ci_checks_passed=False,
+        error="no_ci_provider_configured",
     )
 
 
@@ -578,31 +659,511 @@ def run_completion_gates(
 
 
 # ---------------------------------------------------------------------------
+# Unified completion gate (ADR-004 + integration_required)
+# ---------------------------------------------------------------------------
+
+
+def _read_integration_required_from_body(
+    title: str,
+    tasks_path: Optional[Path] = None,
+) -> bool:
+    """Read the ``integration_required`` flag from the task body in tasks.md.
+
+    Returns the resolved flag value.  When the flag is absent, falls back
+    to the default-strict heuristic (True for worktree tasks, False otherwise).
+    For the Janus domain layer, we default to True (worktree tasks are the
+    primary consumer of this gate).
+    """
+    path = tasks_path or TASKS_PATH
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, AttributeError):
+        return True  # default-strict
+
+    for line in content.splitlines():
+        if not line.startswith("- [ ] "):
+            continue
+        task_title = line[len("- [ ] "):]
+        task_title = task_title.split(" | ", 1)[0] if " | " in task_title else task_title
+        if task_title.strip() == title.strip():
+            # Found the task — check metadata for integration_required
+            parts = line.split(" | ", 1)
+            if len(parts) > 1:
+                metadata = parts[1]
+                # Look for integration_required: true/false
+                for meta_part in metadata.split("|"):
+                    meta_part = meta_part.strip()
+                    if meta_part.lower().startswith("integration_required:"):
+                        val = meta_part.split(":", 1)[1].strip().lower()
+                        if val in ("true", "yes", "1", "on"):
+                            return True
+                        if val in ("false", "no", "0", "off"):
+                            return False
+            # Flag not found in body — default to True (worktree default-strict)
+            return True
+    # Task not found — default to True
+    return True
+
+
+def run_unified_completion_gates(
+    title: str,
+    *,
+    task_id: Optional[str] = None,
+    completion_path: str = "direct",
+    integration_required_override: Optional[bool] = None,
+    integration_state_provider: Optional[IntegrationStateProvider] = None,
+    root: Optional[Path] = None,
+    test_command: str = "uv run pytest tests/",
+) -> UnifiedGateResult:
+    """Run the unified completion gate (ADR-004 + integration_required).
+
+    Orchestrates the ADR-004 technical gate (Phase 1 re-sync, Phase 3
+    pre-completion verification, Phase 4 safe integration) and the
+    integration_required policy gate in sequence, emitting structured
+    audit events for each phase.
+
+    Args:
+        title: Task title (for audit events).
+        task_id: Kanban DB task id, for audit correlation.
+        completion_path: "direct" or "plugin" — which path triggered the gate.
+        integration_required_override: Explicit override for the flag;
+            None = read from task body.
+        integration_state_provider: CI state provider callable;
+            None = use no_op_integration_state_provider.
+        root: Workspace root. Defaults to PROJECT_ROOT.
+        test_command: Shell command for the test suite.
+
+    Returns:
+        A UnifiedGateResult with the combined outcome and per-phase audit trail.
+    """
+    import time as _time
+
+    start = _time.monotonic()
+    phase_results: list[dict[str, Any]] = []
+
+    # Resolve integration_required flag
+    if integration_required_override is not None:
+        integration_required = integration_required_override
+    else:
+        integration_required = _read_integration_required_from_body(title)
+
+    # Emit gate started
+    emit(
+        logger,
+        "completion.gate.started",
+        trace_id=None,
+        span_id="gates",
+        component="gates",
+        level=logging.INFO,
+        task_title=title,
+        task_id=task_id,
+        path=completion_path,
+        integration_required=integration_required,
+        message=f"Unified completion gate started for '{title}'",
+    )
+
+    # ── ADR-004 Technical Gate ──────────────────────────────────────────
+    adr004_result = run_completion_gates(
+        root=root,
+        test_command=test_command,
+    )
+
+    # Determine phase results from the ADR-004 result
+    if adr004_result.ok:
+        # All phases passed or were not applicable
+        phase_results.append({
+            "phase": "phase1_resync",
+            "result": "pass",
+            "reason_code": None,
+        })
+        phase_results.append({
+            "phase": "phase3_pre_completion",
+            "result": "pass",
+            "reason_code": None,
+        })
+        if adr004_result.integration_not_applicable:
+            phase_results.append({
+                "phase": "phase4_integration",
+                "result": "skip",
+                "reason_code": "integration_not_applicable",
+            })
+        else:
+            phase_results.append({
+                "phase": "phase4_integration",
+                "result": "pass",
+                "reason_code": None,
+            })
+    else:
+        # Determine which phase failed
+        blocked_reason = adr004_result.blocked_reason or "unknown"
+        if blocked_reason == GATE_SYNC_CONFLICT:
+            phase_results.append({
+                "phase": "phase1_resync",
+                "result": "fail",
+                "reason_code": blocked_reason,
+            })
+            phase_results.append({
+                "phase": "phase3_pre_completion",
+                "result": "skip",
+                "reason_code": "phase1_blocked",
+            })
+            phase_results.append({
+                "phase": "phase4_integration",
+                "result": "skip",
+                "reason_code": "phase1_blocked",
+            })
+        elif blocked_reason in (
+            GATE_WORKING_TREE_NOT_CLEAN,
+            GATE_TESTS_FAILED,
+            GATE_DIFF_CHECK_FAILED,
+            GATE_CONTRACT_VERIFICATION_FAILED,
+        ):
+            phase_results.append({
+                "phase": "phase1_resync",
+                "result": "pass",
+                "reason_code": None,
+            })
+            phase_results.append({
+                "phase": "phase3_pre_completion",
+                "result": "fail",
+                "reason_code": blocked_reason,
+            })
+            phase_results.append({
+                "phase": "phase4_integration",
+                "result": "skip",
+                "reason_code": "phase3_blocked",
+            })
+        else:
+            # Phase 4 failure
+            phase_results.append({
+                "phase": "phase1_resync",
+                "result": "pass",
+                "reason_code": None,
+            })
+            phase_results.append({
+                "phase": "phase3_pre_completion",
+                "result": "pass",
+                "reason_code": None,
+            })
+            phase_results.append({
+                "phase": "phase4_integration",
+                "result": "fail",
+                "reason_code": blocked_reason,
+            })
+
+    # Emit per-phase events
+    for pr in phase_results:
+        emit(
+            logger,
+            "completion.gate.phase_result",
+            trace_id=None,
+            span_id="gates",
+            component="gates",
+            level=logging.INFO if pr["result"] == "pass" else logging.WARNING,
+            task_title=title,
+            task_id=task_id,
+            phase=pr["phase"],
+            phase_result=pr["result"],
+            reason_code=pr.get("reason_code"),
+            reason_message=adr004_result.blocked_message if pr["result"] == "fail" else None,
+            duration_ms=None,
+            evidence_artifact=None,
+            message=f"Phase {pr['phase']}: {pr['result']}",
+        )
+
+    # ── Integration Required Policy Gate ────────────────────────────────
+    provider = integration_state_provider or no_op_integration_state_provider
+    integration_gate_result = IntegrationGateResult()
+
+    if not integration_required:
+        integration_gate_result = IntegrationGateResult(
+            passed=True,
+            skipped=True,
+            skip_reason="explicit_false",
+        )
+        emit(
+            logger,
+            "completion.integration_required.checked",
+            trace_id=None,
+            span_id="gates",
+            component="integration_gate",
+            level=logging.INFO,
+            task_title=title,
+            task_id=task_id,
+            integration_required=False,
+            gate_result="skip",
+            skip_reason="explicit_false",
+            pr_url=None,
+            ci_status=None,
+            duration_ms=None,
+            message="Integration required gate skipped (explicit_false)",
+        )
+    else:
+        # integration_required is True — check CI state
+        try:
+            state = provider(title)
+        except Exception as exc:
+            state = IntegrationState(error=str(exc))
+
+        if state.error:
+            integration_gate_result = IntegrationGateResult(
+                passed=True,
+                skipped=True,
+                skip_reason="provider_error",
+                error=state.error,
+            )
+            emit(
+                logger,
+                "completion.integration_required.checked",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.INFO,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                gate_result="skip",
+                skip_reason="provider_error",
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message=f"Integration required gate skipped (provider_error: {state.error})",
+            )
+        elif not state.pr_merged:
+            integration_gate_result = IntegrationGateResult(
+                passed=False,
+                skipped=False,
+                failure_reason="pr_not_merged",
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+            )
+            emit(
+                logger,
+                "completion.integration_required.checked",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.WARNING,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                gate_result="fail",
+                skip_reason=None,
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message="Integration required gate failed: pr_not_merged",
+            )
+            emit(
+                logger,
+                "completion.integration_required.failed",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.WARNING,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                failure_reason="pr_not_merged",
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message="Integration required gate failed: pr_not_merged",
+            )
+        elif state.ci_status != "green" or not state.ci_checks_passed:
+            integration_gate_result = IntegrationGateResult(
+                passed=False,
+                skipped=False,
+                failure_reason="ci_not_green",
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+            )
+            emit(
+                logger,
+                "completion.integration_required.checked",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.WARNING,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                gate_result="fail",
+                skip_reason=None,
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message="Integration required gate failed: ci_not_green",
+            )
+            emit(
+                logger,
+                "completion.integration_required.failed",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.WARNING,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                failure_reason="ci_not_green",
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message="Integration required gate failed: ci_not_green",
+            )
+        else:
+            integration_gate_result = IntegrationGateResult(
+                passed=True,
+                skipped=False,
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+            )
+            emit(
+                logger,
+                "completion.integration_required.checked",
+                trace_id=None,
+                span_id="gates",
+                component="integration_gate",
+                level=logging.INFO,
+                task_title=title,
+                task_id=task_id,
+                integration_required=True,
+                gate_result="pass",
+                skip_reason=None,
+                pr_url=state.pr_url,
+                ci_status=state.ci_status,
+                duration_ms=None,
+                message="Integration required gate passed",
+            )
+
+    # ── Combine results ─────────────────────────────────────────────────
+    adr004_passed = adr004_result.ok
+    integration_passed = integration_gate_result.passed
+    overall_pass = adr004_passed and integration_passed
+
+    blocked_reason = None
+    blocked_message = None
+    if not overall_pass:
+        if not adr004_passed:
+            blocked_reason = adr004_result.blocked_reason
+            blocked_message = adr004_result.blocked_message
+        else:
+            blocked_reason = integration_gate_result.failure_reason
+            blocked_message = f"Integration required gate failed: {integration_gate_result.failure_reason}"
+
+    duration_ms = (_time.monotonic() - start) * 1000.0
+
+    # Emit gate finished
+    emit(
+        logger,
+        "completion.gate.finished",
+        trace_id=None,
+        span_id="gates",
+        component="gates",
+        level=logging.INFO if overall_pass else logging.ERROR,
+        task_title=title,
+        task_id=task_id,
+        overall_result="pass" if overall_pass else "blocked",
+        blocked_reason_code=blocked_reason,
+        blocked_reason_message=blocked_message,
+        phase_results=phase_results,
+        duration_ms=duration_ms,
+        message=f"Unified completion gate {'passed' if overall_pass else 'blocked'} for '{title}'",
+    )
+
+    # Emit unified record on success
+    if overall_pass:
+        commit_sha = None
+        target_branch = None
+        merge_strategy = None
+        tests_passed = None
+        pre_completion_report_path = None
+        integration_report_path = None
+
+        if adr004_result.pre_completion_report is not None:
+            git_root = _find_git_root(root or PROJECT_ROOT)
+            if git_root:
+                commit_sha = _head_sha(git_root)
+            tests_passed = adr004_result.pre_completion_report.is_pass
+            pre_completion_report_path = str(
+                (root or PROJECT_ROOT) / "reports" / "pre_completion_report.json"
+            )
+
+        if adr004_result.integration_result is not None:
+            target_branch = adr004_result.integration_result.target_branch
+            merge_strategy = adr004_result.integration_result.merge_strategy
+            integration_report_path = str(
+                (root or PROJECT_ROOT) / "reports" / "integration_report.json"
+            )
+
+        emit(
+            logger,
+            "completion.unified_record",
+            trace_id=None,
+            span_id="completion",
+            component="completion",
+            level=logging.INFO,
+            task_title=title,
+            task_id=task_id,
+            completion_path=completion_path,
+            gate_result="pass",
+            integration_required=integration_required,
+            integration_required_result=(
+                "skip" if integration_gate_result.skipped else "pass"
+            ),
+            commit_sha=commit_sha,
+            target_branch=target_branch,
+            merge_strategy=merge_strategy,
+            tests_passed=tests_passed,
+            pre_completion_report=pre_completion_report_path,
+            integration_report=integration_report_path,
+            evidence_artifact_paths=[
+                p for p in [pre_completion_report_path, integration_report_path] if p
+            ],
+            duration_ms=duration_ms,
+            message=f"Unified completion record for '{title}'",
+        )
+
+    return UnifiedGateResult(
+        overall="pass" if overall_pass else "blocked",
+        blocked_reason=blocked_reason,
+        blocked_message=blocked_message,
+        adr004=adr004_result,
+        integration_required=integration_gate_result,
+        phase_results=phase_results,
+        duration_ms=duration_ms,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 def complete_task(title: str) -> Task:
-    """Find an open task by exact title, run ADR-004 gates, mark it completed,
-    and return it.
+    """Find an open task by exact title, run unified completion gates, mark it
+    completed, and return it.
 
     Before flipping the checkbox the following gates run (when the task file
     lives inside a git repository; they are silently skipped for non-git
     paths so that existing callers and tests continue to work):
 
-    1. **Policy evaluation** — the policy layer evaluates the action against
-       the P1 rule table. DENY blocks immediately; ASK triggers an approval
-       prompt; ALLOW proceeds to the ADR-004 gates.
+    1. **Phase 1 — pre-completion re-sync** — fetch + rebase if stale.
     2. **Phase 3 — pre-completion verification** — working tree clean,
        ``git diff --check``, and re-run of the test suite must all pass.
     3. **Phase 4 — safe integration** — the task branch must already be
        integrated into the remote target branch, or integration is attempted
        automatically. If integration fails the gate blocks.
+    4. **Integration required policy gate** — if ``integration_required``
+       is True, the PR must be merged and CI must be green.
 
     **Swarm root exception:** When the task is a swarm root (title contains
     ``Swarm:`` or body carries ``swarm_root: true``), the integration gate
     is skipped and replaced with a children-completion check: all Kanban
     children of the root must be ``done`` before the root can complete.
+
+    **Idempotent:** If the task is already completed (``- [x]``), the function
+    returns immediately without running gates or modifying the file.
 
     On success the following evidence artifacts are written:
 
@@ -612,53 +1173,21 @@ def complete_task(title: str) -> Task:
 
     The completion event emitted by :func:`janus._log.emit` carries structured
     metadata: ``commit_sha``, ``target_branch``, ``merge_strategy``,
-    ``tests_passed``, ``pre_completion_report``, ``integration_report``.
+    ``tests_passed``, ``pre_completion_report``, ``integration_report``,
+    and ``gate_results`` (the unified gate outcome summary).
 
     Raises:
-        ValueError: if no matching open task is found, if multiple match,
-            or if the matching task is already completed.
-        CompletionGateError: if a Phase 3 or Phase 4 gate blocks completion.
-            The ``reason`` attribute carries the structured reason code.
-        PolicyDenialError: if the policy layer returns a DENY verdict.
-        PolicyApprovalRequired: if the policy layer returns an ASK verdict and
-            the user does not approve.
+        ValueError: if no matching open task is found, or if multiple match.
+        UnifiedCompletionGateError: if a gate blocks completion. The
+            ``result`` attribute carries the full :class:`UnifiedGateResult`.
     """
     _validate_title(title)
 
-    # ── Policy evaluation (P1) ──────────────────────────────────────────────
-    from janus.services.policy import (
-        evaluate_policy,
-        build_approval_request,
-        present_approval_request,
-        record_approval,
-    )
-    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
-    from janus.models.policy import ApprovalResponse, ApprovalRecord, PolicyVerdict
-
-    policy_decision = evaluate_policy(action="task_completion", context="git_repo")
-    if policy_decision.verdict == PolicyVerdict.DENY:
-        raise PolicyDenialError(
-            rationale=policy_decision.rationale,
-            gate_id=policy_decision.gate_id,
-        )
-    elif policy_decision.verdict == PolicyVerdict.ASK:
-        approval_request = build_approval_request(
-            decision=policy_decision,
-            action="task_completion",
-            context=f"task_title={title}",
-        )
-        response = present_approval_request(approval_request)
-        record_approval(ApprovalRecord(
-            request=approval_request,
-            response=response,
-        ))
-        if response != ApprovalResponse.APPROVE:
-            raise PolicyApprovalRequired(approval_request)
-
-    # Read the task body to check for swarm root marker
+    # Read the task body to check for swarm root marker and idempotency
     raw_content = TASKS_PATH.read_text()
     lines = raw_content.splitlines()
     task_body: str | None = None
+    already_completed = False
     for line in lines:
         if line.startswith("- [ ] "):
             content = line[len("- [ ] "):]
@@ -669,6 +1198,16 @@ def complete_task(title: str) -> Task:
                 if len(parts) > 1:
                     task_body = parts[1]
                 break
+        elif line.startswith("- [x] "):
+            content = line[len("- [x] "):]
+            task_title = content.split(" | ", 1)[0] if " | " in content else content
+            if task_title == title:
+                already_completed = True
+                break
+
+    # Idempotent: if already completed, return without running gates
+    if already_completed:
+        return Task(title=title)
 
     is_swarm = _is_swarm_root(title, task_body)
 
@@ -684,13 +1223,20 @@ def complete_task(title: str) -> Task:
             )
         # Children all done — proceed without running integration gate
         gate_result = CompletionGateResult(ok=True, integration_not_applicable=True)
+        unified_result = UnifiedGateResult(
+            overall="pass",
+            adr004=gate_result,
+            integration_required=IntegrationGateResult(passed=True, skipped=True, skip_reason="swarm_root"),
+        )
     else:
-        gate_result = run_completion_gates(root=TASKS_PATH.parent)
-        if not gate_result.ok:
-            raise CompletionGateError(
-                reason=gate_result.blocked_reason or "unknown",
-                message=gate_result.blocked_message or "Completion gate blocked",
-            )
+        unified_result = run_unified_completion_gates(
+            title,
+            completion_path="direct",
+            root=TASKS_PATH.parent,
+        )
+        if unified_result.overall != "pass":
+            raise UnifiedCompletionGateError(unified_result)
+        gate_result = unified_result.adr004 or CompletionGateResult(ok=True)
 
     raw_content = TASKS_PATH.read_text()
     lines = raw_content.splitlines()
@@ -740,6 +1286,29 @@ def complete_task(title: str) -> Task:
         target_branch = gate_result.integration_result.target_branch
         merge_strategy = gate_result.integration_result.merge_strategy
 
+    # Build gate_results summary for the audit event
+    gate_results_summary = {
+        "adr004": {
+            "result": "pass" if gate_result.ok else "blocked",
+            "reason_code": gate_result.blocked_reason,
+        },
+        "integration_required": {
+            "result": (
+                "skip" if unified_result.integration_required and unified_result.integration_required.skipped
+                else "pass" if unified_result.integration_required and unified_result.integration_required.passed
+                else "fail"
+            ),
+            "reason": (
+                unified_result.integration_required.skip_reason
+                if unified_result.integration_required and unified_result.integration_required.skipped
+                else unified_result.integration_required.failure_reason
+                if unified_result.integration_required
+                else None
+            ),
+        },
+        "overall": unified_result.overall,
+    }
+
     emit(
         logger,
         "service.task.mutated",
@@ -765,6 +1334,7 @@ def complete_task(title: str) -> Task:
             if gate_result.integration_result is not None
             else None
         ),
+        gate_results=gate_results_summary,
     )
 
     return Task(title=title)

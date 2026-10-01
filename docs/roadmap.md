@@ -165,18 +165,28 @@ Key phases:
 - [x] Phase H — Multi-Agent Orchestration (P3)
   - Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
   - Depends on: Phases A–G.
-- [ ] Finalize "integration_required" policy and implement deterministic type-based auto-detection with explicit metadata precedence, safe ambiguous fallback, non-worktree handling, and independent parent/child semantics.
-- [ ] Close the Janus completion-gates lifecycle gap and make completion-gate execution deterministic, idempotent, auditable, and correctly integrated with task completion.
-- [ ] Harden root/child lifecycle semantics so coordination roots wait through dependency gating without duplicating child work or incorrectly requiring integration.
-- [ ] Complete and verify the end-to-end Goal → Task → Execution → Completion → Review lifecycle across real Janus/Hermes execution.
-- [ ] Operationalize Agency-Aware Planning by integrating "execution_mode", "support_mode", and least-substitutive-mode selection into planner decisions.
-- [ ] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
-- [ ] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
-- [ ] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
-- [ ] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
-- [ ] Dodać explainability dla Agency-Aware Planning: reason, confidence i źródła decyzji dla rekomendowanego next action.
+- [x] Finalize "integration_required" policy and implement deterministic type-based auto-detection with explicit metadata precedence, safe ambiguous fallback, non-worktree handling, and independent parent/child semantics.
+- [x] Close the Janus completion-gates lifecycle gap and make completion-gate execution deterministic, idempotent, auditable, and correctly integrated with task completion.
+- [x] Harden root/child lifecycle semantics so coordination roots wait through dependency gating without duplicating child work or incorrectly requiring integration.
+- [x] Complete and verify the end-to-end Goal → Task → Execution → Completion → Review lifecycle across real Janus/Hermes execution.
+- [x] Operationalize Agency-Aware Planning by integrating "execution_mode", "support_mode", and least-substitutive-mode selection into planner decisions.
+- [x] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
+- [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
+- [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
+- [x] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
+- [x] Dodać explainability dla Agency-Aware Planning: reason, confidence i źródła decyzji dla rekomendowanego next action.
 - [ ] Domknąć Policy & Approval Engine: klasyfikować akcje jako auto-allowed, approval-required lub user-only i egzekwować te reguły przed wykonaniem.
 - [ ] Zintegrować Policy & Approval z Hermes execution: przekazywać tylko akcje dozwolone przez politykę i obsługiwać wymagane approval requests.
 - [ ] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
 - [ ] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
 - [ ] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
+- [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md`

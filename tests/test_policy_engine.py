@@ -1,224 +1,354 @@
-"""Tests for the policy evaluation engine.
+"""Tests for the Policy Engine service (Phase E: Policy & Approval engine).
 
-Design reference: docs/design/policy_approval_p1_design.md §11.1
+Covers:
+- PolicyEngine initialization and policy loading
+- Policy evaluation with string and enum inputs
+- classify() method returning ClassificationCategory
+- Audit log recording
+- YAML policy file parsing
+- Module-level convenience functions
 """
 
-from __future__ import annotations
+from pathlib import Path
 
 import pytest
+import yaml
 
 from janus.models.policy import (
-    PolicyVerdict,
+    ClassificationCategory,
+    ImpactLevel,
+    PolicyAction,
+    PolicyDecision,
     RiskLevel,
 )
-from janus.models.task_agency import TaskAgency
-from janus.models.execution_mode import ExecutionMode
-from janus.models.support_mode import SupportMode
-from janus.services.policy import (
-    POLICY_RULES,
-    evaluate_policy,
-    build_approval_request,
+from janus.services.policy_engine import (
+    PolicyEngine,
+    check_approval,
+    classify_action,
+    evaluate_action,
+    get_policy_engine,
 )
 
 
-class TestPolicyRuleTable:
-    def test_16_rules(self):
-        assert len(POLICY_RULES) == 16
-
-    def test_rule_ids_unique(self):
-        rule_ids = [r.rule_id for r in POLICY_RULES]
-        assert len(rule_ids) == len(set(rule_ids))
-
-    def test_all_rules_have_required_fields(self):
-        for rule in POLICY_RULES:
-            assert rule.rule_id
-            assert rule.action
-            assert rule.risk_level in RiskLevel
-            assert rule.verdict in PolicyVerdict
-            assert rule.rationale
-            assert rule.enforcement_point
-
-
-class TestEvaluatePolicy:
-    def test_r1_user_mode_allow(self):
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=USER",
+class TestPolicyEngine:
+    def test_init_with_default_path(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R1"
+        assert engine.policy.name == "default"
 
-    def test_r2_janus_mode_allow(self):
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=JANUS,support_mode=EXECUTE",
+    def test_init_loads_yaml_policy(self, tmp_path):
+        policy_data = {
+            "name": "test",
+            "default_decision": "allow",
+            "rules": [
+                {
+                    "action": "read",
+                    "risk": None,
+                    "impact": None,
+                    "decision": "allow",
+                    "description": "Allow all reads",
+                    "priority": 100,
+                },
+                {
+                    "action": "write",
+                    "risk": "high",
+                    "impact": None,
+                    "decision": "deny",
+                    "description": "Deny high-risk writes",
+                    "priority": 10,
+                },
+            ],
+        }
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text(yaml.dump(policy_data), encoding="utf-8")
+
+        engine = PolicyEngine(
+            policy_path=policy_file,
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R2"
+        assert engine.policy.name == "test"
+        assert engine.policy.default_decision == PolicyDecision.ALLOW
+        assert len(engine.policy.rules) == 2
 
-    def test_r3_collaborative_ask(self):
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=COLLABORATIVE",
+    def test_evaluate_with_enums(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R3"
+        decision = engine.evaluate(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        assert decision == PolicyDecision.ALLOW
 
-    def test_r4_assistive_allow(self):
-        decision = evaluate_policy(
-            action="task_execution",
-            context="support_mode=EXPLAIN",
+    def test_evaluate_with_strings(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R4"
+        decision = engine.evaluate("read", "low", "low")
+        assert decision == PolicyDecision.ALLOW
 
-    def test_r5_review_ask(self):
-        decision = evaluate_policy(
-            action="task_execution",
-            context="support_mode=REVIEW",
+    def test_evaluate_write_medium_risk(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R5"
+        decision = engine.evaluate(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        assert decision == PolicyDecision.ASK
 
-    def test_r6_goal_completion_ask(self):
-        decision = evaluate_policy(action="goal_completion")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R6"
-        assert decision.gate_id == "G-2"
-
-    def test_r7_knowledge_promotion_ask(self):
-        decision = evaluate_policy(action="knowledge_promotion")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R7"
-        assert decision.gate_id == "G-3"
-
-    def test_r8_external_read_allow(self):
-        decision = evaluate_policy(action="external_read")
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R8"
-
-    def test_r9_external_write_ask(self):
-        decision = evaluate_policy(action="external_write")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R9"
-        assert decision.gate_id == "G-4"
-
-    def test_r10_goal_deletion_deny(self):
-        decision = evaluate_policy(action="goal_deletion")
-        assert decision.verdict == PolicyVerdict.DENY
-        assert decision.rule_id == "R10"
-        assert decision.gate_id == "G-5"
-
-    def test_r11_bulk_state_change_ask(self):
-        decision = evaluate_policy(action="bulk_state_change")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R11"
-        assert decision.gate_id == "G-6"
-
-    def test_r12_config_change_ask(self):
-        decision = evaluate_policy(action="config_change")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R12"
-        assert decision.gate_id == "G-7"
-
-    def test_r13_task_status_change_allow(self):
-        decision = evaluate_policy(action="task_status_change")
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R13"
-
-    def test_r14_task_completion_git_ask(self):
-        decision = evaluate_policy(action="task_completion", context="git_repo")
-        assert decision.verdict == PolicyVerdict.ASK
-        assert decision.rule_id == "R14"
-        assert decision.gate_id == "G-1"
-
-    def test_r15_task_completion_non_git_allow(self):
-        decision = evaluate_policy(action="task_completion", context="non_git")
-        assert decision.verdict == PolicyVerdict.ALLOW
-        assert decision.rule_id == "R15"
-
-    def test_r16_evidence_less_goal_completion_deny(self):
-        decision = evaluate_policy(action="goal_completion", context="no_evidence")
-        assert decision.verdict == PolicyVerdict.DENY
-        assert decision.rule_id == "R16"
-        assert decision.gate_id == "G-2"
-
-
-class TestEvaluatePolicyPrecedence:
-    def test_most_restrictive_wins_deny_over_ask(self):
-        # R10 (DENY) should win over R6 (ASK) for goal_deletion
-        decision = evaluate_policy(action="goal_deletion")
-        assert decision.verdict == PolicyVerdict.DENY
-
-    def test_most_restrictive_wins_ask_over_allow(self):
-        # R3 (ASK) should win over R1 (ALLOW) for collaborative task execution
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=COLLABORATIVE",
+    def test_evaluate_delete_high_high(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ASK
+        decision = engine.evaluate(PolicyAction.DELETE, RiskLevel.HIGH, ImpactLevel.HIGH)
+        assert decision == PolicyDecision.DENY
 
-    def test_no_matching_rules_defaults_to_deny(self):
-        decision = evaluate_policy(action="unknown_action")
-        assert decision.verdict == PolicyVerdict.DENY
-        assert decision.rule_id == "DEFAULT"
-
-
-class TestEvaluatePolicyWithTaskAgency:
-    def test_task_agency_none_upgrades_allow_to_ask(self):
-        # When task_agency is None and no context is provided for task_execution,
-        # ALLOW is upgraded to ASK (conservative default)
-        decision = evaluate_policy(
-            action="task_execution",
-            context=None,
-            task_agency=None,
+    def test_classify_read_returns_auto_allowed(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ASK
+        category = engine.classify(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        assert category == ClassificationCategory.AUTO_ALLOWED
 
-    def test_task_agency_provided_uses_agency_context(self):
-        agency = TaskAgency(
-            execution_mode=ExecutionMode.USER,
-            support_mode=SupportMode.EXPLAIN,
-            reason="Test",
-            confidence=0.9,
+    def test_classify_write_medium_returns_approval_required(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=USER,support_mode=EXPLAIN",
-            task_agency=agency,
-        )
-        assert decision.verdict == PolicyVerdict.ALLOW
+        category = engine.classify(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        assert category == ClassificationCategory.APPROVAL_REQUIRED
 
-    def test_task_agency_collaborative_triggers_ask(self):
-        agency = TaskAgency(
-            execution_mode=ExecutionMode.COLLABORATIVE,
-            support_mode=SupportMode.EXECUTE,
-            reason="Test",
-            confidence=0.9,
+    def test_classify_delete_high_high_returns_user_only(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        decision = evaluate_policy(
-            action="task_execution",
-            context="execution_mode=COLLABORATIVE,support_mode=EXECUTE",
-            task_agency=agency,
+        category = engine.classify(PolicyAction.DELETE, RiskLevel.HIGH, ImpactLevel.HIGH)
+        assert category == ClassificationCategory.USER_ONLY
+
+    def test_classify_with_strings(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
         )
-        assert decision.verdict == PolicyVerdict.ASK
+        category = engine.classify("read", "low", "low")
+        assert category == ClassificationCategory.AUTO_ALLOWED
+
+    def test_classify_with_context(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        category = engine.classify(
+            PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW,
+            context="task:Test task",
+        )
+        assert category == ClassificationCategory.APPROVAL_REQUIRED
+
+    def test_classify_all_actions(self, tmp_path):
+        """Test that classify() returns a valid category for all action types."""
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        for action in PolicyAction:
+            for risk in RiskLevel:
+                for impact in ImpactLevel:
+                    category = engine.classify(action, risk, impact)
+                    assert isinstance(category, ClassificationCategory)
+                    assert category in (
+                        ClassificationCategory.AUTO_ALLOWED,
+                        ClassificationCategory.APPROVAL_REQUIRED,
+                        ClassificationCategory.USER_ONLY,
+                    )
+
+    def test_check_approval_true(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.check_approval(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW) is True
+
+    def test_check_approval_false_for_ask(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.check_approval(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW) is False
+
+    def test_check_approval_false_for_deny(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.check_approval(PolicyAction.DELETE, RiskLevel.HIGH, ImpactLevel.HIGH) is False
+
+    def test_audit_log_written(self, tmp_path):
+        audit_path = tmp_path / "audit.log"
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=audit_path,
+        )
+        engine.evaluate(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW, context="test")
+        assert audit_path.exists()
+        content = audit_path.read_text(encoding="utf-8")
+        assert "action=read" in content
+        assert "decision=allow" in content
+
+    def test_audit_log_appends(self, tmp_path):
+        audit_path = tmp_path / "audit.log"
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=audit_path,
+        )
+        engine.evaluate(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        engine.evaluate(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        lines = audit_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 2
+
+    def test_get_audit_log(self, tmp_path):
+        audit_path = tmp_path / "audit.log"
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=audit_path,
+        )
+        engine.evaluate(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        engine.evaluate(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        lines = engine.get_audit_log()
+        assert len(lines) == 2
+
+    def test_get_audit_log_with_limit(self, tmp_path):
+        audit_path = tmp_path / "audit.log"
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=audit_path,
+        )
+        for i in range(5):
+            engine.evaluate(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        lines = engine.get_audit_log(limit=2)
+        assert len(lines) == 2
+
+    def test_get_audit_log_empty(self, tmp_path):
+        engine = PolicyEngine(
+            policy_path=tmp_path / "nonexistent.yaml",
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.get_audit_log() == []
+
+    def test_reload(self, tmp_path):
+        policy_file = tmp_path / "policy.yaml"
+        policy_data = {
+            "name": "test",
+            "default_decision": "allow",
+            "rules": [
+                {
+                    "action": "read",
+                    "risk": None,
+                    "impact": None,
+                    "decision": "allow",
+                    "description": "Allow all reads",
+                    "priority": 100,
+                },
+            ],
+        }
+        policy_file.write_text(yaml.dump(policy_data), encoding="utf-8")
+
+        engine = PolicyEngine(
+            policy_path=policy_file,
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.policy.name == "test"
+
+        # Modify the policy file
+        policy_data["name"] = "updated"
+        policy_file.write_text(yaml.dump(policy_data), encoding="utf-8")
+
+        # Before reload, still cached
+        assert engine.policy.name == "test"
+
+        # After reload, picks up changes
+        engine.reload()
+        assert engine.policy.name == "updated"
+
+    def test_invalid_yaml_falls_back_to_default(self, tmp_path):
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text("not: valid: yaml: [", encoding="utf-8")
+
+        engine = PolicyEngine(
+            policy_path=policy_file,
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.policy.name == "default"
+
+    def test_non_dict_yaml_falls_back_to_default(self, tmp_path):
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text("- just\n- a\n- list\n", encoding="utf-8")
+
+        engine = PolicyEngine(
+            policy_path=policy_file,
+            audit_log_path=tmp_path / "audit.log",
+        )
+        assert engine.policy.name == "default"
+
+    def test_invalid_rule_skipped(self, tmp_path):
+        policy_data = {
+            "name": "test",
+            "default_decision": "allow",
+            "rules": [
+                {
+                    "action": "read",
+                    "risk": None,
+                    "impact": None,
+                    "decision": "allow",
+                    "description": "Allow all reads",
+                    "priority": 100,
+                },
+                {
+                    "action": "invalid_action",
+                    "risk": None,
+                    "impact": None,
+                    "decision": "allow",
+                    "description": "Invalid rule",
+                    "priority": 50,
+                },
+            ],
+        }
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text(yaml.dump(policy_data), encoding="utf-8")
+
+        engine = PolicyEngine(
+            policy_path=policy_file,
+            audit_log_path=tmp_path / "audit.log",
+        )
+        # Only the valid rule should be loaded
+        assert len(engine.policy.rules) == 1
 
 
-class TestBuildApprovalRequest:
-    def test_builds_request_from_decision(self):
-        from janus.services.policy import evaluate_policy
+class TestModuleLevelFunctions:
+    def test_get_policy_engine_singleton(self):
+        engine1 = get_policy_engine()
+        engine2 = get_policy_engine()
+        assert engine1 is engine2
 
-        decision = evaluate_policy(action="goal_completion")
-        request = build_approval_request(
-            decision=decision,
-            action="goal_completion",
-            context="goal_title=Test",
-        )
-        assert request.action == "goal_completion"
-        assert request.context == "goal_title=Test"
-        assert request.risk_level == RiskLevel.MEDIUM
-        assert request.policy_rule == "R6"
-        assert request.gate_id == "G-2"
-        assert request.rationale
-        assert request.what_approval_entails
-        assert request.alternative
+    def test_evaluate_action(self):
+        decision = evaluate_action(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        assert decision == PolicyDecision.ALLOW
+
+    def test_classify_action(self):
+        category = classify_action(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW)
+        assert category == ClassificationCategory.AUTO_ALLOWED
+
+    def test_classify_action_approval_required(self):
+        category = classify_action(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        assert category == ClassificationCategory.APPROVAL_REQUIRED
+
+    def test_classify_action_user_only(self):
+        category = classify_action(PolicyAction.DELETE, RiskLevel.HIGH, ImpactLevel.HIGH)
+        assert category == ClassificationCategory.USER_ONLY
+
+    def test_check_approval(self):
+        assert check_approval(PolicyAction.READ, RiskLevel.LOW, ImpactLevel.LOW) is True
+        assert check_approval(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW) is False
+        assert check_approval(PolicyAction.DELETE, RiskLevel.HIGH, ImpactLevel.HIGH) is False
