@@ -144,14 +144,13 @@ class TestDispatchCompletionVerification:
         # Create a .git directory so _find_git_root returns a path
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        # Mock run_completion_gates to return a passing result
+        # Mock run_unified_completion_gates to return a passing result
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             md = JanusDomainMetadata(object="task", title="Test task")
@@ -163,25 +162,25 @@ class TestDispatchCompletionVerification:
         assert result["task"] is not None
 
     def test_task_dispatch_with_failing_gate_raises(self, tmp_path, monkeypatch):
-        """When a gate fails, CompletionGateError is raised (not captured)."""
+        """When a gate fails, UnifiedCompletionGateError is raised (not captured)."""
         from janus.services.execution_feedback import (
             EvidencePackage, JanusDomainMetadata, dispatch_completion,
         )
-        from janus.services.tasks import CompletionGateError
+        from janus.services.tasks import UnifiedCompletionGateError
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Test task\n")
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = False
+        mock_gate_result.overall = "blocked"
         mock_gate_result.blocked_reason = "working_tree_not_clean"
         mock_gate_result.blocked_message = "Working tree is not clean"
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             md = JanusDomainMetadata(object="task", title="Test task")
             ev = EvidencePackage(task_id="t_1", summary="Test task")
-            with pytest.raises(CompletionGateError):
+            with pytest.raises(UnifiedCompletionGateError):
                 dispatch_completion(md, ev)
 
     def test_goal_dispatch_no_verification(self, tmp_path, monkeypatch):
@@ -235,12 +234,11 @@ class TestPropagateStateUpdatesVerification:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             md = JanusDomainMetadata(object="task", title="Test task")
@@ -259,12 +257,11 @@ class TestPropagateStateUpdatesVerification:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             md = JanusDomainMetadata(object="task", title="Test task")
@@ -296,12 +293,11 @@ class TestJanusSyncVerificationReporting:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             tid = _create_task(conn, title="Build feature X", body=self._TASK_BODY)
@@ -325,11 +321,11 @@ class TestJanusSyncVerificationReporting:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = False
+        mock_gate_result.overall = "blocked"
         mock_gate_result.blocked_reason = "working_tree_not_clean"
         mock_gate_result.blocked_message = "Working tree is not clean"
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             tid = _create_task(conn, title="Build feature X", body=self._TASK_BODY)
@@ -374,12 +370,11 @@ class TestJanusSyncVerificationReporting:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             tid = _create_task(conn, title="Build feature X", body=self._TASK_BODY)
@@ -406,12 +401,11 @@ class TestEndToEndChain:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         mock_gate_result = mock.MagicMock()
-        mock_gate_result.ok = True
+        mock_gate_result.overall = "pass"
         mock_gate_result.blocked_reason = None
         mock_gate_result.blocked_message = None
-        mock_gate_result.integration_not_applicable = True
         with mock.patch(
-            "janus.services.tasks.run_completion_gates",
+            "janus.services.tasks.run_unified_completion_gates",
             return_value=mock_gate_result,
         ):
             body = (
