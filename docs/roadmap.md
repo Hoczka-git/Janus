@@ -172,8 +172,6 @@ Key phases:
 - [x] Complete and verify the end-to-end Goal → Task → Execution → Completion → Review lifecycle across real Janus/Hermes execution.
 - [x] Operationalize Agency-Aware Planning by integrating "execution_mode", "support_mode", and least-substitutive-mode selection into planner decisions.
 - [x] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
-- [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
-- [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
 - [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review. (Plan finalized t_d61f4ce7; spec: docs/design/unified_lifecycle_observability_spec.md; 15 lifecycle.* events; 4-phase rollout. See child tasks t_7adc5a80 audit, t_eb2d2ec9 gap analysis, t_775f6038 design spec, t_4276ffa2 synthesis.)
 - [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
 - [x] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
