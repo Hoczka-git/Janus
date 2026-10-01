@@ -1,10 +1,12 @@
 # Personal State Model — Specification
 
-**Status:** Proposed
+**Status:** Implemented
 **Date:** 2026-09-29
 **Author:** implementer (task t_b568f17b)
 **Parent task:** t_08e7db4c (Agency-First development phase)
-**Related docs:** `docs/janus-agency-first-development-phase.md` §7, `docs/triage_architectural_roadmap_next_phase.md` §3.4/§4.1/§9, `docs/roadmap.md` Agency-First section
+**Related docs:** `docs/janus-agency-first-development-phase.md` §7, `docs/triage/architectural_roadmap_next_phase.md` §3.4/§4.1/§9, `docs/roadmap.md` Agency-First section
+
+**Implementation:** PersonalState dataclass (23 fields), PersonalStateBuilder service, PersonalStateStatus enum, and comprehensive test coverage (203 tests). See `docs/design/personal_state_model_deviations.md` for implementation details and deviations from this spec.
 
 ---
 
@@ -450,8 +452,8 @@ This specification is accepted when:
 5. [x] Alternatives are considered with trade-offs
 6. [x] Migration path is outlined
 7. [x] Relationship to parent task and Agency-First phases is explained
-8. [ ] Implementation plan is approved (separate task)
-9. [ ] ADR is written (separate task — ADR-014 or extend ADR-012)
+8. [x] Implementation plan is approved (separate task)
+9. [x] ADR is written (separate task — ADR-014 or extend ADR-012)
 
 ---
 
