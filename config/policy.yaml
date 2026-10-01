@@ -1,0 +1,126 @@
+# Default policy configuration for Janus.
+# This file defines the policy rules that govern what actions Janus can
+# perform without human approval.
+#
+# Rules are evaluated in order (by priority, then specificity).
+# The first matching rule determines the decision.
+#
+# Fields:
+#   action: The action type (read, write, delete, execute, send, create, update, approve, delegate)
+#   risk: Risk level (low, medium, high) — null means wildcard
+#   impact: Impact level (low, medium, high) — null means wildcard
+#   decision: The decision (allow, ask, deny)
+#   description: Human-readable explanation
+#   priority: Lower numbers = higher priority (evaluated first)
+
+name: default
+default_decision: ask
+
+rules:
+  # READ: generally allowed
+  - action: read
+    risk: null
+    impact: null
+    decision: allow
+    description: "Read actions are generally allowed"
+    priority: 100
+
+  # WRITE: allow low risk, ask medium+
+  - action: write
+    risk: low
+    impact: null
+    decision: allow
+    description: "Low-risk writes are allowed"
+    priority: 50
+  - action: write
+    risk: null
+    impact: null
+    decision: ask
+    description: "Medium+ risk writes require approval"
+    priority: 60
+
+  # CREATE: allow low risk, ask medium+
+  - action: create
+    risk: low
+    impact: null
+    decision: allow
+    description: "Low-risk creates are allowed"
+    priority: 50
+  - action: create
+    risk: null
+    impact: null
+    decision: ask
+    description: "Medium+ risk creates require approval"
+    priority: 60
+
+  # UPDATE: allow low risk, ask medium+
+  - action: update
+    risk: low
+    impact: null
+    decision: allow
+    description: "Low-risk updates are allowed"
+    priority: 50
+  - action: update
+    risk: null
+    impact: null
+    decision: ask
+    description: "Medium+ risk updates require approval"
+    priority: 60
+
+  # DELETE: deny high+high, ask otherwise
+  - action: delete
+    risk: high
+    impact: high
+    decision: deny
+    description: "High-risk high-impact deletes are denied"
+    priority: 10
+  - action: delete
+    risk: null
+    impact: null
+    decision: ask
+    description: "All deletes require approval"
+    priority: 60
+
+  # SEND: allow low risk, ask medium+
+  - action: send
+    risk: low
+    impact: null
+    decision: allow
+    description: "Low-risk sends are allowed"
+    priority: 50
+  - action: send
+    risk: null
+    impact: null
+    decision: ask
+    description: "Medium+ risk sends require approval"
+    priority: 60
+
+  # EXECUTE: allow low risk, ask medium+
+  - action: execute
+    risk: low
+    impact: null
+    decision: allow
+    description: "Low-risk executions are allowed"
+    priority: 50
+  - action: execute
+    risk: null
+    impact: null
+    decision: ask
+    description: "Medium+ risk executions require approval"
+    priority: 60
+
+  # APPROVE: always ask
+  - action: approve
+    risk: null
+    impact: null
+    decision: ask
+    description: "Approval actions always require human approval"
+    priority: 10
+
+  # DELEGATE: always ask
+  - action: delegate
+    risk: null
+    impact: null
+    decision: ask
+    description: "Delegation actions always require human approval"
+    priority: 10

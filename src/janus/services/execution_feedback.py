@@ -672,13 +672,15 @@ def dispatch_completion(
         )
     elif metadata.object == "task":
         from janus.services.tasks import (
-            complete_janus_task, run_completion_gates, CompletionGateError,
+            complete_janus_task, run_unified_completion_gates,
+            CompletionGateError, UnifiedCompletionGateError,
             _is_swarm_root, _children_all_done, GATE_CHILDREN_NOT_DONE,
         )
         import janus.services.tasks as _tasks_mod
 
-        # ── ADR-004 Phase 5 enforcement for the Hermes execution-feedback path
-        # ──
+        # ── ADR-004 Phase 5 + integration_required enforcement for the
+        # ── Hermes execution-feedback path.
+        #
         # Only enforce gates when the Janus task is currently OPEN (``- [ ]``)
         # and lives inside a git repository.  Already-completed tasks are
         # idempotent re-evidence updates (the branch is already integrated),
@@ -700,12 +702,14 @@ def dispatch_completion(
                             ),
                         )
                 else:
-                    gate_result = run_completion_gates(root=git_root)
-                    if not gate_result.ok:
-                        raise CompletionGateError(
-                            reason=gate_result.blocked_reason or "unknown",
-                            message=gate_result.blocked_message or "Completion gate blocked",
-                        )
+                    unified_result = run_unified_completion_gates(
+                        metadata.title,
+                        task_id=evidence.task_id,
+                        completion_path="plugin",
+                        root=git_root,
+                    )
+                    if unified_result.overall != "pass":
+                        raise UnifiedCompletionGateError(unified_result)
         results["task"] = complete_janus_task(
             title=metadata.title,
             evidence=evidence_dict,
