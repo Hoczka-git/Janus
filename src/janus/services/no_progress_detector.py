@@ -741,7 +741,7 @@ def _signal_completed_task_dates(
     """Signal: completed_task_dates has entry within window for related task."""
     if not completed_task_dates or not goal.related_tasks:
         return False
-    now = datetime.now().astimezone()
+    now = datetime.combine(today, datetime.min.time()).astimezone()
     window_start = now - timedelta(days=window_days)
     for task_title in goal.related_tasks:
         if task_title not in completed_task_dates:
