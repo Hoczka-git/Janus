@@ -63,6 +63,80 @@ class Recommendation:
     priority: int | None = None
     agency: TaskAgency | None = None
 
+    def __post_init__(self) -> None:
+        """Validate field values after initialization."""
+        if not isinstance(self.title, str):
+            raise TypeError(f"title must be a str, got {type(self.title).__name__}")
+        if not isinstance(self.kind, str):
+            raise TypeError(f"kind must be a str, got {type(self.kind).__name__}")
+        if self.kind not in ("task", "project", "milestone"):
+            raise ValueError(
+                f"kind must be 'task', 'project', or 'milestone', got {self.kind!r}"
+            )
+        if not isinstance(self.goal_title, str):
+            raise TypeError(
+                f"goal_title must be a str, got {type(self.goal_title).__name__}"
+            )
+        if not isinstance(self.score, int):
+            raise TypeError(f"score must be an int, got {type(self.score).__name__}")
+        if not isinstance(self.reason, str):
+            raise TypeError(f"reason must be a str, got {type(self.reason).__name__}")
+        if self.agency is not None and not isinstance(self.agency, TaskAgency):
+            raise TypeError(
+                f"agency must be a TaskAgency or None, got {type(self.agency).__name__}"
+            )
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-friendly dict.
+
+        Returns:
+            Dict with all fields, agency as dict or None.
+        """
+        return {
+            "title": self.title,
+            "kind": self.kind,
+            "goal_title": self.goal_title,
+            "score": self.score,
+            "reason": self.reason,
+            "project_title": self.project_title,
+            "milestone_title": self.milestone_title,
+            "due_date": self.due_date,
+            "priority": self.priority,
+            "agency": self.agency.to_dict() if self.agency else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Recommendation":
+        """Deserialize from a plain dict (inverse of :meth:`to_dict`).
+
+        Tolerates missing keys — every field has a sensible default so a
+        partial or truncated dict reconstructs a valid Recommendation.
+
+        Args:
+            data: Dict with optional keys title, kind, goal_title, score,
+                reason, project_title, milestone_title, due_date, priority,
+                agency.
+
+        Returns:
+            A new Recommendation instance.
+        """
+        agency = None
+        raw_agency = data.get("agency")
+        if raw_agency is not None:
+            agency = TaskAgency.from_dict(raw_agency)
+        return cls(
+            title=data.get("title", ""),
+            kind=data.get("kind", "task"),
+            goal_title=data.get("goal_title", ""),
+            score=data.get("score", 0),
+            reason=data.get("reason", ""),
+            project_title=data.get("project_title"),
+            milestone_title=data.get("milestone_title"),
+            due_date=data.get("due_date"),
+            priority=data.get("priority"),
+            agency=agency,
+        )
+
 
 # ── Scoring helpers ────────────────────────────────────────────
 
