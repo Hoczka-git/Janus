@@ -411,3 +411,71 @@ class TestGoalHelp:
         out = capsys.readouterr().out
         assert "Usage: janus goal <command>" in out
         assert "Unknown goal subcommand" not in out
+
+
+class TestGoalUpdateAddRelatedTask:
+    """Tests for --add-related-task / --remove-related-task in goal update."""
+
+    def test_add_single_related_task(self, tmp_path, monkeypatch):
+        """Adding a single related task via CLI."""
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        handle_goal_update(["Test goal", "--add-related-task", "Task A"])
+        from janus.services.goals import get_goal
+        goal = get_goal("Test goal")
+        assert "Task A" in goal.related_tasks
+
+    def test_add_multiple_related_tasks(self, tmp_path, monkeypatch):
+        """Adding multiple related tasks in one CLI call (the bug fix)."""
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        handle_goal_update([
+            "Test goal",
+            "--add-related-task", "Task A",
+            "--add-related-task", "Task B",
+        ])
+        from janus.services.goals import get_goal
+        goal = get_goal("Test goal")
+        assert "Task A" in goal.related_tasks
+        assert "Task B" in goal.related_tasks
+        assert len(goal.related_tasks) == 2
+
+    def test_add_duplicate_related_task_no_change(self, tmp_path, monkeypatch):
+        """Adding a duplicate related task is a no-op."""
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        handle_goal_update(["Test goal", "--add-related-task", "Task A"])
+        handle_goal_update(["Test goal", "--add-related-task", "Task A"])
+        from janus.services.goals import get_goal
+        goal = get_goal("Test goal")
+        assert goal.related_tasks.count("Task A") == 1
+
+    def test_remove_related_task(self, tmp_path, monkeypatch):
+        """Removing a related task via CLI."""
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        handle_goal_update(["Test goal", "--add-related-task", "Task A"])
+        handle_goal_update(["Test goal", "--remove-related-task", "Task A"])
+        from janus.services.goals import get_goal
+        goal = get_goal("Test goal")
+        assert "Task A" not in goal.related_tasks
+
+    def test_add_multiple_remove_one(self, tmp_path, monkeypatch):
+        """Add multiple tasks, remove one, verify the other remains."""
+        from janus.goals_cli import handle_goal_add, handle_goal_update
+        _setup_cli_fixtures(tmp_path, monkeypatch)
+        handle_goal_add(["Test goal"])
+        handle_goal_update([
+            "Test goal",
+            "--add-related-task", "Task A",
+            "--add-related-task", "Task B",
+        ])
+        handle_goal_update(["Test goal", "--remove-related-task", "Task A"])
+        from janus.services.goals import get_goal
+        goal = get_goal("Test goal")
+        assert "Task A" not in goal.related_tasks
+        assert "Task B" in goal.related_tasks

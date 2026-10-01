@@ -257,13 +257,17 @@ def update_goal_fields(title: str, **kwargs) -> Goal:
     changes: dict = {}
     for key, value in kwargs.items():
         if key == "add_related_task":
-            if value not in goal.related_tasks:
-                goal.related_tasks.append(value)
-                changes.setdefault("related_tasks", []).append(value)
+            tasks_to_add = value if isinstance(value, list) else [value]
+            for t in tasks_to_add:
+                if t not in goal.related_tasks:
+                    goal.related_tasks.append(t)
+                    changes.setdefault("related_tasks", []).append(t)
         elif key == "remove_related_task":
-            if value in goal.related_tasks:
-                goal.related_tasks.remove(value)
-                changes.setdefault("related_tasks_removed", []).append(value)
+            tasks_to_remove = value if isinstance(value, list) else [value]
+            for t in tasks_to_remove:
+                if t in goal.related_tasks:
+                    goal.related_tasks.remove(t)
+                    changes.setdefault("related_tasks_removed", []).append(t)
         elif key == "add_measurement_requirement":
             _validate_measurement_requirement(value)
             goal.measurement_requirements.append(value)

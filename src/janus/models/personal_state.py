@@ -31,6 +31,11 @@ from janus.models.strategic_summary import (
     StrategicSummary,
     RecommendedAction,
 )
+from janus.models.commitment import Commitment
+from janus.models.routine import Routine
+from janus.models.constraint import Constraint
+from janus.models.preference import Preference
+from janus.models.resource import Resource
 
 
 # ── Personal state status enum ───────────────────────────────────────────────
@@ -158,6 +163,13 @@ class PersonalState:
     # Knowledge and decisions
     decisions: list[Decision] = field(default_factory=list)
     research_artifacts: list[str] = field(default_factory=list)
+
+    # Personal state entities (Phase C)
+    commitments: list[Commitment] = field(default_factory=list)
+    routines: list[Routine] = field(default_factory=list)
+    constraints: list[Constraint] = field(default_factory=list)
+    preferences: list[Preference] = field(default_factory=list)
+    resources: list[Resource] = field(default_factory=list)
 
     # Strategic view (derived)
     strategic_summary: StrategicSummary | None = None
