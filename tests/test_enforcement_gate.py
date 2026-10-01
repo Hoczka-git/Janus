@@ -455,6 +455,19 @@ class TestEnforcementGateError:
 class TestDispatchCompletionIntegration:
     """Test that dispatch_completion applies the enforcement gate."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_approval_denied(self, monkeypatch):
+        """Mock approval request to auto-deny for blocked action tests."""
+        from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord
+
+        def mock_present(request):
+            return ApprovalRecord(request=request, response=ApprovalResponse.DENY)
+
+        monkeypatch.setattr(
+            "janus.services.execution_feedback._present_approval_request",
+            mock_present,
+        )
+
     def test_blocked_action_returns_reason(self, tmp_path):
         """Test that a blocked action returns a clear reason."""
         from janus.services.execution_feedback import (
@@ -481,7 +494,7 @@ class TestDispatchCompletionIntegration:
             result = dispatch_completion(metadata, evidence)
 
         assert result["blocked"] == "goal"
-        assert "requires human approval" in result["reason"]
+        assert "denied" in result["reason"].lower()
         assert result["category"] == "approval_required"
 
     def test_allowed_action_proceeds(self, tmp_path):

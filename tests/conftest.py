@@ -90,6 +90,9 @@ def _bypass_enforcement_gate(request):
     if "test_classification_enforcement_verification" in str(request.node.fspath):
         yield None
         return
+    if "test_approval_request_handling" in str(request.node.fspath):
+        yield None
+        return
 
     with patch(
         "janus.services.enforcement_gate.enforce_or_raise"
