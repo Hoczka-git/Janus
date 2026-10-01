@@ -1,6 +1,6 @@
 # Hermes / Janus Roadmap
 
-**Last verified:** 2026-09-29
+**Last verified:** 2026-10-01
 
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
@@ -151,7 +151,7 @@ Key phases:
   - Depends on: Phase A.
 - [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
-  - Status: Design doc created on feature branch (t_57e1acdc), not yet merged. Implementation not yet started.
+  - Status: Implemented. ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, select_execution_mode/select_support_mode, classify_task/classify_next_action in agency_planning service. Wired into derive_next_action(). 185 agency tests pass.
   - Depends on: Phases A, C.
 - [x] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
@@ -164,6 +164,7 @@ Key phases:
   - Depends on: Phases A, E.
 - [x] Phase H — Multi-Agent Orchestration (P3)
   - Specialized agents (Planner, Researcher, Executor, Reviewer, Coach) only when real workload benefits. Orchestration subordinate to Janus domain model.
+  - Status: Implemented. AgentCoordinator (delegate/aggregate/handle_timeout/execute_with_fallback/retry_with_backoff), AgentRegistry (role-to-capability mapping), AgentRole/AgentLifecycle enums, AgentAssignment dataclass, dispatch_task() in agency_planning service. 37 coordination tests pass.
   - Depends on: Phases A–G.
 - [ ] Finalize "integration_required" policy and implement deterministic type-based auto-detection with explicit metadata precedence, safe ambiguous fallback, non-worktree handling, and independent parent/child semantics.
 - [ ] Close the Janus completion-gates lifecycle gap and make completion-gate execution deterministic, idempotent, auditable, and correctly integrated with task completion.
@@ -179,4 +180,4 @@ Key phases:
 - [ ] Zintegrować Policy & Approval z Hermes execution: przekazywać tylko akcje dozwolone przez politykę i obsługiwać wymagane approval requests.
 - [ ] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
 - [ ] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
-- [ ] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
+- [x] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
