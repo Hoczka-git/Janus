@@ -151,7 +151,7 @@ Key phases:
   - Depends on: Phase A.
 - [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
-  - Status: Implemented (design doc merged; PersonalState dataclass + PersonalStateBuilder implemented; 203 tests passing; integrated with strategic summary and next-action derivation). See PR #337, #335.
+  - Status: Implemented (ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, classify_task/dispatch_task in agency_planning service; wired into derive_next_action(); 126 agency tests pass). See PR #337, #335.
   - Depends on: Phases A, C.
 - [x] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
