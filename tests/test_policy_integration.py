@@ -34,6 +34,19 @@ def _make_evidence(task_id: str = "t-123", summary: str = "Test task"):
 class TestPolicyIntegrationWithDispatchCompletion:
     """Test that dispatch_completion() integrates the enforcement gate."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_approval_denied(self, monkeypatch):
+        """Mock approval request to auto-deny for blocked action tests."""
+        from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord
+
+        def mock_present(request):
+            return ApprovalRecord(request=request, response=ApprovalResponse.DENY)
+
+        monkeypatch.setattr(
+            "janus.services.execution_feedback._present_approval_request",
+            mock_present,
+        )
+
     def test_enforcement_gate_blocks_denied_action(self, tmp_path, monkeypatch):
         """EnforcementGateError should block dispatch for denied actions."""
         from janus.services.execution_feedback import dispatch_completion
@@ -62,7 +75,7 @@ class TestPolicyIntegrationWithDispatchCompletion:
             result = dispatch_completion(metadata, evidence)
 
         assert result["blocked"] == "task"
-        assert "blocked by policy" in result["reason"]
+        assert "denied" in result["reason"].lower()
         assert result["category"] == "approval_required"
 
     def test_enforcement_gate_allows_action(self, tmp_path, monkeypatch):
