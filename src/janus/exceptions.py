@@ -38,4 +38,4 @@ class PolicyApprovalRequired(RuntimeError):
 
 
 # Forward reference for type checking
-from janus.models.policy import ApprovalRequest  # noqa: E402
+from janus.models.policy_p1 import ApprovalRequest  # noqa: E402

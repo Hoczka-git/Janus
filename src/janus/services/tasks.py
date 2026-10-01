@@ -1183,6 +1183,36 @@ def complete_task(title: str) -> Task:
     """
     _validate_title(title)
 
+    # ── Policy evaluation (P1) ──────────────────────────────────────────────
+    from janus.services.policy import (
+        evaluate_policy,
+        build_approval_request,
+        present_approval_request,
+        record_approval,
+    )
+    from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
+    from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord, PolicyVerdict
+
+    policy_decision = evaluate_policy(action="task_completion", context="git_repo")
+    if policy_decision.verdict == PolicyVerdict.DENY:
+        raise PolicyDenialError(
+            rationale=policy_decision.rationale,
+            gate_id=policy_decision.gate_id,
+        )
+    elif policy_decision.verdict == PolicyVerdict.ASK:
+        approval_request = build_approval_request(
+            decision=policy_decision,
+            action="task_completion",
+            context=f"task_title={title}",
+        )
+        response = present_approval_request(approval_request)
+        record_approval(ApprovalRecord(
+            request=approval_request,
+            response=response,
+        ))
+        if response != ApprovalResponse.APPROVE:
+            raise PolicyApprovalRequired(approval_request)
+
     # Read the task body to check for swarm root marker and idempotency
     raw_content = TASKS_PATH.read_text()
     lines = raw_content.splitlines()

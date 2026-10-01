@@ -11,7 +11,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from janus.exceptions import PolicyDenialError, PolicyApprovalRequired
-from janus.models.policy import ApprovalResponse, PolicyVerdict
+from janus.models.policy_p1 import ApprovalResponse, PolicyVerdict
 from janus.services.policy import evaluate_policy
 
 

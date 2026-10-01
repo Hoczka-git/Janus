@@ -9,14 +9,14 @@ from datetime import datetime
 
 import pytest
 
-from janus.models.policy import (
+from janus.models.policy import RiskLevel
+from janus.models.policy_p1 import (
     ApprovalRecord,
     ApprovalRequest,
     ApprovalResponse,
     PolicyDecision,
     PolicyRule,
     PolicyVerdict,
-    RiskLevel,
 )
 
 
