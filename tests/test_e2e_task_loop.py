@@ -279,14 +279,15 @@ class TestE2ELoopComplete:
         assert "- [x] First task" in content
         assert "- [ ] Second task" in content
 
-    def test_complete_already_completed_raises(self, tasks_file, capsys):
+    def test_complete_already_completed_is_idempotent(self, tasks_file, capsys):
+        """Completing an already-completed task is a no-op (idempotent)."""
         handle_task_add(["Done thing"])
         handle_task_complete(["Done thing"])
         capsys.readouterr()
-        with pytest.raises(SystemExit):
-            handle_task_complete(["Done thing"])
-        err = capsys.readouterr().err
-        assert "Task not found" in err
+        # Should NOT raise SystemExit — idempotent no-op
+        handle_task_complete(["Done thing"])
+        content = tasks_file.read_text()
+        assert "- [x] Done thing" in content
 
     def test_complete_preserves_metadata(self, tasks_file, capsys):
         handle_task_add(

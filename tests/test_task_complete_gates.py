@@ -167,10 +167,11 @@ class TestPhase3GateBlocksOnFailure:
 
         monkeypatch.setattr("janus.services.tasks.TASKS_PATH", tasks_file)
 
-        with pytest.raises(CompletionGateError) as exc_info:
+        from janus.services.tasks import UnifiedCompletionGateError
+        with pytest.raises(UnifiedCompletionGateError) as exc_info:
             complete_task("Test task")
 
-        assert exc_info.value.reason == GATE_WORKING_TREE_NOT_CLEAN
+        assert exc_info.value.result.blocked_reason == GATE_WORKING_TREE_NOT_CLEAN
         assert "working tree is not clean" in str(exc_info.value).lower()
 
     def test_completion_gate_error_is_value_error(self) -> None:
@@ -178,6 +179,14 @@ class TestPhase3GateBlocksOnFailure:
         assert isinstance(err, ValueError)
         assert err.reason == "test_reason"
         assert str(err) == "test message"
+
+    def test_unified_completion_gate_error_is_value_error(self) -> None:
+        from janus.services.tasks import UnifiedCompletionGateError, UnifiedGateResult
+        result = UnifiedGateResult(overall="blocked", blocked_reason="test_reason")
+        err = UnifiedCompletionGateError(result)
+        assert isinstance(err, ValueError)
+        assert err.result is result
+        assert "test_reason" in str(err)
 
 
 # ──────────────────────────────────────────────────────────────────────

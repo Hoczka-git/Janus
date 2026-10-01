@@ -529,10 +529,10 @@ def handle_goal_update(args: list[str]) -> None:
         sys.exit(1)
 
     title = " ".join(title_parts)
-    for t in add_tasks:
-        updates["add_related_task"] = t
-    for t in remove_tasks:
-        updates["remove_related_task"] = t
+    if add_tasks:
+        updates["add_related_task"] = add_tasks
+    if remove_tasks:
+        updates["remove_related_task"] = remove_tasks
 
     try:
         result = update_goal_via_ingest(title, **updates)

@@ -20,6 +20,9 @@ from typing import Any
 
 from janus._log import emit
 from janus.models.research_artifact import ResearchArtifact
+from janus.models.policy import ClassificationCategory, RiskLevel
+from janus.models.policy_p1 import ApprovalRequest, ApprovalResponse, ApprovalRecord
+from janus.services.enforcement_gate import EnforcementGateError
 
 logger = logging.getLogger(__name__)
 
@@ -645,6 +648,142 @@ def _task_is_open(tasks_path, title: str) -> bool:
     return False
 
 
+def _build_approval_request(
+    metadata: JanusDomainMetadata,
+    evidence: EvidencePackage,
+    error: "EnforcementGateError",
+) -> "ApprovalRequest":
+    """Build an ApprovalRequest from an EnforcementGateError.
+
+    Constructs a structured approval request with full context about
+    the action being attempted, the entities affected, and the policy
+    rationale.
+
+    Args:
+        metadata: The Janus domain metadata for the completed task.
+        evidence: The evidence package from the completed task.
+        error: The enforcement gate error that triggered the approval.
+
+    Returns:
+        An ApprovalRequest ready to present to the user.
+    """
+    from janus.models.policy_p1 import ApprovalRequest
+
+    action = error.result.action
+    context = error.result.context
+
+    # Determine what approval entails based on the action type
+    if action == "task_completion":
+        what_entails = (
+            f"Completing Janus task '{metadata.title}' and running "
+            "completion gates (git integration, tests, PR verification)."
+        )
+        alternative = (
+            "Task remains open. No state change occurs. "
+            "Re-run completion when ready."
+        )
+    elif action == "goal_completion":
+        what_entails = (
+            f"Completing Janus goal '{metadata.title}' and updating "
+            "all linked state."
+        )
+        alternative = (
+            "Goal remains active. No state change occurs. "
+            "Re-run completion when ready."
+        )
+    elif action == "knowledge_ingestion":
+        what_entails = (
+            f"Ingesting {metadata.object} '{metadata.title}' into "
+            "Janus knowledge storage."
+        )
+        alternative = (
+            "Content is not ingested. No state change occurs. "
+            "Re-run ingestion when ready."
+        )
+    elif action == "external_write":
+        what_entails = (
+            "Performing an external write operation that affects "
+            "third-party systems."
+        )
+        alternative = (
+            "No external write occurs. No state change occurs. "
+            "Re-run when ready."
+        )
+    elif action == "bulk_operation":
+        what_entails = (
+            "Performing a bulk operation affecting multiple entities."
+        )
+        alternative = (
+            "No bulk operation occurs. No state change occurs. "
+            "Re-run when ready."
+        )
+    elif action == "config_change":
+        what_entails = (
+            "Modifying Janus configuration."
+        )
+        alternative = (
+            "Configuration remains unchanged. "
+            "Re-run when ready."
+        )
+    elif action == "goal_deletion":
+        what_entails = (
+            f"Deleting Janus goal '{metadata.title}' and all linked state."
+        )
+        alternative = (
+            "Goal remains active. No state change occurs. "
+            "Re-run deletion when ready."
+        )
+    else:
+        what_entails = f"Executing action '{action}'."
+        alternative = "No state change occurs. Re-run when ready."
+
+    return ApprovalRequest(
+        action=action,
+        context=f"{metadata.object}: {metadata.title}",
+        risk_level=RiskLevel.HIGH,
+        policy_rule=error.result.category.value,
+        rationale=error.result.message,
+        what_approval_entails=what_entails,
+        alternative=alternative,
+        gate_id=None,
+    )
+
+
+def _present_approval_request(request: "ApprovalRequest") -> "ApprovalRecord":
+    """Present an approval request to the user and wait for response.
+
+    Formats the request as a human-readable prompt, displays it,
+    and waits for the user to respond with approve/deny/defer.
+
+    Args:
+        request: The approval request to present.
+
+    Returns:
+        An ApprovalRecord capturing the user's response.
+    """
+    from janus.cli.approval import format_approval_prompt
+    from janus.models.policy_p1 import ApprovalResponse, ApprovalRecord
+
+    prompt = format_approval_prompt(request)
+    print(prompt)
+
+    while True:
+        try:
+            response = input("Approve? [y/n/d]: ").strip().lower()
+        except EOFError:
+            # Non-interactive mode: auto-deny for safety
+            response = "n"
+
+        if response in ("y", "yes", "approve"):
+            return ApprovalRecord(request=request, response=ApprovalResponse.APPROVE)
+        elif response in ("n", "no", "deny"):
+            return ApprovalRecord(request=request, response=ApprovalResponse.DENY)
+        elif response in ("d", "defer", "def"):
+            return ApprovalRecord(request=request, response=ApprovalResponse.DEFER)
+        else:
+            print("Please respond with 'y' (approve), 'n' (deny), or 'd' (defer).")
+
+
 def dispatch_completion(
     metadata: JanusDomainMetadata,
     evidence: EvidencePackage,
@@ -654,7 +793,67 @@ def dispatch_completion(
     This is a convenience wrapper used by the sync listener to dispatch
     based on ``metadata.object``.  Returns a dict describing the result
     of each service call (which may include errors that are not fatal).
+
+    The enforcement gate is applied before any action executes. If the
+    action requires approval (APPROVAL_REQUIRED), an ApprovalRequest is
+    generated and presented to the user. Execution resumes on approval
+    or aborts on denial/deferral.
     """
+    # ── Pre-execution enforcement gate ────────────────────────────────────
+    # Import inside the function so tests can patch the enforcement module.
+    from janus.services.enforcement_gate import (
+        EnforcementAction,
+        EnforcementGateError,
+        enforce_or_raise,
+    )
+
+    _OBJECT_TO_ACTION = {
+        "goal": EnforcementAction.GOAL_COMPLETION,
+        "task": EnforcementAction.TASK_COMPLETION,
+        "milestone": EnforcementAction.MILESTONE_COMPLETION,
+        "project": EnforcementAction.PROJECT_COMPLETION,
+        "research": EnforcementAction.KNOWLEDGE_INGESTION,
+        "finding": EnforcementAction.KNOWLEDGE_INGESTION,
+        "decision": EnforcementAction.KNOWLEDGE_INGESTION,
+    }
+
+    action = _OBJECT_TO_ACTION.get(metadata.object)
+    if action is not None:
+        try:
+            enforce_or_raise(action, context="hermes_sync")
+        except EnforcementGateError as e:
+            if e.result.category == ClassificationCategory.APPROVAL_REQUIRED:
+                # Build and present approval request
+                request = _build_approval_request(metadata, evidence, e)
+                record = _present_approval_request(request)
+
+                if record.response == ApprovalResponse.APPROVE:
+                    # User approved — continue with dispatch
+                    pass
+                else:
+                    # User denied or deferred — block execution
+                    _PAST_TENSE = {
+                        ApprovalResponse.DENY: "denied",
+                        ApprovalResponse.DEFER: "deferred",
+                    }
+                    past_tense = _PAST_TENSE.get(record.response, record.response.value)
+                    return {
+                        "blocked": metadata.object,
+                        "reason": (
+                            f"Action '{action.value}' was "
+                            f"{past_tense} by user. "
+                            f"{request.alternative}"
+                        ),
+                        "category": e.result.category.value,
+                    }
+            else:
+                # USER_ONLY or other non-approval category — block immediately
+                return {
+                    "blocked": metadata.object,
+                    "reason": e.result.message,
+                    "category": e.result.category.value,
+                }
+
     results: dict = {}
 
     # Service functions accept a plain dict (design §4.2/§4.5); serialize
@@ -672,13 +871,15 @@ def dispatch_completion(
         )
     elif metadata.object == "task":
         from janus.services.tasks import (
-            complete_janus_task, run_completion_gates, CompletionGateError,
+            complete_janus_task, run_unified_completion_gates,
+            CompletionGateError, UnifiedCompletionGateError,
             _is_swarm_root, _children_all_done, GATE_CHILDREN_NOT_DONE,
         )
         import janus.services.tasks as _tasks_mod
 
-        # ── ADR-004 Phase 5 enforcement for the Hermes execution-feedback path
-        # ──
+        # ── ADR-004 Phase 5 + integration_required enforcement for the
+        # ── Hermes execution-feedback path.
+        #
         # Only enforce gates when the Janus task is currently OPEN (``- [ ]``)
         # and lives inside a git repository.  Already-completed tasks are
         # idempotent re-evidence updates (the branch is already integrated),
@@ -700,12 +901,14 @@ def dispatch_completion(
                             ),
                         )
                 else:
-                    gate_result = run_completion_gates(root=git_root)
-                    if not gate_result.ok:
-                        raise CompletionGateError(
-                            reason=gate_result.blocked_reason or "unknown",
-                            message=gate_result.blocked_message or "Completion gate blocked",
-                        )
+                    unified_result = run_unified_completion_gates(
+                        metadata.title,
+                        task_id=evidence.task_id,
+                        completion_path="plugin",
+                        root=git_root,
+                    )
+                    if unified_result.overall != "pass":
+                        raise UnifiedCompletionGateError(unified_result)
         results["task"] = complete_janus_task(
             title=metadata.title,
             evidence=evidence_dict,
