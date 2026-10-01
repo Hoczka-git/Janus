@@ -64,6 +64,21 @@ def _tasks_md_for_stall(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _bypass_enforcement_gate(monkeypatch):
+    """Bypass the enforcement gate for all tests by default.
+
+    The enforcement gate is tested separately in test_approval_request_handling.py
+    and test_enforcement_gate.py. This fixture prevents interactive prompts
+    from blocking unrelated tests.
+    """
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(
+        "janus.services.enforcement_gate.enforce_or_raise",
+        lambda *a, **kw: MagicMock(allowed=True),
+    )
+
+
 @pytest.fixture
 def another_path(tmp_path: Path) -> Path:
     """A second tmp path for vault-resolution tests that need to override env.

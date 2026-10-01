@@ -31,6 +31,19 @@ Exports:
     AgentLifecycle
     PersonalState
     PersonalStateStatus
+    PolicyAction
+    RiskLevel
+    ImpactLevel
+    PolicyDecision
+    ClassificationCategory
+    PolicyRule
+    Policy
+    PolicyDecisionRecord
+    create_default_policy
+    PolicyVerdict
+    ApprovalRequest
+    ApprovalResponse
+    ApprovalRecord
 """
 
 from janus.models.task import Task
@@ -73,6 +86,23 @@ from janus.models.personal_state import (
     is_valid_goal_transition,
     is_valid_task_transition,
     is_valid_followup_transition,
+)
+from janus.models.policy import (
+    PolicyAction,
+    RiskLevel,
+    ImpactLevel,
+    PolicyDecision,
+    ClassificationCategory,
+    PolicyRule,
+    Policy,
+    PolicyDecisionRecord,
+    create_default_policy,
+)
+from janus.models.policy_p1 import (
+    PolicyVerdict,
+    ApprovalRequest,
+    ApprovalResponse,
+    ApprovalRecord,
 )
 
 __all__ = [
@@ -119,4 +149,17 @@ __all__ = [
     "is_valid_goal_transition",
     "is_valid_task_transition",
     "is_valid_followup_transition",
+    "PolicyAction",
+    "RiskLevel",
+    "ImpactLevel",
+    "PolicyDecision",
+    "ClassificationCategory",
+    "PolicyRule",
+    "Policy",
+    "PolicyDecisionRecord",
+    "create_default_policy",
+    "PolicyVerdict",
+    "ApprovalRequest",
+    "ApprovalResponse",
+    "ApprovalRecord",
 ]

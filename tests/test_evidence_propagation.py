@@ -459,6 +459,15 @@ class TestJanusSyncEvidenceCapture:
     completion payload, then propagates state changes back through the
     channel as an audit comment."""
 
+    @pytest.fixture(autouse=True)
+    def _bypass_enforcement_gate(self, monkeypatch):
+        """Bypass the enforcement gate for evidence propagation tests."""
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(
+            "janus.services.enforcement_gate.enforce_or_raise",
+            lambda *a, **kw: MagicMock(allowed=True),
+        )
+
     def _setup_research_dir(self, tmp_path, monkeypatch):
         from janus.integrations import markdown_research
         rd = tmp_path / "research"

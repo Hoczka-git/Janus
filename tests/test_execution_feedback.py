@@ -552,6 +552,15 @@ class TestUpdateMilestoneStatus:
 # ── dispatch_completion ────────────────────────────────────────────────────────
 
 class TestDispatchCompletion:
+    @pytest.fixture(autouse=True)
+    def _bypass_enforcement_gate(self, monkeypatch):
+        """Bypass the enforcement gate for existing dispatch tests."""
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(
+            "janus.services.enforcement_gate.enforce_or_raise",
+            lambda *a, **kw: MagicMock(allowed=True),
+        )
+
     def test_dispatch_goal(self, tmp_path, monkeypatch):
         from janus.services.execution_feedback import (
             dispatch_completion, EvidencePackage, JanusDomainMetadata
@@ -1209,6 +1218,15 @@ class TestExecutionResultMessage:
 class TestSendReceiveProtocol:
     """send_execution_result → receive_execution_result round-trip + dispatch."""
 
+    @pytest.fixture(autouse=True)
+    def _bypass_enforcement_gate(self, monkeypatch):
+        """Bypass the enforcement gate for existing dispatch tests."""
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(
+            "janus.services.enforcement_gate.enforce_or_raise",
+            lambda *a, **kw: MagicMock(allowed=True),
+        )
+
     def test_send_receive_round_trips_metadata_and_evidence(self):
         from janus.services.execution_feedback import (
             EvidencePackage, JanusDomainMetadata,
@@ -1347,6 +1365,15 @@ class TestAttachEvidence:
 class TestPropagateStateUpdates:
     """propagate_state_updates dispatches evidence and returns a structured
     state-change payload for back-propagation through the Janus↔Hermes channel."""
+
+    @pytest.fixture(autouse=True)
+    def _bypass_enforcement_gate(self, monkeypatch):
+        """Bypass the enforcement gate for existing dispatch tests."""
+        from unittest.mock import MagicMock
+        monkeypatch.setattr(
+            "janus.services.enforcement_gate.enforce_or_raise",
+            lambda *a, **kw: MagicMock(allowed=True),
+        )
 
     def _setup_goals(self, tmp_path, monkeypatch, content="# Goals\n"):
         goals_file = tmp_path / "goals.md"
