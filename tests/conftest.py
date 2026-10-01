@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,7 +25,7 @@ from janus.logging_config import _StructuredFormatter
 
 
 @pytest.fixture
-def captor():
+def captor() -> list[str]:
     """Attach a stream handler to the ``janus`` logger, capturing formatted lines.
 
     Returns a list of raw formatted log strings (one per emitted record).
@@ -72,3 +73,25 @@ def another_path(tmp_path: Path) -> Path:
     to ``_resolve_vault`` alongside a different ``JANUS_OBSIDIAN_VAULT``.
     """
     return tmp_path / "alt_vault"
+
+
+@pytest.fixture(autouse=True)
+def _bypass_enforcement_gate(request):
+    """Bypass the enforcement gate for tests that test dispatch routing.
+
+    The enforcement gate is tested separately in test_enforcement_gate.py.
+    This fixture allows existing dispatch tests to focus on routing logic
+    without being blocked by policy enforcement.
+    """
+    # Skip patching for enforcement gate tests — they test the gate itself
+    if "test_enforcement_gate" in str(request.node.fspath):
+        yield None
+        return
+
+    with patch(
+        "janus.services.enforcement_gate.enforce_or_raise"
+    ) as mock_enforce:
+        mock_result = MagicMock()
+        mock_result.allowed = True
+        mock_enforce.return_value = mock_result
+        yield mock_enforce
