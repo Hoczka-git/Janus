@@ -527,6 +527,8 @@ Goal:
 
 **Priority: P1**
 
+**Status: Implemented.** PersonalState dataclass (23 fields), PersonalStateBuilder service, PersonalStateStatus enum, comprehensive test coverage (203 tests). See `docs/design/personal_state_model_spec.md` and `docs/design/personal_state_model_deviations.md`.
+
 Define and implement the minimal structured model of:
 
 - goals,
@@ -550,6 +552,8 @@ Goal:
 ## Phase D — Agency-Aware Planning
 
 **Priority: P1**
+
+**Status: Implemented.** ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, select_execution_mode/select_support_mode, classify_task/classify_next_action in agency_planning service. Wired into derive_next_action(). 185 agency tests pass.
 
 Extend planning so Janus can distinguish between:
 
@@ -667,6 +671,8 @@ Generated capabilities should not silently become trusted capabilities.
 ## Phase H — Multi-Agent Orchestration
 
 **Priority: P3**
+
+**Status: Implemented.** AgentCoordinator (delegate/aggregate/handle_timeout/execute_with_fallback/retry_with_backoff), AgentRegistry (role-to-capability mapping), AgentRole/AgentLifecycle enums, AgentAssignment dataclass, dispatch_task() in agency_planning service. 37 coordination tests pass.
 
 Introduce specialized agents only when a real workload benefits from them.
 
