@@ -357,12 +357,17 @@ def propagate_state_updates(
     # back-channel payload survives JSON encoding in the audit comment.
     dispatch_result = _normalize_to_jsonable(dispatch_result)
     state_changes = _describe_state_changes(metadata, evidence, dispatch_result)
+    # Extract the verification result (if any) so the chain has a clear
+    # pass/fail record.  For ``object: task`` the dispatch result carries a
+    # ``"verification"`` key with the CompletionGateResult summary.
+    verification = dispatch_result.get("verification")
     payload = {
         "task_id": evidence.task_id,
         "domain_object": metadata.object,
         "domain_title": metadata.title,
         "dispatch": dispatch_result,
         "state_changes": state_changes,
+        "verification": verification,
         "synced_at": datetime.now(timezone.utc).isoformat(),
     }
     emit(logger, "service.execution_feedback.propagated",
@@ -654,6 +659,12 @@ def dispatch_completion(
     This is a convenience wrapper used by the sync listener to dispatch
     based on ``metadata.object``.  Returns a dict describing the result
     of each service call (which may include errors that are not fatal).
+
+    For ``object: task`` the ADR-004 completion gates are enforced before
+    the Janus task is marked complete.  The ``CompletionGateResult`` is
+    captured and returned under the ``"verification"`` key so that the
+    Hermes → Evidence → Verification → State Update chain has a clear,
+    structured pass/fail record (design spec §5–§6).
     """
     results: dict = {}
 
@@ -673,6 +684,7 @@ def dispatch_completion(
     elif metadata.object == "task":
         from janus.services.tasks import (
             complete_janus_task, run_completion_gates, CompletionGateError,
+            CompletionGateResult,
             _is_swarm_root, _children_all_done, GATE_CHILDREN_NOT_DONE,
         )
         import janus.services.tasks as _tasks_mod
@@ -687,6 +699,7 @@ def dispatch_completion(
         #
         # Swarm root exception: when the task is a swarm root, skip the
         # integration gate and instead require all children to be done.
+        gate_result = None
         if _task_is_open(_tasks_mod.TASKS_PATH, metadata.title):
             git_root = _tasks_mod._find_git_root(_tasks_mod.TASKS_PATH.parent)
             if git_root is not None:
@@ -699,6 +712,10 @@ def dispatch_completion(
                                 "not all children are done"
                             ),
                         )
+                    # Swarm root with all children done — no integration gate
+                    gate_result = CompletionGateResult(
+                        ok=True, integration_not_applicable=True
+                    )
                 else:
                     gate_result = run_completion_gates(root=git_root)
                     if not gate_result.ok:
@@ -710,6 +727,16 @@ def dispatch_completion(
             title=metadata.title,
             evidence=evidence_dict,
         )
+        # Capture the verification result so the chain has a clear pass/fail
+        # record (design spec §5–§6).  ``gate_result`` is None when the task
+        # was already completed (idempotent re-evidence) or non-git.
+        if gate_result is not None:
+            results["verification"] = {
+                "ok": gate_result.ok,
+                "blocked_reason": gate_result.blocked_reason,
+                "blocked_message": gate_result.blocked_message,
+                "integration_not_applicable": gate_result.integration_not_applicable,
+            }
     elif metadata.object == "milestone":
         from janus.services.milestones import update_milestone_status
         results["milestone"] = update_milestone_status(
