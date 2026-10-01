@@ -31,6 +31,39 @@ Exports:
     AgentLifecycle
     PersonalState
     PersonalStateStatus
+    Policy
+    PolicyAction
+    PolicyDecision
+    PolicyRule
+    PolicyDecisionRecord
+    RiskLevel
+    ImpactLevel
+    SkillProposal
+    SkillStage
+    TrustLevel
+    TrustRecord
+    OutcomeRecord
+    OutcomeStatus
+    VerificationResult
+    VerificationStatus
+    EvidenceType
+    EVIDENCE_TYPE_TRANSITIONS
+    is_valid_evidence_transition
+    Commitment
+    CommitmentStatus
+    Routine
+    RoutineFrequency
+    Constraint
+    ConstraintType
+    Preference
+    PreferenceCategory
+    Resource
+    ResourceType
+    NarrativeExplanation
+    ExplanationType
+    NarrativeEngine
+    DecisionRecord
+    DecisionRecordStatus
 """
 
 from janus.models.task import Task
@@ -85,6 +118,26 @@ from janus.models.policy import (
     RiskLevel,
     create_default_policy,
 )
+from janus.models.skill_proposal import SkillProposal, SkillStage
+from janus.models.trust_model import TrustLevel, TrustRecord
+from janus.models.outcome_record import OutcomeRecord, OutcomeStatus
+from janus.models.verification_result import VerificationResult, VerificationStatus
+from janus.models.evidence_type import (
+    EvidenceType,
+    EVIDENCE_TYPE_TRANSITIONS,
+    is_valid_evidence_transition,
+)
+from janus.models.commitment import Commitment, CommitmentStatus
+from janus.models.routine import Routine, RoutineFrequency
+from janus.models.constraint import Constraint, ConstraintType
+from janus.models.preference import Preference, PreferenceCategory
+from janus.models.resource import Resource, ResourceType
+from janus.models.narrative_engine import (
+    NarrativeExplanation,
+    ExplanationType,
+    NarrativeEngine,
+)
+from janus.models.decision_record import DecisionRecord, DecisionRecordStatus
 
 __all__ = [
     "Task",
@@ -139,4 +192,30 @@ __all__ = [
     "PolicyRule",
     "RiskLevel",
     "create_default_policy",
+    "SkillProposal",
+    "SkillStage",
+    "TrustLevel",
+    "TrustRecord",
+    "OutcomeRecord",
+    "OutcomeStatus",
+    "VerificationResult",
+    "VerificationStatus",
+    "EvidenceType",
+    "EVIDENCE_TYPE_TRANSITIONS",
+    "is_valid_evidence_transition",
+    "Commitment",
+    "CommitmentStatus",
+    "Routine",
+    "RoutineFrequency",
+    "Constraint",
+    "ConstraintType",
+    "Preference",
+    "PreferenceCategory",
+    "Resource",
+    "ResourceType",
+    "NarrativeExplanation",
+    "ExplanationType",
+    "NarrativeEngine",
+    "DecisionRecord",
+    "DecisionRecordStatus",
 ]

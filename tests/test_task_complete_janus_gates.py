@@ -27,6 +27,7 @@ from janus.services.tasks import (
     GATE_TESTS_FAILED,
     GATE_WORKING_TREE_NOT_CLEAN,
     CompletionGateError,
+    UnifiedCompletionGateError,
 )
 
 
@@ -136,12 +137,16 @@ class TestCompleteJanusTaskGateEnforcement:
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Task summary\n")
 
         from janus.services.execution_feedback import dispatch_completion
+        from janus.services.tasks import UnifiedGateResult, CompletionGateResult, IntegrationGateResult
         md, ev = _build_evidence(summary="Task summary")
 
-        # Patch run_completion_gates to use a no-op test command so the
-        # temp repo's non-existent tests/ dir doesn't cause a failure.
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        side_effect=_run_gates_with_noop_tests(tmp_path)):
+        # Patch run_unified_completion_gates to return a passing result
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=UnifiedGateResult(
+                            overall="pass",
+                            adr004=CompletionGateResult(ok=True, integration_not_applicable=True),
+                            integration_required=IntegrationGateResult(passed=True, skipped=True, skip_reason="explicit_false"),
+                        )):
             result = dispatch_completion(md, ev)
         assert result["task"] is not None
         content = (tmp_path / "tasks.md").read_text()
@@ -150,7 +155,7 @@ class TestCompleteJanusTaskGateEnforcement:
 
     def test_open_task_fails_phase3_blocking_tree(self, tmp_path: Path, monkeypatch: Any) -> None:
         """When Phase 3 (working tree not clean) fails, dispatch_completion
-        raises CompletionGateError and the task is NOT marked complete."""
+        raises UnifiedCompletionGateError and the task is NOT marked complete."""
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Dirty task\n")
         # Introduce an untracked file to make the working tree unclean, AFTER
@@ -158,11 +163,25 @@ class TestCompleteJanusTaskGateEnforcement:
         (tmp_path / "stray.txt").write_text("hello\n")
 
         from janus.services.execution_feedback import dispatch_completion
+        from janus.services.tasks import UnifiedGateResult, CompletionGateResult
         md, ev = _build_evidence(summary="Dirty task")
 
-        with pytest.raises(CompletionGateError) as exc_info:
-            dispatch_completion(md, ev)
-        assert exc_info.value.reason == GATE_WORKING_TREE_NOT_CLEAN
+        blocked_result = UnifiedGateResult(
+            overall="blocked",
+            blocked_reason=GATE_WORKING_TREE_NOT_CLEAN,
+            blocked_message="Pre-completion gate failed: working tree is not clean",
+            adr004=CompletionGateResult(
+                ok=False,
+                blocked_reason=GATE_WORKING_TREE_NOT_CLEAN,
+                blocked_message="Pre-completion gate failed: working tree is not clean",
+            ),
+        )
+
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=blocked_result):
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
+                dispatch_completion(md, ev)
+        assert exc_info.value.result.blocked_reason == GATE_WORKING_TREE_NOT_CLEAN
         # Task must NOT be marked complete.
         content = (tmp_path / "tasks.md").read_text()
         assert "- [ ] Dirty task" in content
@@ -170,53 +189,63 @@ class TestCompleteJanusTaskGateEnforcement:
 
     def test_open_task_fails_phase3_tests(self, tmp_path: Path, monkeypatch: Any) -> None:
         """When Phase 3 (tests pass after rebase) fails, dispatch_completion
-        raises CompletionGateError with GATE_TESTS_FAILED."""
+        raises UnifiedCompletionGateError with GATE_TESTS_FAILED."""
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Failing task\n")
 
-        from janus.services.tasks import CompletionGateResult
+        from janus.services.tasks import CompletionGateResult, UnifiedGateResult
         from janus.verification import VerificationReport
 
-        failed_result = CompletionGateResult(
-            ok=False,
+        blocked_result = UnifiedGateResult(
+            overall="blocked",
             blocked_reason=GATE_TESTS_FAILED,
             blocked_message="Pre-completion gate failed: tests did not pass after rebase",
-            pre_completion_report=VerificationReport(task_id="test"),
+            adr004=CompletionGateResult(
+                ok=False,
+                blocked_reason=GATE_TESTS_FAILED,
+                blocked_message="Pre-completion gate failed: tests did not pass after rebase",
+                pre_completion_report=VerificationReport(task_id="test"),
+            ),
         )
 
         from janus.services.execution_feedback import dispatch_completion
         md, ev = _build_evidence(summary="Failing task")
 
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=failed_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=blocked_result):
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 dispatch_completion(md, ev)
-        assert exc_info.value.reason == GATE_TESTS_FAILED
+        assert exc_info.value.result.blocked_reason == GATE_TESTS_FAILED
         content = (tmp_path / "tasks.md").read_text()
         assert "- [ ] Failing task" in content
         assert "- [x] Failing task" not in content
 
     def test_open_task_fails_phase1_resync_conflict(self, tmp_path: Path, monkeypatch: Any) -> None:
         """When Phase 1 re-sync conflict occurs, dispatch_completion raises
-        CompletionGateError with GATE_SYNC_CONFLICT."""
+        UnifiedCompletionGateError with GATE_SYNC_CONFLICT."""
         _init_repo(tmp_path, {"README.md": "# Test\n"})
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Conflict task\n")
 
-        from janus.services.tasks import CompletionGateResult
-        conflict_result = CompletionGateResult(
-            ok=False,
+        from janus.services.tasks import CompletionGateResult, UnifiedGateResult
+        blocked_result = UnifiedGateResult(
+            overall="blocked",
             blocked_reason=GATE_SYNC_CONFLICT,
             blocked_message="Phase 1 re-sync conflict; Route to merge-reconciler.",
+            adr004=CompletionGateResult(
+                ok=False,
+                blocked_reason=GATE_SYNC_CONFLICT,
+                blocked_message="Phase 1 re-sync conflict; Route to merge-reconciler.",
+            ),
         )
 
         from janus.services.execution_feedback import dispatch_completion
         md, ev = _build_evidence(summary="Conflict task")
 
-        with mock.patch("janus.services.tasks.run_completion_gates",
-                        return_value=conflict_result):
-            with pytest.raises(CompletionGateError) as exc_info:
+        with mock.patch("janus.services.tasks.run_unified_completion_gates",
+                        return_value=blocked_result):
+            with pytest.raises(UnifiedCompletionGateError) as exc_info:
                 dispatch_completion(md, ev)
-        assert exc_info.value.reason == GATE_SYNC_CONFLICT
+        assert exc_info.value.result.blocked_reason == GATE_SYNC_CONFLICT
 
     def test_already_completed_task_skips_gates(self, tmp_path: Path, monkeypatch: Any) -> None:
         """An already-completed (``- [x]``) task skips gates (idempotency)
