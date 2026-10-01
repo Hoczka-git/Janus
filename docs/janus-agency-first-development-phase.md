@@ -525,6 +525,8 @@ Goal:
 
 ## Phase C — Personal State Model
 
+**Status: Implemented** (PersonalState dataclass, PersonalStateBuilder, 203 tests; PR #268–270, #337)
+
 **Priority: P1**
 
 **Status: Implemented.** PersonalState dataclass (23 fields), PersonalStateBuilder service, PersonalStateStatus enum, comprehensive test coverage (203 tests). See `docs/design/personal_state_model_spec.md` and `docs/design/personal_state_model_deviations.md`.
@@ -550,6 +552,8 @@ Goal:
 ---
 
 ## Phase D — Agency-Aware Planning
+
+**Status: Implemented** (agency_planning service: select_execution_mode, select_support_mode, classify_task; integrated with planner; PR #337)
 
 **Priority: P1**
 
@@ -669,6 +673,8 @@ Generated capabilities should not silently become trusted capabilities.
 ---
 
 ## Phase H — Multi-Agent Orchestration
+
+**Status: Implemented** (AgentCoordinator, AgentRegistry, dispatch_task; multi-agent orchestration wired; PR #337)
 
 **Priority: P3**
 

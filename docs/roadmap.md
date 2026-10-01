@@ -151,7 +151,7 @@ Key phases:
   - Depends on: Phase A.
 - [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
-  - Status: Implemented. ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, select_execution_mode/select_support_mode, classify_task/classify_next_action in agency_planning service. Wired into derive_next_action(). 185 agency tests pass.
+  - Status: Implemented (design doc merged; PersonalState dataclass + PersonalStateBuilder implemented; 203 tests passing; integrated with strategic summary and next-action derivation). See PR #337, #335.
   - Depends on: Phases A, C.
 - [x] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
@@ -174,13 +174,15 @@ Key phases:
 - [x] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
 - [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
 - [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
+- [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review. (Plan finalized t_d61f4ce7; spec: docs/design/unified_lifecycle_observability_spec.md; 15 lifecycle.* events; 4-phase rollout. See child tasks t_7adc5a80 audit, t_eb2d2ec9 gap analysis, t_775f6038 design spec, t_4276ffa2 synthesis.)
+- [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
 - [x] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
 - [x] Dodać explainability dla Agency-Aware Planning: reason, confidence i źródła decyzji dla rekomendowanego next action.
-- [ ] Domknąć Policy & Approval Engine: klasyfikować akcje jako auto-allowed, approval-required lub user-only i egzekwować te reguły przed wykonaniem.
-- [ ] Zintegrować Policy & Approval z Hermes execution: przekazywać tylko akcje dozwolone przez politykę i obsługiwać wymagane approval requests.
-- [ ] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
-- [ ] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
-- [x] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed.
+- [x] Domknąć Policy & Approval Engine: klasyfikować akcje jako auto-allowed, approval-required lub user-only i egzekwować te reguły przed wykonaniem.
+- [x] Zintegrować Policy & Approval z Hermes execution: przekazywać tylko akcje dozwolone przez politykę i obsługiwać wymagane approval requests.
+- [x] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
+- [x] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
+- [x] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed. (Completed by t_34c8818c — Phase C/D/H updated; personal_state_model_spec.md status updated; roadmap item 182 marked complete.)
 - [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
