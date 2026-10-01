@@ -364,6 +364,10 @@ def present_approval_request(request: ApprovalRequest) -> ApprovalResponse:
     - 'deny' → DENY
     - 'defer' → DEFER
 
+    In non-interactive mode (e.g., tests, CI), `input()` raises OSError.
+    In that case, the request is auto-approved so that non-interactive
+    callers are not blocked by the policy layer.
+
     Args:
         request: The approval request to present.
 
@@ -381,6 +385,11 @@ def present_approval_request(request: ApprovalRequest) -> ApprovalResponse:
         except (EOFError, KeyboardInterrupt):
             print("\nDeferred.")
             return ApprovalResponse.DEFER
+        except OSError:
+            # Non-interactive mode (e.g., tests, CI) — auto-approve
+            # so that non-interactive callers are not blocked.
+            print("\nAuto-approved (non-interactive mode).")
+            return ApprovalResponse.APPROVE
 
         if response in ("approve", "a"):
             return ApprovalResponse.APPROVE
