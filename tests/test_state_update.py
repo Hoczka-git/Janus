@@ -14,6 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from janus.domain.planning import NextAction
+from janus.models.goal import Goal
+from janus.models.task import Task
 from janus.services.execution_feedback import (
     EvidencePackage,
     JanusDomainMetadata,
@@ -24,6 +27,7 @@ from janus.services.state_update import (
     apply_verification_result,
     close_loop,
     evaluate_plan_impact,
+    rederive_next_action,
 )
 from janus.verification import CheckResult, VerificationReport
 
@@ -294,14 +298,26 @@ class TestEvaluatePlanImpact:
         assert d["priority"] == 2
         assert d["affected_tasks"] == ["T1"]
 
+    def test_errors_returns_none(self):
+        result = StateUpdateResult(
+            task_id="t_1",
+            verification_passed=True,
+            state_changes=["something happened"],
+            updated_goals=["G"],
+            errors=["State update failed: timeout"],
+        )
+        assert evaluate_plan_impact(result) is None
+
 
 # ── close_loop (end-to-end) ──────────────────────────────────────────────────
 
 
 class TestCloseLoop:
-    """close_loop: verification → state update → planner feedback."""
+    """close_loop: verification → state update → planner feedback → next action."""
 
-    def test_pass_closes_loop_with_plan_signal(self, tmp_path, monkeypatch):
+    def test_pass_closes_loop_with_plan_signal_and_next_action(
+        self, tmp_path, monkeypatch
+    ):
         _setup_goals(
             tmp_path, monkeypatch,
             "# Goals\n\n## Goal: Test goal\nStatus: active\n",
@@ -313,11 +329,18 @@ class TestCloseLoop:
             summary="Implement X",
             tests_passed=True,
         )
-        state_result, plan_signal = close_loop(report, md, ev)
+        goal = Goal(title="Test goal", related_tasks=["Task A"])
+        tasks = [Task(title="Task A")]
+        state_result, plan_signal, next_action = close_loop(
+            report, md, ev, goal, tasks, set(), date(2026, 10, 1)
+        )
         assert state_result.verification_passed is True
         assert state_result.has_changes is True
         assert plan_signal is not None
         assert plan_signal.goal_title == "Test goal"
+        # Loop is closed: next_action is derived
+        assert next_action is not None
+        assert next_action.goal_title == "Test goal"
 
     def test_fail_closes_loop_without_plan_signal(self, tmp_path, monkeypatch):
         _setup_goals(
@@ -327,10 +350,15 @@ class TestCloseLoop:
         report = _make_fail_report("t_loop")
         md = JanusDomainMetadata(object="goal", title="Test goal")
         ev = EvidencePackage(task_id="t_loop", summary="Implement X")
-        state_result, plan_signal = close_loop(report, md, ev)
+        goal = Goal(title="Test goal")
+        tasks = [Task(title="Task A")]
+        state_result, plan_signal, next_action = close_loop(
+            report, md, ev, goal, tasks, set(), date(2026, 10, 1)
+        )
         assert state_result.verification_passed is False
         assert state_result.has_changes is False
         assert plan_signal is None
+        assert next_action is None
 
     def test_task_completion_closes_loop(self, tmp_path, monkeypatch):
         _setup_tasks(tmp_path, monkeypatch, "- [ ] Build feature\n")
@@ -341,14 +369,20 @@ class TestCloseLoop:
             summary="Build feature",
             tests_passed=True,
         )
-        state_result, plan_signal = close_loop(
-            report, md, ev, goal_title="My Goal"
+        goal = Goal(title="My Goal", related_tasks=["Task B"])
+        tasks = [Task(title="Task B")]
+        state_result, plan_signal, next_action = close_loop(
+            report, md, ev, goal, tasks, set(), date(2026, 10, 1),
+            goal_title="My Goal",
         )
         assert state_result.verification_passed is True
         assert state_result.updated_tasks == ["Build feature"]
         assert plan_signal is not None
         assert plan_signal.goal_title == "My Goal"
         assert plan_signal.priority == 2
+        # Loop is closed: next_action is derived
+        assert next_action is not None
+        assert next_action.goal_title == "My Goal"
 
 
 # ── StateUpdateResult edge cases ─────────────────────────────────────────────
@@ -384,6 +418,119 @@ class TestStateUpdateResultEdgeCases:
             timestamp="2026-09-09T10:00:00+00:00",
         )
         assert "2026" in result.timestamp
+
+
+# ── rederive_next_action ─────────────────────────────────────────────────────
+
+
+class TestRederiveNextAction:
+    """rederive_next_action re-derives the next action after a state update."""
+
+    def test_returns_next_action_for_open_task(self):
+        signal = PlanRevisionSignal(
+            goal_title="G",
+            reason="tasks updated: T1",
+            priority=2,
+            affected_tasks=["T1"],
+        )
+        goal = Goal(title="G", related_tasks=["T1"])
+        tasks = [Task(title="T1")]
+        result = rederive_next_action(
+            signal, goal, tasks, set(), date(2026, 10, 1)
+        )
+        assert result is not None
+        assert result.title == "T1"
+        assert result.kind == "task"
+        assert result.goal_title == "G"
+
+    def test_returns_none_when_no_open_tasks(self):
+        signal = PlanRevisionSignal(
+            goal_title="G",
+            reason="tasks updated: T1",
+            priority=2,
+        )
+        goal = Goal(title="G", related_tasks=[])
+        tasks: list[Task] = []
+        result = rederive_next_action(
+            signal, goal, tasks, set(), date(2026, 10, 1)
+        )
+        assert result is None
+
+    def test_returns_none_when_all_tasks_completed(self):
+        signal = PlanRevisionSignal(
+            goal_title="G",
+            reason="tasks updated: T1",
+            priority=2,
+        )
+        goal = Goal(title="G", related_tasks=["T1"])
+        # tasks list contains only open tasks; when all are completed it's empty
+        tasks: list[Task] = []
+        result = rederive_next_action(
+            signal, goal, tasks, {"T1"}, date(2026, 10, 1)
+        )
+        assert result is None
+
+    def test_returns_milestone_when_no_open_tasks_but_milestone_exists(self):
+        signal = PlanRevisionSignal(
+            goal_title="G",
+            reason="milestones updated: M1",
+            priority=3,
+        )
+        goal = Goal(
+            title="G",
+            related_tasks=[],
+            milestones=[{"title": "M1", "goal_title": "G", "status": "open", "order": 0}],
+        )
+        tasks: list[Task] = []
+        result = rederive_next_action(
+            signal, goal, tasks, set(), date(2026, 10, 1)
+        )
+        assert result is not None
+        assert result.title == "M1"
+        assert result.kind == "milestone"
+        assert result.goal_title == "G"
+
+    def test_uses_goal_title_from_signal(self):
+        signal = PlanRevisionSignal(
+            goal_title="Signal Goal",
+            reason="tasks updated: T1",
+            priority=2,
+        )
+        goal = Goal(title="Signal Goal", related_tasks=["T1"])
+        tasks = [Task(title="T1")]
+        result = rederive_next_action(
+            signal, goal, tasks, set(), date(2026, 10, 1)
+        )
+        assert result is not None
+        assert result.goal_title == "Signal Goal"
+
+
+# ── evaluate_plan_impact error guard ─────────────────────────────────────────
+
+
+class TestEvaluatePlanImpactErrorGuard:
+    """evaluate_plan_impact returns None when state_result has errors."""
+
+    def test_errors_returns_none(self):
+        result = StateUpdateResult(
+            task_id="t_1",
+            verification_passed=True,
+            state_changes=["something happened"],
+            updated_goals=["G"],
+            errors=["State update failed: timeout"],
+        )
+        assert evaluate_plan_impact(result) is None
+
+    def test_no_errors_produces_signal(self):
+        result = StateUpdateResult(
+            task_id="t_1",
+            verification_passed=True,
+            state_changes=["appended recent_activity entry to goal 'G'"],
+            updated_goals=["G"],
+        )
+        signal = evaluate_plan_impact(result)
+        assert signal is not None
+        assert signal.goal_title == "G"
 
 
 if __name__ == "__main__":

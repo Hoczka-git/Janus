@@ -211,6 +211,9 @@ def evaluate_plan_impact(
     if not state_result.verification_passed:
         return None
 
+    if state_result.errors:
+        return None
+
     if not state_result.has_changes:
         return None
 
@@ -287,23 +290,43 @@ def close_loop(
     report: VerificationReport,
     metadata: JanusDomainMetadata,
     evidence: EvidencePackage,
+    goal: Goal,
+    tasks: list[Task],
+    completed_task_titles: set[str],
+    today: date,
     goal_title: str | None = None,
-) -> tuple[StateUpdateResult, PlanRevisionSignal | None]:
+    projects: list[Project] | None = None,
+) -> tuple[StateUpdateResult, PlanRevisionSignal | None, NextAction | None]:
     """Close the loop: verification → state update → planner feedback.
 
     This is the top-level entry point for the closed-loop execution
-    pipeline.  It applies the verification result to Janus state and
-    evaluates whether the planner should re-derive next actions.
+    pipeline.  It applies the verification result to Janus state,
+    evaluates whether the planner should re-derive next actions, and
+    if so, re-derives the next action — completing the loop end-to-end.
 
     Args:
         report: The verification report.
         metadata: The Janus domain linkage metadata.
         evidence: The execution evidence package.
+        goal: The goal associated with the verified task.
+        tasks: Current open tasks.
+        completed_task_titles: Set of completed task titles.
+        today: Current date.
         goal_title: Optional explicit goal title for planner feedback.
+        projects: Optional project list for hierarchical derivation.
 
     Returns:
-        A tuple of ``(StateUpdateResult, PlanRevisionSignal | None)``.
+        A tuple of ``(StateUpdateResult, PlanRevisionSignal | None, NextAction | None)``.
+        The ``NextAction`` is ``None`` when no plan signal is produced or
+        when no actionable next action exists.
     """
     state_result = apply_verification_result(report, metadata, evidence)
     plan_signal = evaluate_plan_impact(state_result, goal_title=goal_title)
-    return state_result, plan_signal
+
+    next_action: NextAction | None = None
+    if plan_signal is not None:
+        next_action = rederive_next_action(
+            plan_signal, goal, tasks, completed_task_titles, today, projects
+        )
+
+    return state_result, plan_signal, next_action
