@@ -18,6 +18,7 @@ from janus.services.tasks import (
     complete_janus_task,
     complete_task_via_ingest,
     CompletionGateError,
+    UnifiedCompletionGateError,
     GATE_CHILDREN_NOT_DONE,
     _is_swarm_root,
     _children_all_done,
@@ -100,7 +101,7 @@ class TestCompletionGates:
         with mock.patch(
             "janus.services.tasks.run_verification", return_value=fake_report
         ):
-            with pytest.raises(CompletionGateError):
+            with pytest.raises(UnifiedCompletionGateError):
                 complete_task("Test task")
 
     def test_p4_swarm_root_completion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,1 +1,1 @@
-"""Fixtures for lifecycle state regression tests."""
+"""Fixtures for regression tests."""
