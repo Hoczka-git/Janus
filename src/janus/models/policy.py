@@ -1,14 +1,14 @@
 """Policy model for Janus — Phase E: Policy & Approval engine.
 
 This module defines the Policy domain model: a configurable rule schema
-that maps (action, risk, impact) tuples to ALLOW/ASK/DENY decisions.
-It provides the foundation for a general approval gate beyond the
-knowledge-pipeline curation gate and CLI ``--yes``.
+that maps (action, risk, impact) tuples to ALLOW/ASK/DENY decisions,
+plus the ClassificationCategory enum that maps those decisions to the
+three enforcement categories consumed by the enforcement layer.
 
 The model is pure-logic — it does not perform I/O. Persistence is
 handled by the policy engine service.
 
-Design reference: docs/research/t_b7854dd7-implementation-verdict.md (Phase E)
+Design reference: docs/design/policy_approval_p1_design.md (Phase E)
 """
 
 from __future__ import annotations
@@ -75,6 +75,19 @@ class PolicyDecision(StrEnum):
     ALLOW = "allow"
     ASK = "ask"
     DENY = "deny"
+
+
+class ClassificationCategory(StrEnum):
+    """Classification category for the enforcement layer.
+
+    AUTO_ALLOWED      — the action may proceed without human approval.
+    APPROVAL_REQUIRED — the action requires human approval before proceeding.
+    USER_ONLY         — the action is restricted to user contexts (DENY for Janus).
+    """
+
+    AUTO_ALLOWED = "auto_allowed"
+    APPROVAL_REQUIRED = "approval_required"
+    USER_ONLY = "user_only"
 
 
 # ── Policy rule ──────────────────────────────────────────────────────────────

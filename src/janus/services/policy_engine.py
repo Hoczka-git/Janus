@@ -7,10 +7,11 @@ policy and maintains an audit log of all decisions.
 The policy engine is the enforcement point for the Policy model. It:
 1. Loads policy rules from a YAML configuration file.
 2. Evaluates (action, risk, impact) tuples against the rules.
-3. Provides an approval gate that can be integrated into any workflow.
+3. Provides a ``classify()`` interface that maps decisions to
+   ClassificationCategory (auto_allowed, approval_required, user_only).
 4. Maintains an audit log of all policy decisions.
 
-Design reference: docs/research/t_b7854dd7-implementation-verdict.md (Phase E)
+Design reference: docs/design/policy_approval_p1_design.md (Phase E)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import yaml
 
 from janus._log import emit
 from janus.models.policy import (
+    ClassificationCategory,
     ImpactLevel,
     Policy,
     PolicyAction,
@@ -51,8 +53,8 @@ class PolicyEngine:
 
     Usage:
         engine = PolicyEngine()
-        decision = engine.evaluate(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
-        if decision == PolicyDecision.ASK:
+        category = engine.classify(PolicyAction.WRITE, RiskLevel.MEDIUM, ImpactLevel.LOW)
+        if category == ClassificationCategory.APPROVAL_REQUIRED:
             # Request human approval
             ...
     """
@@ -206,6 +208,34 @@ class PolicyEngine:
 
         return decision
 
+    def classify(
+        self,
+        action: PolicyAction | str,
+        risk: RiskLevel | str,
+        impact: ImpactLevel | str,
+        context: str = "",
+    ) -> ClassificationCategory:
+        """Classify an action into one of three enforcement categories.
+
+        This is the primary interface for the enforcement layer. It evaluates
+        the action against the policy and maps the decision to a category:
+
+        - ALLOW  → AUTO_ALLOWED (proceed without approval)
+        - ASK    → APPROVAL_REQUIRED (requires human approval)
+        - DENY   → USER_ONLY (restricted to user contexts)
+
+        Args:
+            action: The action to classify.
+            risk: The risk level of the action.
+            impact: The impact level of the action.
+            context: Optional context for the audit log (e.g., task title).
+
+        Returns:
+            The classification category.
+        """
+        decision = self.evaluate(action, risk, impact, context)
+        return _decision_to_category(decision)
+
     def check_approval(
         self,
         action: PolicyAction | str,
@@ -262,6 +292,24 @@ class PolicyEngine:
         self._policy = None
 
 
+# ── Decision → Category mapping ───────────────────────────────────────────────
+
+
+def _decision_to_category(decision: PolicyDecision) -> ClassificationCategory:
+    """Map a PolicyDecision to a ClassificationCategory.
+
+    ALLOW → AUTO_ALLOWED
+    ASK   → APPROVAL_REQUIRED
+    DENY  → USER_ONLY
+    """
+    mapping = {
+        PolicyDecision.ALLOW: ClassificationCategory.AUTO_ALLOWED,
+        PolicyDecision.ASK: ClassificationCategory.APPROVAL_REQUIRED,
+        PolicyDecision.DENY: ClassificationCategory.USER_ONLY,
+    }
+    return mapping[decision]
+
+
 # ── Module-level convenience functions ────────────────────────────────────────
 
 _default_engine: PolicyEngine | None = None
@@ -283,6 +331,19 @@ def evaluate_action(
 ) -> PolicyDecision:
     """Evaluate an action using the default policy engine."""
     return get_policy_engine().evaluate(action, risk, impact, context)
+
+
+def classify_action(
+    action: PolicyAction | str,
+    risk: RiskLevel | str,
+    impact: ImpactLevel | str,
+    context: str = "",
+) -> ClassificationCategory:
+    """Classify an action using the default policy engine.
+
+    This is the primary convenience function for the enforcement layer.
+    """
+    return get_policy_engine().classify(action, risk, impact, context)
 
 
 def check_approval(
