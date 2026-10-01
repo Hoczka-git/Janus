@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from janus.models.policy import ClassificationCategory, RiskLevel
+from janus.models.policy_agency import ClassificationCategory, RiskLevel
 from janus.models.policy_p1 import ApprovalResponse, PolicyVerdict
 from janus.services.enforcement_gate import (
     EnforcementAction,

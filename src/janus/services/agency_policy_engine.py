@@ -24,7 +24,7 @@ from typing import Any
 import yaml
 
 from janus._log import emit
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     Policy,

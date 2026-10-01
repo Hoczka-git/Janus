@@ -21,13 +21,13 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from janus._log import emit
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     PolicyAction,
     RiskLevel,
 )
-from janus.services.policy_engine import PolicyEngine, get_policy_engine
+from janus.services.agency_policy_engine import PolicyEngine, get_policy_engine
 
 logger = logging.getLogger(__name__)
 

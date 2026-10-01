@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from janus.models.policy import RiskLevel
+from janus.models.policy_agency import RiskLevel
 
 
 class PolicyVerdict(StrEnum):

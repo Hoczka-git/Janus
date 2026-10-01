@@ -11,7 +11,7 @@ Covers:
 
 import pytest
 
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     Policy,

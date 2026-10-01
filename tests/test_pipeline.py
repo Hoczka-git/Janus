@@ -13,7 +13,7 @@ import pytest
 from janus.domain.planning import NextAction, derive_next_action
 from janus.models.execution_mode import ExecutionMode
 from janus.models.goal import Goal
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     PolicyAction,
@@ -32,7 +32,7 @@ from janus.services.pipeline import (
     enforce_pipeline,
     run_pipeline,
 )
-from janus.services.policy_engine import PolicyEngine
+from janus.services.agency_policy_engine import PolicyEngine
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

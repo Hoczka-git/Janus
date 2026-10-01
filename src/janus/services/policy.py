@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from janus.models.policy import RiskLevel
+from janus.models.policy_agency import RiskLevel
 from janus.models.policy_p1 import (
     ApprovalRecord,
     ApprovalRequest,

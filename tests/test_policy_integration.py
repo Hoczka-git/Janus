@@ -54,7 +54,7 @@ class TestPolicyIntegrationWithDispatchCompletion:
             EnforcementGateError,
             EnforcementResult,
         )
-        from janus.models.policy import ClassificationCategory
+        from janus.models.policy_agency import ClassificationCategory
 
         metadata = _make_metadata("task", "Test task")
         evidence = _make_evidence()
@@ -126,7 +126,7 @@ class TestPolicyIntegrationWithDispatchCompletion:
             EnforcementGateError,
             EnforcementResult,
         )
-        from janus.models.policy import ClassificationCategory
+        from janus.models.policy_agency import ClassificationCategory
 
         metadata = _make_metadata("task", "Test task")
         evidence = _make_evidence()

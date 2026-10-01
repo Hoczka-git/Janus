@@ -107,7 +107,7 @@ from janus.models.personal_state import (
     is_valid_task_transition,
     is_valid_followup_transition,
 )
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     Policy,

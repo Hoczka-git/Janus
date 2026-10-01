@@ -20,7 +20,7 @@ from typing import Any
 
 from janus._log import emit
 from janus.models.research_artifact import ResearchArtifact
-from janus.models.policy import ClassificationCategory, RiskLevel
+from janus.models.policy_agency import ClassificationCategory, RiskLevel
 from janus.models.policy_p1 import ApprovalRequest, ApprovalResponse, ApprovalRecord
 from janus.services.enforcement_gate import EnforcementGateError
 

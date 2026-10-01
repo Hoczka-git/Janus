@@ -14,14 +14,14 @@ from pathlib import Path
 import pytest
 import yaml
 
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     PolicyAction,
     PolicyDecision,
     RiskLevel,
 )
-from janus.services.policy_engine import (
+from janus.services.agency_policy_engine import (
     PolicyEngine,
     check_approval,
     classify_action,

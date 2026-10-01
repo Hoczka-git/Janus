@@ -35,7 +35,7 @@ from dataclasses import dataclass
 
 from janus.domain.planning import NextAction
 from janus.models.execution_mode import ExecutionMode
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     PolicyDecision,
@@ -44,7 +44,7 @@ from janus.models.policy import (
 )
 from janus.models.support_mode import SupportMode
 from janus.models.task_agency import TaskAgency
-from janus.services.policy_engine import PolicyEngine
+from janus.services.agency_policy_engine import PolicyEngine
 
 logger = logging.getLogger(__name__)
 

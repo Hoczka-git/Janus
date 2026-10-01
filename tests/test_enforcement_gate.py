@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from janus.models.policy import (
+from janus.models.policy_agency import (
     ClassificationCategory,
     ImpactLevel,
     PolicyAction,
@@ -37,7 +37,7 @@ from janus.services.enforcement_gate import (
     enforce_action,
     enforce_or_raise,
 )
-from janus.services.policy_engine import PolicyEngine
+from janus.services.agency_policy_engine import PolicyEngine
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
