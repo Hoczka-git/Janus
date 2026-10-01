@@ -654,7 +654,41 @@ def dispatch_completion(
     This is a convenience wrapper used by the sync listener to dispatch
     based on ``metadata.object``.  Returns a dict describing the result
     of each service call (which may include errors that are not fatal).
+
+    The enforcement gate is applied before any action executes. If the
+    action is blocked (APPROVAL_REQUIRED or USER_ONLY in non-user context),
+    the function returns a dict with ``blocked``, ``reason``, and
+    ``category`` keys instead of dispatching.
     """
+    # ── Pre-execution enforcement gate ────────────────────────────────────
+    # Import inside the function so tests can patch the enforcement module.
+    from janus.services.enforcement_gate import (
+        EnforcementAction,
+        EnforcementGateError,
+        enforce_or_raise,
+    )
+
+    _OBJECT_TO_ACTION = {
+        "goal": EnforcementAction.GOAL_COMPLETION,
+        "task": EnforcementAction.TASK_COMPLETION,
+        "milestone": EnforcementAction.MILESTONE_COMPLETION,
+        "project": EnforcementAction.PROJECT_COMPLETION,
+        "research": EnforcementAction.KNOWLEDGE_INGESTION,
+        "finding": EnforcementAction.KNOWLEDGE_INGESTION,
+        "decision": EnforcementAction.KNOWLEDGE_INGESTION,
+    }
+
+    action = _OBJECT_TO_ACTION.get(metadata.object)
+    if action is not None:
+        try:
+            enforce_or_raise(action, context="hermes_sync")
+        except EnforcementGateError as e:
+            return {
+                "blocked": metadata.object,
+                "reason": e.result.message,
+                "category": e.result.category.value,
+            }
+
     results: dict = {}
 
     # Service functions accept a plain dict (design §4.2/§4.5); serialize
