@@ -190,6 +190,7 @@ Key phases:
 - [x] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Metrics defined in `tests/test_planner_evaluation.py`: task_coverage, overdue_handling, deadline_awareness, calendar_conflict_rate, plan_validity, unsupported_recommendations. MetricsCollector class with summary reporting.
 - [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Not yet written.
 - [~] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Design doc exists; runbook and example output not yet written.
+  - Design phase: design doc drafted (685 lines, 15 sections); pending review and finalization.
 - [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Not yet started.
 
 **Weekly Planner V1 implementation notes (2026-10-02):**
