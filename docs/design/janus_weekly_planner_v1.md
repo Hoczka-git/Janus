@@ -20,15 +20,17 @@ V1 answers one question:
 **Key constraints (from research):**
 
 - CLI uses manual arg parsing — no argparse/click/typer; dispatch-by-if-elif in `main()`
-  (`src/janus/__init__.py:75-307`).
+  (`src/janus/__init__.py:286-295`).
 - All data is file-backed under `data/` with `atomic_io` + `data_integrity` write protection
-  (`src/janus/integrations/atomic_io.py`, `src/janus/services/data_integrity.py`).
+  (`src/janus/integrations/atomic_io.py`).
 - Goal model: `Goal` dataclass with metric + task-based progress paths
   (`src/janus/models/goal.py:7-149`).
 - Weekly review exists (`janus weekly`) but is retrospective — no forward planning.
 - Domain planning engine already has rules-based next-action derivation
   (`src/janus/domain/planning.py:297-501`, P1-P7 / R1-R5 priority rules).
-- No `plan` command exists; no `plan week` subcommand; no weekly planner module.
+- `plan_cli.py` already exists on master with `RuleBasedPlanner`, `PlanningContext`, `WeeklyPlan` models.
+- `WeeklyPlanner` Protocol defined in `planner/protocol.py`.
+- `LLMWeeklyPlanner` implemented in `planner/llm_planner.py`.
 
 ---
 
@@ -40,36 +42,33 @@ V1 answers one question:
 uv run janus plan week [options]
 ```
 
-### 2.2 Flags
+### 2.2 Flags (V1 scope)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--from` | `YYYY-MM-DD` | Monday of current week | Week start (inclusive) |
-| `--to` | `YYYY-MM-DD` | Sunday of current week | Week end (inclusive) |
-| `--goal` | `str` | All active goals | Filter to goal matching title substring |
-| `--priority` | `int >= 1` | 1 | Minimum priority level to include |
-| `--format` | `table \| json \| text` | `table` | Output format |
-| `--dry-run` | flag | `false` | Validate inputs, print plan, do not persist |
-| `--help` | `-h` | — | Print usage and exit |
+| `-h`, `--help` | flag | — | Print usage and exit |
 
-### 2.3 Examples
+### 2.3 Current master implementation
+
+The current `handle_plan_week` on master accepts no arguments — any extra args print an error
+(`src/janus/plan_cli.py:405-431`). Flags like `--from`, `--to`, `--goal`, `--priority`,
+`--format`, `--dry-run` are not yet implemented; they are reserved for a future flag-passing
+refactor of the dispatch convention (see §10).
+
+### 2.4 Examples
 
 ```bash
-uv run janus plan week                        # current week, all goals, table
-uv run janus plan week --from 2026-10-05      # week containing Oct 5
-uv run janus plan week --goal "Career"        # only goals matching "Career"
-uv run janus plan week --priority 2           # only priority >= 2
-uv run janus plan week --format json          # machine-readable output
-uv run janus plan week --dry-run              # validate + print, no persist
+uv run janus plan week            # current week, all goals, table
+uv run janus plan week --help     # print usage
 ```
 
-### 2.4 Dispatch convention
+### 2.5 Dispatch convention
 
-Follow the existing `main()` dispatch pattern (`src/janus/__init__.py:75-307`):
+Follow the existing `main()` dispatch pattern (`src/janus/__init__.py:286-295`):
 
 ```python
 elif command == "plan":
-    if len(filtered) < 2 or filtered[1] in ("-h", "--help"):
+    if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
         print_plan_help()
         return
     sub = filtered[1]
@@ -77,10 +76,14 @@ elif command == "plan":
         handle_plan_week(filtered[2:])
     else:
         print(f"Unknown plan subcommand: {sub}")
+        print_plan_help()
 ```
 
-Add `print_plan_help()` and `handle_plan_week()` following the `handle_task_*` /
-`handle_goal_*` patterns (`src/janus/tasks_cli.py`, `src/janus/goals_cli.py`).
+Imports already present on master (`src/janus/__init__.py:45`):
+
+```python
+from janus.plan_cli import handle_plan_week, print_plan_help
+```
 
 ---
 
@@ -88,59 +91,61 @@ Add `print_plan_help()` and `handle_plan_week()` following the `handle_task_*` /
 
 ### 3.1 Domain models
 
-All models live in `src/janus/models/weekly_planner.py` (new file), following the
+All planner models live in `src/janus/planner/models.py` (new on master), following the
 dataclass convention in `src/janus/models/`.
 
 ```python
 @dataclass
 class PlannedTask:
-    """A task proposed for a specific day in the weekly plan."""
-    title: str
-    goal_title: str | None = None
-    priority: int = 1              # 1 = lowest, higher = more important
-    suggested_day: str | None = None  # ISO date YYYY-MM-DD, or None = flexible
-    reason: str = ""               # Why this task was scheduled this way
-    estimated_minutes: int | None = None
+    task_id: str                       # persistence identity (task title)
+    goal_id: str                       # goal this task supports
+    priority: Priority                 # HIGH / MEDIUM / LOW
+    reason: str                        # Why this task was scheduled this way
+    suggested_day: date                # ISO date, the day this task is suggested for
 
 
 @dataclass
-class Priority:
-    """A ranked priority for the week."""
-    level: int                     # 1 = top priority
-    goal_title: str
-    reason: str
+class PriorityEntry:
+    goal_id: str                       # persistence identity (goal title)
+    reason: str                        # Human-readable justification
+    priority: Priority                 # HIGH / MEDIUM / LOW
 
 
 @dataclass
 class PlanningRisk:
-    """A risk or conflict identified during planning."""
     description: str
-    severity: str                  # "low" | "medium" | "high"
-    affected_tasks: list[str] = field(default_factory=list)
+    severity: RiskSeverity             # LOW / MEDIUM / HIGH
+
+
+@dataclass
+class PlanningSignals:
+    overdue_tasks: list[str]
+    due_soon_tasks: list[str]
+    stalled_goals: list[str]
+    behind_target_goals: list[str]
+    calendar_conflicts: list[str]
+    competing_tasks: dict[str, int]
 
 
 @dataclass
 class WeeklyPlan:
-    """The output of the weekly planner."""
-    week_start: str                # ISO date YYYY-MM-DD
-    week_end: str                  # ISO date YYYY-MM-DD
-    generated_at: str              # ISO datetime
-    priorities: list[Priority]
+    week_summary: str                  # Human-readable week summary
+    priorities: list[PriorityEntry]
     planned_tasks: list[PlannedTask]
     risks: list[PlanningRisk]
-    summary: str                   # Human-readable week summary
 ```
+
+Enums (`Priority`, `RiskSeverity`) are `StrEnum` in `src/janus/planner/models.py`.
 
 ### 3.2 Planning context
 
 ```python
 @dataclass
 class PlanningContext:
-    """Input data assembled for the planner."""
     goals: list[Goal]
     tasks: list[Task]
-    calendar_events: list[Event]
-    today: str                     # ISO date
+    calendar: list[Event]
+    signals: PlanningSignals = field(default_factory=PlanningSignals)
 ```
 
 ### 3.3 Relationship to existing models
@@ -148,9 +153,25 @@ class PlanningContext:
 | Model | Source | Used by planner |
 |-------|--------|-----------------|
 | `Goal` | `src/janus/models/goal.py:7-149` | Active goals provide priorities |
-| `Task` | `src/janus/models/task.py:8-27` | Open tasks are plan candidates |
-| `Event` | `src/janus/models/event.py:3-13` | Calendar availability |
+| `Task` | `src/janus/models/task.py:7-27` | Open tasks are plan candidates |
+| `Event` | `src/janus/models/event.py` | Calendar availability |
 | `NextAction` | `src/janus/domain/planning.py:36-119` | Reuse priority derivation rules |
+
+### 3.4 Interface
+
+`WeeklyPlanner` Protocol defined in `src/janus/planner/protocol.py`:
+
+```python
+class WeeklyPlanner(Protocol):
+    def plan(self, context: PlanningContext) -> WeeklyPlan: ...
+```
+
+Two implementations on master:
+
+| Implementation | Module | Role |
+|---------------|--------|------|
+| `RuleBasedPlanner` | `src/janus/plan_cli.py:145` | Deterministic fallback; no LLM |
+| `LLMWeeklyPlanner` | `src/janus/planner/llm_planner.py:65` | Primary; LLM-driven planning |
 
 ---
 
@@ -166,44 +187,18 @@ The planner reads from the same sources as the weekly review:
 | Tasks | `markdown_tasks.load_tasks()` | `data/tasks.md` |
 | Calendar | `google_calendar.list_upcoming_events()` | Google Calendar API |
 
-All loaders return empty lists (not errors) when data is missing — consistent
-with `load_tasks()` / `load_goals()` behavior.
+`load_goals()` returns `[]` (not errors) when the file is missing.
 
 ### 4.2 Write path — persisting plans
 
-New file: `data/weekly_plans.md` — one block per plan, markdown format:
+**Not implemented in V1.** The current master `plan week` produces ephemeral output only
+(`_format_plan` prints to stdout; no file write). Persistence to `data/weekly_plans.md`
+is reserved for a future update.
 
-```markdown
-# Weekly Plans
+### 4.3 Side effects in V1
 
-## Plan: 2026-10-05 to 2026-10-11
-Generated: 2026-10-05T09:00:00Z
-
-### Priority 1: Career
-Reason: ...
-
-### Planned Tasks
-
-| Day | Task | Priority | Reason |
-|-----|------|----------|--------|
-| Mon | Prepare AI/Agent plan | 1 | ... |
-| Tue | ... | ... | ... |
-
-### Risks
-- High: Multiple tasks compete for same time slot
-```
-
-**Persistence mechanism:** Follow the `atomic_io` pattern used by all other
-data writers (`src/janus/integrations/atomic_io.py`):
-- `atomic_write(path, content)` — write-to-temp + `os.replace`
-- Backup rotation via `data_integrity.protected_write()` (configurable,
-  `config/config.example.toml` lines 38-60)
-
-### 4.3 No side effects in V1
-
-The planner **does not** modify goals, tasks, or calendar entries. It only
-writes the plan to `data/weekly_plans.md`. All mutations require explicit
-user approval (deferred to V2).
+The planner **does not** modify goals, tasks, or calendar entries. It only displays the plan.
+All mutations require explicit user approval (deferred to V2).
 
 ---
 
@@ -214,62 +209,42 @@ user approval (deferred to V2).
 Match the `weekly.py` renderer style (`src/janus/weekly.py:6-79`):
 
 ```text
-JANUS — WEEKLY PLAN
-5–11 Oct 2026
+JANUS WEEKLY PLAN
+
+Week of 05 Oct – 11 Oct 2026 — 2 overdue task(s), 1 stalled goal(s)
 
 TOP PRIORITIES
-  1. Career — Complete AI/Agent Engineering development plan
-  2. Janus  — Finish weekly planner V1 design
-  3. Health — 2 strength sessions
 
-PLANNED TASKS
-  Monday
-    [P1] Prepare AI/Agent plan (Career)
-    [P2] Review PR #340 (Janus)
-  Tuesday
-    [P1] Write planner tests (Janus)
-    [P2] Run 5 km (Health)
+1. Career
+   Has overdue tasks
+
+2. Janus
+   Active goal
 
 RISKS
-  ⚠ Career goal has no completed actions this sprint
-  ⚠ Multiple tasks compete for the same time slot
+
+⚠ Overdue tasks: Review PR #340
+• Stalled goals: Health
+
+PLANNED TASKS
+
+Monday
+  ! Prepare AI/Agent plan
+  Review PR #340
+
+Tuesday
+  Write planner tests
 ```
+
+Output formatting: `_format_plan()` in `src/janus/plan_cli.py:330`.
 
 ### 5.2 JSON format (`--format json`)
 
-```json
-{
-  "week_start": "2026-10-05",
-  "week_end": "2026-10-11",
-  "generated_at": "2026-10-05T09:00:00Z",
-  "priorities": [
-    {"level": 1, "goal_title": "Career", "reason": "..."}
-  ],
-  "planned_tasks": [
-    {
-      "title": "Prepare AI/Agent plan",
-      "goal_title": "Career",
-      "priority": 1,
-      "suggested_day": "2026-10-05",
-      "reason": "...",
-      "estimated_minutes": null
-    }
-  ],
-  "risks": [
-    {"description": "...", "severity": "high", "affected_tasks": []}
-  ],
-  "summary": "..."
-}
-```
+Reserved for future flag implementation (not yet on master).
 
 ### 5.3 Text format (`--format text`)
 
-Plain text, one line per planned task:
-
-```text
-2026-10-05 [P1] Prepare AI/Agent plan (Career) — ...
-2026-10-05 [P2] Review PR #340 (Janus) — ...
-```
+Reserved for future flag implementation (not yet on master).
 
 ---
 
@@ -277,25 +252,22 @@ Plain text, one line per planned task:
 
 | Condition | Behavior | Exit Code |
 |-----------|----------|-----------|
-| No active goals | Print "No active goals — nothing to plan" | 0 |
-| No open tasks | Print "No open tasks" + priorities from goals only | 0 |
-| Invalid `--from` / `--to` date | Print error to stderr, `sys.exit(1)` | 1 |
-| `--from` after `--to` | Print error to stderr, `sys.exit(1)` | 1 |
-| `--goal` not matching any active goal | Print warning, proceed with all goals | 0 |
-| `--priority` not an integer | Print error to stderr, `sys.exit(1)` | 1 |
-| `--format` not in {table, json, text} | Print error to stderr, `sys.exit(1)` | 1 |
-| Calendar API unavailable | Proceed without calendar data; note in risks | 0 |
-| `data/goals.md` missing | Treat as no goals (match `load_goals` empty-list behavior) | 0 |
-| `data/tasks.md` missing | Treat as no tasks (match `load_tasks` behavior) | 0 |
+| Extra args passed | Print error to stderr, `sys.exit(1)` | 1 |
+| `-h` / `--help` | Print help, return | 0 |
+| Unknown subcommand | Print error + help, `sys.exit(1)` | 1 |
+| No active goals | Planner produces empty priorities | 0 |
+| No open tasks | Planner produces empty planned_tasks | 0 |
+| Calendar API unavailable | Proceed without calendar data | 0 |
+| `data/goals.md` missing | Treat as no goals (empty list) | 0 |
+| `data/tasks.md` missing | Treat as no tasks (empty list) | 0 |
 | LLM provider error (V2) | Print error, show partial plan if available | 1 |
 | LLM timeout (V2) | Retry once, then fail with partial plan | 1 |
 | Invalid LLM structured output (V2) | Reject, retry up to 3 times, then fail | 1 |
-| Write failure (persist plan) | Print error, plan was generated but not saved | 1 |
-| Concurrent write conflict | Retry per `atomic_io` backoff, then fail | 1 |
 
 ### 6.1 Error handling conventions
 
 Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
+
 - User-facing errors: `print(f"Error: ...", file=sys.stderr)` + `sys.exit(1)`
 - Warnings: `print(f"Warning: ...", file=sys.stderr)` + continue
 - Help: `-h` / `--help` flag on every subcommand
@@ -306,13 +278,13 @@ Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
 
 | # | Question | Status | Notes |
 |---|----------|--------|-------|
-| Q1 | **LLM provider integration** | Open | V1 could use rule-based planning (reuse `domain/planning.py` P1-P7). LLM path deferred to V2 or made optional via config flag. |
-| Q2 | **Plan persistence format** | Open | Markdown (`data/weekly_plans.md`) vs. JSON vs. structured Goal blocks. Markdown matches existing convention but is harder to query. |
-| Q3 | **Task duration estimation** | Open | Tasks have no duration field. `estimated_minutes` on `PlannedTask` is new — needs a source (manual? ML? historical?). |
-| Q4 | **Calendar write access** | Open | V1 is read-only for calendar. Auto-creating focus blocks requires OAuth scope upgrade (per `planning_calendar_findings.md`). |
-| Q5 | **Plan evaluation criteria** | Open | What makes a "good" plan? Overdue coverage? Priority alignment? Calendar fit? Needs explicit metric before V2. |
+| Q1 | **Flag passing** | Open | Current master accepts no args; `--from`, `--to`, `--goal`, `--priority`, `--format`, `--dry-run` need dispatch integration |
+| Q2 | **Plan persistence** | Open | V1 is ephemeral only. Markdown (`data/weekly_plans.md`) vs. JSON vs. structured Goal blocks. |
+| Q3 | **Task duration estimation** | Open | Tasks have no duration field. Needs a source (manual? ML? historical?). |
+| Q4 | **Calendar write access** | Open | V1 is read-only for calendar. Auto-creating focus blocks requires OAuth scope upgrade. |
+| Q5 | **Plan evaluation criteria** | Open | What makes a "good" plan? Overdue coverage? Priority alignment? Calendar fit? |
 | Q6 | **Multi-week planning** | Open | V1 plans one week. Multi-week requires cross-week dependency tracking. |
-| Q7 | **Goal deadline awareness** | Open | `Goal.deadline` exists but is not used in planning logic. Should near-deadline goals get automatic priority boost? |
+| Q7 | **Goal deadline awareness** | Open | `Goal.deadline` exists and is used in `RuleBasedPlanner._prioritize_goals` — but not in LLM path yet. |
 | Q8 | **Side effects policy** | Open | V1 is read-only (no mutations). V2 needs approval workflow for task creation/modification. |
 | Q9 | **Interactive mode** | Open | Should `janus plan week` support Telegram interaction for clarifications? |
 | Q10 | **Plan revision** | Open | If a task is completed mid-week, should `janus plan week` support `--update` to re-plan remaining days? |
@@ -321,13 +293,11 @@ Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
 
 ## 8. Definition of Done
 
-- [ ] `janus plan week` runs end-to-end (rule-based, no LLM)
+- [ ] `janus plan week` runs end-to-end (rule-based via `RuleBasedPlanner`)
 - [ ] Reads Goals, Tasks, Calendar (read-only)
 - [ ] Produces `WeeklyPlan` with priorities, planned tasks, risks
-- [ ] `--format table|json|text` works
-- [ ] `--dry-run` validates without persisting
+- [ ] Help (`-h` / `--help`) works
 - [ ] All error conditions handled with correct exit codes
-- [ ] Persists plan to `data/weekly_plans.md` via `atomic_io`
 - [ ] Tests: unit tests for models, service, CLI handler
 - [ ] Matches tone/structure of existing `docs/design/` docs
 - [ ] No side effects on goals/tasks/calendar
@@ -336,7 +306,9 @@ Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
 
 ## 9. Out of Scope for V1
 
-- LLM-powered planning (rule-based only)
+- Flag passing (`--from`, `--to`, `--goal`, `--priority`, `--format`, `--dry-run`)
+- Plan persistence (ephemeral output only)
+- LLM-powered planning (rule-based only in V1; LLM path exists but is secondary)
 - Plan execution / task mutation
 - Calendar write access
 - Interactive / Telegram planning
@@ -351,10 +323,9 @@ Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
 | Pattern | Source |
 |---------|--------|
 | Manual arg parsing, `sys.exit(1)` on error | `src/janus/tasks_cli.py:86-418`, `src/janus/goals_cli.py:253-501` |
-| CLI dispatch: `if/elif` chain in `main()` | `src/janus/__init__.py:75-307` |
+| CLI dispatch: `if/elif` chain in `main()` | `src/janus/__init__.py:286-295` |
 | Data loading from `data/*.md` | `src/janus/integrations/markdown_tasks.py`, `markdown_goals.py` |
-| Atomic writes via `atomic_io` | `src/janus/integrations/atomic_io.py:1-457` |
-| Data integrity / backup rotation | `src/janus/services/data_integrity.py` |
+| Atomic writes via `atomic_io` | `src/janus/integrations/atomic_io.py:248` |
 | `Goal` dataclass with validation | `src/janus/models/goal.py:7-149` |
 | `Task` dataclass | `src/janus/models/task.py:7-27` |
 | `Event` dataclass | `src/janus/models/event.py` |
@@ -363,4 +334,6 @@ Follow the existing pattern from `tasks_cli.py` and `goals_cli.py`:
 | Weekly review service (deterministic) | `src/janus/services/weekly_review.py:193-334` |
 | Config TOML structure | `config/config.example.toml:1-79` |
 | Design doc conventions (status banner, kebab-case, numbered sections, code citations) | `docs/design/goal_system_design.md` |
-| Existing weekly planner architecture spec | `docs/design/janus_weekly_planner_v1.md` (high-level, pre-existing) |
+| Existing plan CLI with RuleBasedPlanner | `src/janus/plan_cli.py:1-431` |
+| WeeklyPlanner Protocol | `src/janus/planner/protocol.py` |
+| LLMWeeklyPlanner implementation | `src/janus/planner/llm_planner.py:65-479` |
