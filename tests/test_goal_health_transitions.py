@@ -157,8 +157,8 @@ class TestHealthStateTransitions:
         assert a2.health_state == "watch"
         assert a1.health_state != a2.health_state
 
-    def test_watch_to_stalled_via_measurement_due_then_overdue(self):
-        """Goal: watch (measurement_due) → stalled (goal_overdue)."""
+    def test_watch_to_overdue_via_measurement_due_then_overdue(self):
+        """Goal: watch (measurement_due) → overdue (goal_overdue)."""
         req = {"metric": "Body fat %", "unit": "%", "frequency": "daily"}
         goal = _make_metric_goal(
             deadline="2026-08-30",  # overdue relative to FIXED_TODAY
@@ -180,13 +180,13 @@ class TestHealthStateTransitions:
         assert a1.health_state == "watch"
         assert any(s.signal == "measurement_due" for s in a1.signals)
 
-        # Phase 2: deadline now past, no open tasks → goal_overdue → stalled
+        # Phase 2: deadline now past, no open tasks → goal_overdue → overdue
         a2 = assess_goal_health(
             goal, FIXED_TODAY,
             open_task_titles=set(), all_task_titles={"Task A"},
             metric_snapshots=[], completed_task_dates=None,
         )
-        assert a2.health_state == "stalled"
+        assert a2.health_state == "overdue"
         assert any(s.signal == "goal_overdue" for s in a2.signals)
 
     def test_healthy_to_stalled_via_task_completion(self):

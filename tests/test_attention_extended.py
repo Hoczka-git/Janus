@@ -109,17 +109,17 @@ class TestDeadlineSignals:
         overdue_sig = next(s for s in signals if s[0].signal == "goal_overdue")
         assert overdue_sig[0].score == 100
 
-    def test_deadline_overdue_with_open_task_no_overdue_signal(self,
+    def test_deadline_overdue_with_open_task_still_fires(self,
             tmp_path, monkeypatch):
         _setup_tasks_file(tmp_path, monkeypatch,
             content="- [ ] Task A\n")
         goal = _make_goal("G", deadline="2026-08-25", related_tasks=["Task A"])
-        # Task A is open → overdue signal should NOT fire
+        # Task A is open → overdue signal still fires (goal is past deadline)
         signals = assess_goal_stall(
             goal, FIXED_TODAY, {"Task A"}, {"Task A"},
         )
         signal_names = [s[0].signal for s in signals]
-        assert "goal_overdue" not in signal_names
+        assert "goal_overdue" in signal_names
 
 
 # =============================================================================

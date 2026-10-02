@@ -654,6 +654,158 @@ class TestWeeklyReviewHealthIntegration:
         assert gr.progress_delta is not None
         assert gr.progress_delta > 0  # progress improved
 
+    def test_overdue_goal_with_open_tasks_is_overdue(self, tmp_path, monkeypatch):
+        """Goal with past deadline and open tasks → health_state='overdue'.
+
+        The goal_overdue signal (score 100) dominates over goal_stalled (40)
+        and no_recent_activity (35), so the health state is 'overdue'.
+        """
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Active task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Overdue Goal\n"
+            "Status: active\n"
+            "Deadline: 2020-01-01\n"
+            "Related tasks:\n"
+            "- Active task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        assert gr.health_state == "overdue"
+
+    def test_overdue_goal_without_open_tasks_is_overdue(self, tmp_path, monkeypatch):
+        """Goal with past deadline and no open tasks → health_state='overdue'.
+
+        Even when all tasks are completed, the goal_overdue signal (score 100)
+        dominates over goal_stalled (40), so the health state is 'overdue'.
+        """
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Completed task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Overdue Goal\n"
+            "Status: active\n"
+            "Deadline: 2020-01-01\n"
+            "Related tasks:\n"
+            "- Completed task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        assert gr.health_state == "overdue"
+
+    def test_stalled_goal_without_deadline_is_stalled(self, tmp_path, monkeypatch):
+        """Goal with all tasks completed and no deadline → health_state='stalled'.
+
+        Without a deadline, goal_overdue does not fire. The goal_stalled signal
+        (score 40) dominates, so the health state is 'stalled'.
+        """
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Completed task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Stalled Goal\n"
+            "Status: active\n"
+            "Related tasks:\n"
+            "- Completed task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        assert gr.health_state == "stalled"
+
+    def test_overdue_and_stalled_are_distinct_states(self, tmp_path, monkeypatch):
+        """A goal cannot be both overdue and stalled simultaneously.
+
+        The health_state is a single value determined by the highest-scoring
+        signal. goal_overdue (100) and goal_stalled (40) are mutually exclusive
+        in the final health_state.
+        """
+        tasks_file = _write_tasks_file(
+            tmp_path,
+            "- [x] Completed task\n"
+            "- [ ] Open task\n"
+        )
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Overdue Goal\n"
+            "Status: active\n"
+            "Deadline: 2020-01-01\n"
+            "Related tasks:\n"
+            "- Completed task\n"
+            "- Open task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        review = create_weekly_review()
+        assert len(review.goals) == 1
+        gr = review.goals[0]
+        # Must be exactly one of overdue or stalled, not both
+        assert gr.health_state in ("overdue", "stalled")
+        assert gr.health_state == "overdue"  # goal_overdue dominates
+
+    def test_weekly_cli_shows_overdue_label(self, capsys, tmp_path, monkeypatch):
+        """CLI output shows OVERDUE label for overdue goals."""
+        tasks_file = _write_tasks_file(tmp_path, "- [ ] Active task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Overdue Goal\n"
+            "Status: active\n"
+            "Deadline: 2020-01-01\n"
+            "Related tasks:\n"
+            "- Active task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "OVERDUE" in out
+        assert "STALLED" not in out
+
+    def test_weekly_cli_shows_stalled_label(self, capsys, tmp_path, monkeypatch):
+        """CLI output shows STALLED label for stalled goals."""
+        tasks_file = _write_tasks_file(tmp_path, "- [x] Completed task\n")
+        goals_file = _write_goals_file(
+            tmp_path,
+            "# Goals\n\n"
+            "## Goal: Stalled Goal\n"
+            "Status: active\n"
+            "Related tasks:\n"
+            "- Completed task\n"
+        )
+        monkeypatch.setattr("janus.integrations.markdown_tasks.TASKS_PATH", tasks_file)
+        monkeypatch.setattr("janus.integrations.markdown_goals.GOALS_PATH", goals_file)
+        monkeypatch.setattr("janus.services.weekly_review.TASKS_PATH", tasks_file)
+
+        from janus.weekly import show_weekly
+        show_weekly()
+
+        out = capsys.readouterr().out
+        assert "STALLED" in out
+        assert "OVERDUE" not in out
+
 
 # ===========================================================================
 # §13.4 / §14.1 — _read_completed_task_dates and _parse_completion_date
