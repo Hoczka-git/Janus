@@ -206,8 +206,6 @@ CLI dispatch in `janus/__init__.py`.
 
 ## References
 
-- `docs/design/janus_weekly_planner_v1.md` — full design document (this ADR
-  summarizes the decisions; the design doc contains detailed specifications)
 - `docs/roadmap.md` — roadmap with WP-001 through WP-010 task definitions
 - ADR-001 — Hermes and Janus System Model (two-layer architecture)
 - ADR-004 — Safe Sync-and-Integrate Workflow (gated completion, integration)
