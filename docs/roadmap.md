@@ -1,6 +1,6 @@
 # Hermes / Janus Roadmap
 
-**Last verified:** 2026-10-01
+**Last verified:** 2026-10-02
 
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
@@ -190,4 +190,5 @@ Key phases:
 - [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+  - Design phase: design doc drafted (685 lines, 15 sections); pending review and finalization.
 - [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
