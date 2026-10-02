@@ -149,9 +149,14 @@ def parse_llm_response(raw: str) -> WeeklyPlan: ...
 
 V1 does **not** persist plans. Plans are generated on demand, displayed, and discarded. Future versions may store plans in `data/weekly_plans.md` or another lightweight persistence layer.
 
-## 4. Data Model
+## 4. Data Model (WP-001)
 
-All planner models are LLM-independent and follow the established `@dataclass` conventions used by Janus.
+**WP-001** — Design Weekly Planner domain model
+**Priority:** P0
+**Parent task:** t_5d30bf1f
+**Research spec:** `docs/research-findings/planner_domain_research.md` (t_d2a5732e)
+
+All planner models are LLM-independent and follow the established `@dataclass` conventions used by Janus. Identity is title-based (`Goal.title`, `Task.title`) — no UUIDs in V1. The planning week is implicit (current week, Monday–Sunday); no `week_start`/`week_end` fields on `PlanningContext`.
 
 ### 4.1 Enums
 
@@ -226,6 +231,91 @@ class WeeklyPlan:
     planned_tasks: list[PlannedTask] = field(default_factory=list)
     risks: list[PlanningRisk] = field(default_factory=list)
 ```
+
+### 4.5 Relationship Diagram
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                       PlanningContext                        │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────────┐  │
+│  │  Goal   │  │  Task   │  │  Event  │  │PlanningSignals │  │
+│  │ (title) │  │ (title) │  │(ephem.) │  │                │  │
+│  └────┬────┘  └────┬────┘  └─────────┘  └────────────────┘  │
+│       │            │                                         │
+└───────┼────────────┼─────────────────────────────────────────┘
+        │            │
+        │     ┌──────┴──────┐
+        │     │  WeeklyPlan │
+        │     │ ┌─────────┐ │
+        │     │ │Priority │ │
+        │     │ │Entry    │ │
+        │     │ │goal_id ─┼─┘ (many-to-one → Goal.title)
+        │     │ │priority │ │
+        │     │ └─────────┘ │
+        │     │ ┌─────────┐ │
+        │     │ │Planned  │ │
+        │     │ │Task     │ │
+        │     │ │task_id ──┼── (many-to-one → Task.title)
+        └─────┼─┤goal_id ──┼── (many-to-one → Goal.title)
+              │ │priority │ │
+              │ │suggested│ │
+              │ │_day     │ │
+              │ └─────────┘ │
+              │ ┌─────────┐ │
+              │ │Planning │ │
+              │ │Risk     │ │
+              │ │severity │ │
+              │ └─────────┘ │
+              └─────────────┘
+```
+
+### 4.6 Invariants
+
+Enforced by `LLMWeeklyPlanner._validate_plan()`:
+
+1. Every `PriorityEntry.goal_id` must exist in `context.goals` (by title).
+2. Every `PlannedTask.task_id` must exist in `context.tasks` (by title).
+3. Every `PlannedTask.goal_id` must exist in `context.goals`.
+4. No `task_id` may appear in `planned_tasks` more than once (duplicate
+   scheduling rejected).
+
+Not enforced (open):
+- `suggested_day` must be within the planning week — validation absent.
+- `PriorityEntry` ordering is not validated (list order = priority ranking).
+
+### 4.7 Interface Sketch
+
+```python
+class WeeklyPlanner(Protocol):
+    def plan(self, context: PlanningContext) -> WeeklyPlan: ...
+```
+
+Implementations:
+
+| Implementation | Status | Notes |
+|----------------|--------|-------|
+| `LLMWeeklyPlanner` | Primary (P0) | Calls LLM with structured output |
+| `RuleBasedPlanner` | Fallback | Deterministic, in `plan_cli.py` |
+| `MockPlanner` | Tests (P0) | Fixed responses for evaluation |
+
+### 4.8 Open Questions
+
+| # | Question | Status |
+|---|----------|--------|
+| 1 | `models/` vs `planner/` location for domain models | Open — implementation uses `planner/` |
+| 2 | `PriorityEntry` vs inline `Priority` in design | Open — implementation separates them |
+| 3 | Task/goal identity: title vs UUID | Open — title-based in V1 |
+| 4 | `Block`/time-block model: include or defer? | Open — missing from codebase |
+| 5 | `availability_hours` signal: add or drop? | Open — in original design, not in impl |
+| 6 | Week as explicit model vs implicit | Open — implicit current-week convention |
+| 7 | `behind_target_goals` signal computed? | Open — in model, not computed in `plan_cli.py` |
+
+### 4.9 References
+
+- Parent task: t_5d30bf1f (WP-005 design)
+- Research spec: `docs/research-findings/planner_domain_research.md` (t_d2a5732e)
+- Roadmap: `docs/roadmap.md` §WP-001
+- Implementation: `src/janus/planner/models.py`
 
 ## 5. Command and CLI
 
