@@ -111,6 +111,12 @@ def _workout_to_markdown_lines(workout: Workout) -> list[str]:
     if isinstance(workout, StrengthWorkout):
         if workout.notes:
             lines.append(f"notes = {workout.notes}")
+        if workout.plan:
+            lines.append(f"plan = {workout.plan}")
+        if workout.training:
+            lines.append(f"training = {workout.training}")
+        if workout.week is not None:
+            lines.append(f"week = {workout.week}")
         if d.get("exercises"):
             lines.append(f"exercises = {json_dumps(d['exercises'])}")
     elif isinstance(workout, RunningWorkout):

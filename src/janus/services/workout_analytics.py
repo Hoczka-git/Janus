@@ -247,6 +247,9 @@ def add_workout_via_ingest(
     exercises: list | None = None,
     source: str = "cli",
     date: str | None = None,
+    plan: str | None = None,
+    training: str | None = None,
+    week: int | None = None,
 ) -> "IngestResult":
     """Construct a WORKOUT_ADDED ActivityRecord and route it through the
     canonical ADR-005 ingestion gate (``ingest_activities``).
@@ -276,6 +279,12 @@ def add_workout_via_ingest(
         evidence["exercises"] = exercises
     if date is not None:
         evidence["date"] = date
+    if plan is not None:
+        evidence["plan"] = plan
+    if training is not None:
+        evidence["training"] = training
+    if week is not None:
+        evidence["week"] = week
 
     record = ActivityRecord(
         type=ActivityType.WORKOUT_ADDED,
