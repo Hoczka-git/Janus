@@ -131,6 +131,7 @@ def handle_workout_add(args: list[str]) -> None:
         janus workout add --type strength --exercise "Back Squat" --sets "5x80kg@8,5x80kg@8.5"
         janus workout add --type running --distance 5.0 --duration 30
         janus workout add --type strength --exercise "Bench Press" --sets "8x60kg@7" --date 2026-09-01
+        janus workout add --type strength --exercise "Squat" --sets "5x80kg" --exercise "Bench" --sets "8x60kg" --plan "PLAN 14" --training C --week 4
 
     Options:
         -h, --help  Show this help message
@@ -151,11 +152,13 @@ def handle_workout_add(args: list[str]) -> None:
         print("  --notes STR        Free-form notes")
         print("  --source STR       Source label (default: manual)")
         print("  --date YYYY-MM-DD  Workout date (default: today)")
+        print("  --plan STR         Training plan label (strength only)")
+        print("  --training STR     Training session label (strength only)")
+        print("  --week N           Training week number (strength only)")
         print("  -h, --help         Show this help message")
         return
     workout_type = None
-    exercise_name = None
-    sets_str = None
+    exercises: list[tuple[str, str]] = []
     distance_km = None
     duration_minutes = None
     avg_hr_bpm = None
@@ -163,6 +166,9 @@ def handle_workout_add(args: list[str]) -> None:
     notes = None
     source = "manual"
     date_str = None
+    plan = None
+    training = None
+    week = None
 
     i = 0
     while i < len(args):
@@ -185,13 +191,19 @@ def handle_workout_add(args: list[str]) -> None:
             if i >= len(args):
                 print("Error: --exercise requires a value", file=sys.stderr)
                 sys.exit(1)
-            exercise_name = args[i]
-        elif arg == "--sets":
-            i += 1
-            if i >= len(args):
-                print("Error: --sets requires a value", file=sys.stderr)
+            # Peek ahead for --sets
+            if i + 1 < len(args) and args[i + 1] == "--sets":
+                i += 2  # skip --sets
+                if i >= len(args):
+                    print("Error: --sets requires a value", file=sys.stderr)
+                    sys.exit(1)
+                exercises.append((args[i - 2], args[i]))
+            else:
+                print("Error: --exercise must be followed by --sets", file=sys.stderr)
                 sys.exit(1)
-            sets_str = args[i]
+        elif arg == "--sets":
+            print("Error: --sets must follow --exercise", file=sys.stderr)
+            sys.exit(1)
         elif arg == "--distance":
             i += 1
             if i >= len(args):
@@ -250,6 +262,30 @@ def handle_workout_add(args: list[str]) -> None:
                 print("Error: --date requires a value (YYYY-MM-DD)", file=sys.stderr)
                 sys.exit(1)
             date_str = args[i]
+        elif arg == "--plan":
+            i += 1
+            if i >= len(args):
+                print("Error: --plan requires a value", file=sys.stderr)
+                sys.exit(1)
+            plan = args[i]
+        elif arg == "--training":
+            i += 1
+            if i >= len(args):
+                print("Error: --training requires a value", file=sys.stderr)
+                sys.exit(1)
+            training = args[i]
+        elif arg == "--week":
+            i += 1
+            if i >= len(args):
+                print("Error: --week requires a value", file=sys.stderr)
+                sys.exit(1)
+            try:
+                week = int(args[i])
+                if week < 1:
+                    raise ValueError
+            except ValueError:
+                print(f"Error: invalid week: {args[i]}", file=sys.stderr)
+                sys.exit(1)
         else:
             print(f"Error: unknown argument: {arg}", file=sys.stderr)
             sys.exit(1)
@@ -262,22 +298,25 @@ def handle_workout_add(args: list[str]) -> None:
     workout_date = _parse_date(date_str)
 
     if workout_type == WorkoutType.STRENGTH:
-        if not exercise_name:
-            print("Error: --exercise is required for strength workouts", file=sys.stderr)
-            sys.exit(1)
-        if not sets_str:
-            print("Error: --sets is required for strength workouts", file=sys.stderr)
+        if not exercises:
+            print("Error: at least one --exercise with --sets is required for strength workouts", file=sys.stderr)
             sys.exit(1)
 
-        sets = _parse_sets(sets_str)
-        exercise = Exercise(name=exercise_name, sets=sets)
+        exercise_objs = []
+        for ex_name, sets_str in exercises:
+            sets = _parse_sets(sets_str)
+            exercise_objs.append(Exercise(name=ex_name, sets=sets))
+
         workout = StrengthWorkout(
             id=_generate_id(workout_type),
             date=_parse_datetime(workout_date),
             workout_type=WorkoutType.STRENGTH,
             source=source,
-            exercises=[exercise],
+            exercises=exercise_objs,
             notes=notes,
+            plan=plan,
+            training=training,
+            week=week,
         )
     else:  # RUNNING
         if distance_km is None:
@@ -313,6 +352,9 @@ def handle_workout_add(args: list[str]) -> None:
         exercises=getattr(workout, "exercises", None),
         source=workout.source or "cli",
         date=workout.date.isoformat() if workout.date else None,
+        plan=getattr(workout, "plan", None),
+        training=getattr(workout, "training", None),
+        week=getattr(workout, "week", None),
     )
     if result.action == "rejected":
         print(f"Error: workout already exists: {workout.id}", file=sys.stderr)
@@ -342,6 +384,12 @@ def _show_single_workout(workout) -> None:
     if workout.notes:
         print(f"  Notes: {workout.notes}")
     if isinstance(workout, StrengthWorkout):
+        if workout.plan:
+            print(f"  Plan: {workout.plan}")
+        if workout.training:
+            print(f"  Training: {workout.training}")
+        if workout.week is not None:
+            print(f"  Week: {workout.week}")
         for ex in workout.exercises:
             print(f"  Exercise: {ex.name}")
             if ex.notes:

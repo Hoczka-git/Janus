@@ -268,7 +268,7 @@ class TestComputeDedupKey:
             type=ActivityType.WORKOUT_ADDED, workout_type="strength",
             date="2026-09-05", evidence={"date": "2026-09-05"},
         ))
-        assert key == "2026-09-05::strength"
+        assert key == "2026-09-05::strength::::::"
 
     def test_followup_added_generates_id(self):
         """FOLLOWUP_ADDED without followup_id generates a deterministic key from title + source."""
