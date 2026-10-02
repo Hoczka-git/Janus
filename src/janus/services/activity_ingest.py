@@ -181,9 +181,12 @@ def compute_dedup_key(record: ActivityRecord) -> str:
     if t == ActivityType.WORKOUT_ADDED:
         if record.workout_id:
             return record.workout_id
-        # Fall back to (date, type) — date is the workout date
+        # Fall back to (date, type, plan, training, week) — date is the workout date
         d = record.evidence.get("date") if record.evidence else None
-        return f"{d or record.date or ''}::{record.workout_type or ''}"
+        plan = record.evidence.get("plan") if record.evidence else None
+        training = record.evidence.get("training") if record.evidence else None
+        week = record.evidence.get("week") if record.evidence else None
+        return f"{d or record.date or ''}::{record.workout_type or ''}::{plan or ''}::{training or ''}::{week or ''}"
 
     if t == ActivityType.FOLLOWUP_ADDED:
         # Dedup by followup_id if present, otherwise by title + source
@@ -580,8 +583,14 @@ def _check_duplicate_workout(key: str, ts: datetime, tolerance: int) -> bool:
         return _check_tolerance(path, key, ts, tolerance)
 
     if "::" in key:
-        # <date>::<type> form — match by workout date (prefix) + type.
-        date_str, _, wtype_str = key.partition("::")
+        # <date>::<type>::<plan>::<training>::<week> form — match by workout
+        # date (prefix) + type + optional session identifiers.
+        parts = key.split("::")
+        date_str = parts[0] if len(parts) > 0 else ""
+        wtype_str = parts[1] if len(parts) > 1 else ""
+        plan_str = parts[2] if len(parts) > 2 else ""
+        training_str = parts[3] if len(parts) > 3 else ""
+        week_str = parts[4] if len(parts) > 4 else ""
         for w in workouts:
             if w.workout_type.value != wtype_str:
                 continue
@@ -589,9 +598,23 @@ def _check_duplicate_workout(key: str, ts: datetime, tolerance: int) -> bool:
                 stored_date = w.date.date().isoformat()
             except Exception:
                 continue
-            if stored_date == date_str:
-                if _within_tolerance(w.date, ts, tolerance):
-                    return True
+            if stored_date != date_str:
+                continue
+            # Match session identifiers if present in the key
+            if plan_str:
+                stored_plan = getattr(w, "plan", None)
+                if stored_plan != plan_str:
+                    continue
+            if training_str:
+                stored_training = getattr(w, "training", None)
+                if stored_training != training_str:
+                    continue
+            if week_str:
+                stored_week = getattr(w, "week", None)
+                if stored_week is None or str(stored_week) != week_str:
+                    continue
+            if _within_tolerance(w.date, ts, tolerance):
+                return True
         return False
 
     # Bare workout_id — match by id.
@@ -1313,6 +1336,9 @@ def _dispatch_workout(
             updated_at=now,
             exercises=record.evidence.get("exercises", []) if isinstance(record.evidence.get("exercises"), list) else [],
             notes=record.evidence.get("notes") if isinstance(record.evidence.get("notes"), str) else None,
+            plan=record.evidence.get("plan") if isinstance(record.evidence.get("plan"), str) else None,
+            training=record.evidence.get("training") if isinstance(record.evidence.get("training"), str) else None,
+            week=record.evidence.get("week") if isinstance(record.evidence.get("week"), int) else None,
         )
 
     # Serialize and append atomically

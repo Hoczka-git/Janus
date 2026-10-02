@@ -255,13 +255,13 @@ class TestWorkoutAddCLI:
         with pytest.raises(SystemExit):
             handle_workout_add(["--type", "strength", "--sets", "5x80kg"])
         err = capsys.readouterr().err
-        assert "--exercise is required" in err
+        assert "--sets must follow --exercise" in err
 
     def test_add_strength_missing_sets_exits(self, capsys):
         with pytest.raises(SystemExit):
             handle_workout_add(["--type", "strength", "--exercise", "Squat"])
         err = capsys.readouterr().err
-        assert "--sets is required" in err
+        assert "--exercise must be followed by --sets" in err
 
     def test_add_running_missing_distance_exits(self, capsys):
         with pytest.raises(SystemExit):
@@ -394,6 +394,328 @@ class TestWorkoutAddCLI:
             ])
         err = capsys.readouterr().err
         assert "invalid set format" in err
+
+    def test_add_strength_multiple_exercises(self, capsys, monkeypatch):
+        monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()) as mock_ingest:
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Back Squat", "--sets", "5x80kg@8",
+                "--exercise", "Bench Press", "--sets", "8x60kg@7",
+                "--date", "2026-10-02",
+                "--plan", "PLAN 14",
+                "--training", "C",
+                "--week", "4",
+            ])
+
+        out = capsys.readouterr().out
+        assert "Added workout: sw-001" in out
+        assert "Type: strength" in out
+        assert "Date: 2026-10-02" in out
+
+        # Verify the ingest call received all parameters
+        call_kwargs = mock_ingest.call_args
+        assert call_kwargs.kwargs["date"] == "2026-10-02T00:00:00+00:00"
+        assert call_kwargs.kwargs["plan"] == "PLAN 14"
+        assert call_kwargs.kwargs["training"] == "C"
+        assert call_kwargs.kwargs["week"] == 4
+        exercises = call_kwargs.kwargs["exercises"]
+        assert len(exercises) == 2
+        assert exercises[0].name == "Back Squat"
+        assert exercises[0].sets[0].reps == 5
+        assert exercises[0].sets[0].weight_kg == 80.0
+        assert exercises[0].sets[0].rpe == 8.0
+        assert exercises[1].name == "Bench Press"
+        assert exercises[1].sets[0].reps == 8
+        assert exercises[1].sets[0].weight_kg == 60.0
+        assert exercises[1].sets[0].rpe == 7.0
+
+    def test_add_strength_idempotent_duplicate(self, capsys, monkeypatch):
+        """Running the same command twice should result in only one persisted record."""
+        monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
+        call_count = 0
+
+        def mock_ingest(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return self._mock_ingest_ok()
+            # Second call: simulate dedup rejection
+            return IngestResult(
+                record_id="test", accepted=False, wrote=False,
+                file_path="data/workouts.md", action="rejected",
+                error="duplicate",
+            )
+
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", side_effect=mock_ingest):
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Squat", "--sets", "5x80kg",
+                "--date", "2026-10-02",
+                "--plan", "PLAN 14",
+                "--training", "C",
+                "--week", "4",
+            ])
+            out1 = capsys.readouterr().out
+            assert "Added workout: sw-001" in out1
+
+            with pytest.raises(SystemExit):
+                handle_workout_add([
+                    "--type", "strength",
+                    "--exercise", "Squat", "--sets", "5x80kg",
+                    "--date", "2026-10-02",
+                    "--plan", "PLAN 14",
+                    "--training", "C",
+                    "--week", "4",
+                ])
+            err2 = capsys.readouterr().err
+            assert "already exists" in err2
+
+        assert call_count == 2
+
+    def test_add_strength_with_plan_training_week(self, capsys, monkeypatch):
+        monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()) as mock_ingest:
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Deadlift", "--sets", "3x100kg",
+                "--plan", "PLAN 14",
+                "--training", "C",
+                "--week", "4",
+            ])
+
+        call_kwargs = mock_ingest.call_args
+        assert call_kwargs.kwargs["plan"] == "PLAN 14"
+        assert call_kwargs.kwargs["training"] == "C"
+        assert call_kwargs.kwargs["week"] == 4
+
+    def test_add_strength_without_plan_training_week(self, capsys, monkeypatch):
+        monkeypatch.setattr("janus.workout_cli.load_workouts", lambda: [])
+        with patch("janus.services.workout_analytics.add_workout_via_ingest", return_value=self._mock_ingest_ok()) as mock_ingest:
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Squat", "--sets", "5x80kg",
+            ])
+
+        call_kwargs = mock_ingest.call_args
+        assert call_kwargs.kwargs["plan"] is None
+        assert call_kwargs.kwargs["training"] is None
+        assert call_kwargs.kwargs["week"] is None
+
+    def test_add_invalid_week_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Squat", "--sets", "5x80kg",
+                "--week", "0",
+            ])
+        err = capsys.readouterr().err
+        assert "invalid week" in err
+
+    def test_add_exercise_without_sets_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            handle_workout_add([
+                "--type", "strength",
+                "--exercise", "Squat",
+            ])
+        err = capsys.readouterr().err
+        assert "--exercise must be followed by --sets" in err
+
+
+# ---------------------------------------------------------------------------
+# StrengthWorkout model — plan/training/week fields
+# ---------------------------------------------------------------------------
+
+class TestStrengthWorkoutModel:
+    def test_strength_workout_with_plan_training_week(self):
+        from datetime import datetime, timezone
+        w = StrengthWorkout(
+            id="sw-001",
+            date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type=WorkoutType.STRENGTH,
+            exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0)])],
+            plan="PLAN 14",
+            training="C",
+            week=4,
+        )
+        assert w.plan == "PLAN 14"
+        assert w.training == "C"
+        assert w.week == 4
+
+    def test_strength_workout_without_plan_training_week(self):
+        from datetime import datetime, timezone
+        w = StrengthWorkout(
+            id="sw-001",
+            date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type=WorkoutType.STRENGTH,
+            exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0)])],
+        )
+        assert w.plan is None
+        assert w.training is None
+        assert w.week is None
+
+    def test_strength_workout_invalid_week_zero(self):
+        from datetime import datetime, timezone
+        with pytest.raises(ValueError, match="week must be int >= 1"):
+            StrengthWorkout(
+                id="sw-001",
+                date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[],
+                week=0,
+            )
+
+    def test_strength_workout_invalid_week_negative(self):
+        from datetime import datetime, timezone
+        with pytest.raises(ValueError, match="week must be int >= 1"):
+            StrengthWorkout(
+                id="sw-001",
+                date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[],
+                week=-1,
+            )
+
+    def test_strength_workout_invalid_plan_empty(self):
+        from datetime import datetime, timezone
+        with pytest.raises(ValueError, match="plan must be non-empty string"):
+            StrengthWorkout(
+                id="sw-001",
+                date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[],
+                plan="",
+            )
+
+    def test_strength_workout_invalid_training_empty(self):
+        from datetime import datetime, timezone
+        with pytest.raises(ValueError, match="training must be non-empty string"):
+            StrengthWorkout(
+                id="sw-001",
+                date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+                workout_type=WorkoutType.STRENGTH,
+                exercises=[],
+                training="  ",
+            )
+
+    def test_strength_workout_serialization_roundtrip(self):
+        from datetime import datetime, timezone
+        from janus.models.workout import workout_to_dict, dict_to_workout
+        w = StrengthWorkout(
+            id="sw-001",
+            date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type=WorkoutType.STRENGTH,
+            exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0, rpe=8.0)])],
+            plan="PLAN 14",
+            training="C",
+            week=4,
+        )
+        d = workout_to_dict(w)
+        assert d["plan"] == "PLAN 14"
+        assert d["training"] == "C"
+        assert d["week"] == 4
+
+        w2 = dict_to_workout(d)
+        assert w2.plan == "PLAN 14"
+        assert w2.training == "C"
+        assert w2.week == 4
+
+
+# ---------------------------------------------------------------------------
+# Dedup key with session identifiers
+# ---------------------------------------------------------------------------
+
+class TestDedupKeyWithSessionIdentifiers:
+    def test_dedup_key_with_plan_training_week(self):
+        from janus.services.activity_ingest import ActivityRecord, ActivityType, compute_dedup_key
+        from datetime import datetime, timezone
+        record = ActivityRecord(
+            type=ActivityType.WORKOUT_ADDED,
+            source="cli",
+            timestamp=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type="strength",
+            evidence={
+                "date": "2026-10-02",
+                "plan": "PLAN 14",
+                "training": "C",
+                "week": 4,
+            },
+        )
+        key = compute_dedup_key(record)
+        assert key == "2026-10-02::strength::PLAN 14::C::4"
+
+    def test_dedup_key_without_session_identifiers(self):
+        from janus.services.activity_ingest import ActivityRecord, ActivityType, compute_dedup_key
+        from datetime import datetime, timezone
+        record = ActivityRecord(
+            type=ActivityType.WORKOUT_ADDED,
+            source="cli",
+            timestamp=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type="strength",
+            evidence={"date": "2026-10-02"},
+        )
+        key = compute_dedup_key(record)
+        assert key == "2026-10-02::strength::::::"
+
+    def test_dedup_key_with_workout_id(self):
+        from janus.services.activity_ingest import ActivityRecord, ActivityType, compute_dedup_key
+        from datetime import datetime, timezone
+        record = ActivityRecord(
+            type=ActivityType.WORKOUT_ADDED,
+            source="cli",
+            timestamp=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_id="sw-001",
+            workout_type="strength",
+            evidence={
+                "date": "2026-10-02",
+                "plan": "PLAN 14",
+                "training": "C",
+                "week": 4,
+            },
+        )
+        key = compute_dedup_key(record)
+        assert key == "sw-001"
+
+
+# ---------------------------------------------------------------------------
+# Markdown serialization with plan/training/week
+# ---------------------------------------------------------------------------
+
+class TestMarkdownSerialization:
+    def test_strength_workout_markdown_with_plan_training_week(self, tmp_path, monkeypatch):
+        """_workout_to_markdown_lines includes plan/training/week for StrengthWorkout."""
+        from janus.integrations import workout_md
+        monkeypatch.setattr(workout_md, "PROJECT_ROOT", tmp_path)
+        from datetime import datetime, timezone
+        w = StrengthWorkout(
+            id="sw-001",
+            date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type=WorkoutType.STRENGTH,
+            exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0)])],
+            plan="PLAN 14",
+            training="C",
+            week=4,
+        )
+        lines = workout_md._workout_to_markdown_lines(w)
+        assert "plan = PLAN 14" in lines
+        assert "training = C" in lines
+        assert "week = 4" in lines
+
+    def test_strength_workout_markdown_without_plan_training_week(self, tmp_path, monkeypatch):
+        """_workout_to_markdown_lines omits plan/training/week when None."""
+        from janus.integrations import workout_md
+        monkeypatch.setattr(workout_md, "PROJECT_ROOT", tmp_path)
+        from datetime import datetime, timezone
+        w = StrengthWorkout(
+            id="sw-001",
+            date=datetime(2026, 10, 2, tzinfo=timezone.utc),
+            workout_type=WorkoutType.STRENGTH,
+            exercises=[Exercise(name="Squat", sets=[Set(reps=5, weight_kg=80.0)])],
+        )
+        lines = workout_md._workout_to_markdown_lines(w)
+        assert not any("plan =" in line for line in lines)
+        assert not any("training =" in line for line in lines)
+        assert not any("week =" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------

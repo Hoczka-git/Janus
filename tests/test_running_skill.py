@@ -1040,7 +1040,7 @@ class TestWorkoutAddedDedupKey:
             workout_type="running",
             evidence={"date": "2026-09-12"},
         )
-        assert compute_dedup_key(rec) == "2026-09-12::running"
+        assert compute_dedup_key(rec) == "2026-09-12::running::::::"
 
     def test_record_date_fallback(self):
         """Without workout_id or evidence date, record.date is used."""
@@ -1051,7 +1051,7 @@ class TestWorkoutAddedDedupKey:
             workout_type="running",
             date="2026-09-12",
         )
-        assert compute_dedup_key(rec) == "2026-09-12::running"
+        assert compute_dedup_key(rec) == "2026-09-12::running::::::"
 
     def test_degenerate_key_without_date_or_id(self):
         """Without workout_id or date, key is '::running' (degenerate)."""
@@ -1061,7 +1061,7 @@ class TestWorkoutAddedDedupKey:
             timestamp=_dt_full(2026, 9, 12, 10, 0),
             workout_type="running",
         )
-        assert compute_dedup_key(rec) == "::running"
+        assert compute_dedup_key(rec) == "::running::::::"
 
     def test_degenerate_key_strength_type(self):
         """Degenerate key for strength is '::strength'."""
@@ -1071,7 +1071,7 @@ class TestWorkoutAddedDedupKey:
             timestamp=_dt_full(2026, 9, 12, 10, 0),
             workout_type="strength",
         )
-        assert compute_dedup_key(rec) == "::strength"
+        assert compute_dedup_key(rec) == "::strength::::::"
 
     def test_dedup_rejects_same_date_type(self):
         """Two running workouts with the same date are duplicates."""

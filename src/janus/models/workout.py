@@ -97,6 +97,9 @@ class StrengthWorkout(Workout):
     workout_type: WorkoutType = field(default=WorkoutType.STRENGTH)
     exercises: list[Exercise] = field(default_factory=list)
     notes: str | None = None
+    plan: str | None = None
+    training: str | None = None
+    week: int | None = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -109,6 +112,16 @@ class StrengthWorkout(Workout):
             not isinstance(self.notes, str) or not self.notes.strip()
         ):
             raise ValueError(f"notes must be non-empty string or None, got {self.notes!r}")
+        if self.plan is not None and (
+            not isinstance(self.plan, str) or not self.plan.strip()
+        ):
+            raise ValueError(f"plan must be non-empty string or None, got {self.plan!r}")
+        if self.training is not None and (
+            not isinstance(self.training, str) or not self.training.strip()
+        ):
+            raise ValueError(f"training must be non-empty string or None, got {self.training!r}")
+        if self.week is not None and (not isinstance(self.week, int) or self.week < 1):
+            raise ValueError(f"week must be int >= 1 or None, got {self.week!r}")
 
 
 @dataclass
@@ -163,6 +176,9 @@ def workout_to_dict(workout: Workout) -> dict[str, Any]:
 
     if isinstance(workout, StrengthWorkout):
         base["notes"] = workout.notes
+        base["plan"] = workout.plan
+        base["training"] = workout.training
+        base["week"] = workout.week
         base["exercises"] = [
             {
                 "name": e.name,
@@ -209,6 +225,9 @@ def dict_to_workout(data: dict[str, Any]) -> Workout:
             if data.get("updated_at")
             else None,
             notes=data.get("notes"),
+            plan=data.get("plan"),
+            training=data.get("training"),
+            week=data.get("week"),
             exercises=[
                 Exercise(
                     name=ex["name"],
