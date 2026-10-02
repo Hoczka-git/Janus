@@ -679,6 +679,55 @@ uv run janus workout add \
   --elevation 69.4
 ```
 
+### Strength workout parameters
+
+The `janus workout add` command supports the following strength-specific parameters:
+
+**Required:**
+
+| Flag | Description |
+|------|-------------|
+| `--type strength` | Workout type (must be `strength`) |
+| `--exercise NAME` | Exercise name (must be followed by `--sets`) |
+| `--sets STR` | Sets string, e.g. `"5x80kg@8,5x80kg@8.5"` |
+
+**Optional:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--date YYYY-MM-DD` | today | Workout date |
+| `--plan STR` | — | Training plan label |
+| `--training STR` | — | Training session label |
+| `--week N` | — | Training week number (integer ≥ 1) |
+| `--notes STR` | — | Free-form notes |
+| `--source STR` | `manual` | Source label |
+
+**Set format:**
+
+```
+REPSxWEIGHTkg@RPE,REPSxWEIGHTkg@RPE,...
+```
+
+- `WEIGHTkg` is optional — omit for bodyweight: `"10x"` = 10 reps bodyweight
+- `RPE` is optional: `"5x80kg"` = 5 reps at 80kg, no RPE
+- Examples: `"5x80kg@8,5x80kg@8.5,5x80kg"`
+
+**Multiple exercises:**
+
+You can log multiple exercises in a single workout by repeating `--exercise` and `--sets`:
+
+```bash
+uv run janus workout add \
+  --type strength \
+  --exercise "Squat" --sets "5x80kg" \
+  --exercise "Bench" --sets "8x60kg" \
+  --plan "PLAN 14" --training C --week 4
+```
+
+**Workout IDs:**
+
+Strength workouts are auto-assigned IDs in the format `sw-001`, `sw-002`, etc.
+
 View recent workouts:
 
 ```bash
