@@ -23,6 +23,7 @@ from janus.planner.models import (
     WeeklyPlan,
 )
 from janus.planner.protocol import WeeklyPlanner
+from janus.proposal import ActionProposalEngine, RuleBasedProposalEngine
 
 logger = logging.getLogger(__name__)
 
@@ -409,8 +410,13 @@ def handle_plan_week(args: list[str]) -> None:
         janus plan week
 
     Options:
-        -h, --help  Show this help message
+        -h, --help       Show this help message
+        --proposals      Show action proposals from proposal engine
     """
+    show_proposals = "--proposals" in args
+    clean_args = [a for a in args if a != "--proposals"]
+    args = clean_args
+
     if args and args[0] in ("-h", "--help"):
         print("Usage: janus plan week")
         print("")
@@ -421,11 +427,30 @@ def handle_plan_week(args: list[str]) -> None:
         return
 
     if args:
-        print("Error: 'plan week' does not accept arguments", file=sys.stderr)
-        sys.exit(1)
+        unknown = [a for a in args if a not in ("-h", "--help")]
+        if unknown:
+            print(f"Error: 'plan week' does not accept arguments: {unknown}", file=sys.stderr)
+            sys.exit(1)
 
     context = _build_context()
     planner: WeeklyPlanner = RuleBasedPlanner()
     plan = planner.plan(context)
 
     print(_format_plan(plan))
+
+    if show_proposals:
+        engine = RuleBasedProposalEngine()
+        proposals = engine.generate(plan, context)
+        print()
+        print("ACTION PROPOSALS")
+        print()
+        for p in proposals:
+            target = p.target_id or "-"
+            params_str = " ".join(f"{k}={v}" for k, v in (p.parameters or {}).items())
+            print(f"[{p.proposal_id or '-'}] {p.action_type.value}")
+            print(f"Target: {target}")
+            print(f"Reason: {p.reason}")
+            print(f"Risk: {p.risk}")
+            if params_str:
+                print(f"Parameters: {params_str}")
+            print()
