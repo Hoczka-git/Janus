@@ -531,10 +531,10 @@ class TestCreateStrategicSummary:
         assert summary.recommended_actions[0].remediation_action is not None
         assert "Deadline has passed" in summary.recommended_actions[0].remediation_action
 
-    def test_stalled_goal_appears_in_stalled_and_recommendations(self):
+    def test_overdue_goal_appears_in_overdue_and_recommendations(self):
         """An overdue active goal is surfaced in both sections."""
         goal = _make_goal(
-            title="Stalled G",
+            title="Overdue G",
             related_tasks=["Task A"],
             deadline="2026-08-30",
         )
@@ -554,12 +554,12 @@ class TestCreateStrategicSummary:
             goal_reviews=[],
         )
 
-        assert len(summary.stalled_goals) == 1
-        assert summary.stalled_goals[0].goal_title == "Stalled G"
-        assert summary.stalled_goals[0].dominant_signal == "goal_overdue"
+        assert len(summary.overdue_goals) == 1
+        assert summary.overdue_goals[0].goal_title == "Overdue G"
+        assert summary.overdue_goals[0].dominant_signal == "goal_overdue"
 
         assert len(summary.recommended_actions) == 1
-        assert summary.recommended_actions[0].goal_title == "Stalled G"
+        assert summary.recommended_actions[0].goal_title == "Overdue G"
 
     def test_all_healthy_returns_empty(self):
         """All healthy goals produce empty stalled/neglected/recommendations."""
@@ -891,7 +891,7 @@ class TestNeglectedGoals:
     def test_severity_ranking_stalled_before_watch(self):
         """Neglected goals rank stalled before watch."""
         stalled_goal = _make_goal(
-            title="Stalled G",
+            title="Overdue G",
             related_tasks=["Task A"],
         )
 
@@ -1006,7 +1006,7 @@ class TestStalledDetection:
 
         stalled = [
             item
-            for item in summary.stalled_goals
+            for item in summary.overdue_goals
             if item.goal_title == "Overdue"
         ]
 
@@ -1084,12 +1084,10 @@ class TestStalledDetection:
             goal_reviews=[],
         )
 
-        assert len(summary.stalled_goals) == 2
-        assert (
-            summary.stalled_goals[0].dominant_signal_score
-            >= summary.stalled_goals[1].dominant_signal_score
-        )
-        assert summary.stalled_goals[0].goal_title == "G2"
+        assert len(summary.overdue_goals) == 1
+        assert summary.overdue_goals[0].goal_title == "G2"
+        assert len(summary.stalled_goals) == 1
+        assert summary.stalled_goals[0].goal_title == "G1"
 
 
 # ===========================================================================
@@ -1371,7 +1369,7 @@ class TestStatusRendering:
             ),
             stalled_goals=[
                 StalledGoal(
-                    goal_title="Stalled G",
+                    goal_title="Overdue G",
                     health_state="stalled",
                     dominant_signal="goal_stalled",
                     dominant_signal_score=40,
@@ -1384,7 +1382,7 @@ class TestStatusRendering:
             ],
             neglected_goals=[
                 NeglectedGoal(
-                    goal_title="Stalled G",
+                    goal_title="Overdue G",
                     health_state="stalled",
                     dominant_signal="goal_stalled",
                     dominant_signal_score=40,
@@ -1506,7 +1504,7 @@ class TestStatusRendering:
             ),
             recommended_actions=[
                 RecommendedAction(
-                    goal_title="Stalled G",
+                    goal_title="Overdue G",
                     health_state="stalled",
                     dominant_signal="goal_stalled",
                     dominant_signal_score=40,

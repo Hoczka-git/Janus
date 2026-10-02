@@ -213,8 +213,8 @@ class TestHealthStateResolution:
         assert assessment.health_state == "stalled"
         assert any(s.signal == "goal_stalled" for s in assessment.signals)
 
-    def test_goal_overdue_is_stalled(self):
-        """Goal deadline passed with no open tasks → stalled."""
+    def test_goal_overdue_is_overdue(self):
+        """Goal deadline passed with no open tasks → overdue."""
         goal = _make_goal(
             title="G", deadline="2026-08-30",
             related_tasks=["Task A"],
@@ -225,7 +225,7 @@ class TestHealthStateResolution:
             metric_snapshots=[], completed_task_dates=None,
         )
         assert assessment is not None
-        assert assessment.health_state == "stalled"
+        assert assessment.health_state == "overdue"
         assert any(s.signal == "goal_overdue" for s in assessment.signals)
 
     def test_milestone_slipped_is_stalled(self):
@@ -613,20 +613,20 @@ class TestStalledDetectionPreservation:
         assert any(s.signal == "goal_stalled" for s in assessment.signals)
         assert assessment.dominant_signal.signal == "goal_stalled"
 
-    def test_goal_overdue_only_when_no_open_tasks(self):
-        """goal_overdue continues to fire only when no open tasks exist."""
+    def test_goal_overdue_fires_with_open_tasks(self):
+        """goal_overdue fires for all overdue goals, even with open tasks."""
         goal = _make_goal(
             title="G", deadline="2026-08-30",
             related_tasks=["Task A"],
         )
-        # With open task → goal_overdue should NOT fire
+        # With open task → goal_overdue still fires
         assessment = assess_goal_health(
             goal, FIXED_TODAY,
             open_task_titles={"Task A"}, all_task_titles={"Task A"},
             metric_snapshots=[], completed_task_dates=None,
         )
         assert assessment is not None
-        assert not any(s.signal == "goal_overdue" for s in assessment.signals)
+        assert any(s.signal == "goal_overdue" for s in assessment.signals)
 
     def test_goal_deadline_precedence_over_milestone(self):
         """Goal deadline signals suppress milestone deadline signals (existing precedence)."""

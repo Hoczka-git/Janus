@@ -75,6 +75,8 @@ def format_weekly_message(review: "WeeklyReview") -> str:
                 lines.append(f"Days since last activity: {gr.days_since_last_activity}")
             if gr.health_state == "stalled":
                 lines.append("  ⚠ STALLED — attention required")
+            if gr.health_state == "overdue":
+                lines.append("  ⏰ OVERDUE — deadline passed, action needed")
             if gr.suggested_next_step:
                 lines.append("Suggested next step:")
                 lines.append(f"• {gr.suggested_next_step}")

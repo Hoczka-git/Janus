@@ -1438,8 +1438,8 @@ def handle_goal_health(args: list[str]) -> None:
         if a is not None:
             assessments.append(a)
 
-    # Sort by severity: stalled, watch, healthy
-    severity_order = {"stalled": 0, "watch": 1, "healthy": 2, "completed": 3}
+    # Sort by severity: overdue, stalled, watch, healthy
+    severity_order = {"overdue": 0, "stalled": 1, "watch": 2, "healthy": 3, "completed": 4}
     assessments.sort(
         key=lambda a: (severity_order.get(a.health_state, 4), a.goal_title)
     )

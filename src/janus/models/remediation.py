@@ -125,6 +125,7 @@ class RemediationSummary:
     by_type: dict[str, int] = field(default_factory=dict)
     by_health_state: dict[str, int] = field(default_factory=dict)
     stalled_goal_titles: list[str] = field(default_factory=list)
+    overdue_goal_titles: list[str] = field(default_factory=list)
     needs_confirmation_count: int = 0
     highest_priority_action: RemediationAction | None = None
 

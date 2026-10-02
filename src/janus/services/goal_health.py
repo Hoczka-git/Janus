@@ -79,7 +79,7 @@ def _categorize_signal(signal_name: str) -> str:
 # Maps each signal to the health state it produces. The highest-scoring
 # signal determines the health state (design §4.2).
 _SIGNAL_TO_HEALTH_STATE = {
-    "goal_overdue": "stalled",
+    "goal_overdue": "overdue",
     "goal_deadline_today": "watch",
     "goal_deadline_soon": "healthy",  # exception handled in _health_from_signals
     "milestone_slipped": "stalled",
