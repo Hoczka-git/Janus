@@ -48,7 +48,6 @@ ALL_CHANGE_TYPES = (
 # Signals that count as "stalled-work signals" for §1 criterion 3.
 _STALLED_SIGNALS = frozenset({
     "goal_stalled",
-    "goal_overdue",
     "milestone_slipped",
     "no_recent_activity",
 })
@@ -185,12 +184,28 @@ class RecommendedAction:
 
 
 @dataclass
+class OverdueGoal:
+    """A goal whose health state is ``overdue`` (deadline passed)."""
+
+    goal_title: str
+    health_state: str
+    dominant_signal: str
+    dominant_signal_score: int
+    dominant_signal_reason: str
+    progress: float | None = None
+    progress_delta: float | None = None
+    days_since_last_activity: int | None = None
+    measurement_overdue_count: int = 0
+
+
+@dataclass
 class PortfolioHealthCounts:
     """Counts of goals grouped by health state."""
 
     total_active: int = 0
     healthy: int = 0
     watch: int = 0
+    overdue: int = 0
     stalled: int = 0
     completed: int = 0
     inactive: int = 0
@@ -213,6 +228,7 @@ class StrategicSummary:
 
     generated_at: datetime
     portfolio_health_counts: PortfolioHealthCounts
+    overdue_goals: list[OverdueGoal] = field(default_factory=list)
     stalled_goals: list[StalledGoal] = field(default_factory=list)
     neglected_goals: list[NeglectedGoal] = field(default_factory=list)
     recommended_actions: list[RecommendedAction] = field(default_factory=list)

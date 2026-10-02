@@ -39,6 +39,7 @@ from janus.models.strategic_summary import (
     GoalStateSnapshot,
     MeaningfulChange,
     NeglectedGoal,
+    OverdueGoal,
     PortfolioHealthCounts,
     RecommendedAction,
     StalledGoal,
@@ -1058,6 +1059,8 @@ def _build_portfolio_counts(
             counts.healthy += 1
         elif assessment.health_state == "watch":
             counts.watch += 1
+        elif assessment.health_state == "overdue":
+            counts.overdue += 1
         elif assessment.health_state == "stalled":
             counts.stalled += 1
 
@@ -1354,6 +1357,55 @@ def create_strategic_summary(
         if assessment.goal_title in active_titles
     ]
 
+    # Overdue goals.
+    overdue_assessments = [
+        assessment
+        for assessment in active_assessments
+        if assessment.health_state == "overdue"
+    ]
+
+    overdue_assessments.sort(
+        key=lambda assessment: (
+            -(
+                assessment.dominant_signal.score
+                if assessment.dominant_signal
+                else 0
+            ),
+            assessment.goal_title,
+        )
+    )
+
+    overdue_goals = [
+        OverdueGoal(
+            goal_title=assessment.goal_title,
+            health_state=assessment.health_state,
+            dominant_signal=(
+                assessment.dominant_signal.signal
+                if assessment.dominant_signal
+                else ""
+            ),
+            dominant_signal_score=(
+                assessment.dominant_signal.score
+                if assessment.dominant_signal
+                else 0
+            ),
+            dominant_signal_reason=(
+                assessment.dominant_signal.reason
+                if assessment.dominant_signal
+                else ""
+            ),
+            progress=assessment.progress,
+            progress_delta=assessment.progress_delta,
+            days_since_last_activity=(
+                assessment.days_since_last_activity
+            ),
+            measurement_overdue_count=(
+                assessment.measurement_overdue_count
+            ),
+        )
+        for assessment in overdue_assessments
+    ]
+
     # Stalled goals.
     stalled_assessments = [
         assessment
@@ -1457,7 +1509,8 @@ def create_strategic_summary(
     # Normalise ordering for deterministic output.
     neglected_goals.sort(
         key=lambda item: (
-            0 if item.health_state == "stalled" else 1,
+            0 if item.health_state == "overdue" else 1
+            if item.health_state == "stalled" else 2,
             -item.dominant_signal_score,
             -(item.days_since_last_activity or 0),
             item.goal_title,
@@ -1467,8 +1520,10 @@ def create_strategic_summary(
     actions.sort(
         key=lambda item: (
             0
+            if item.health_state == "overdue"
+            else 1
             if item.health_state == "stalled"
-            else 1,
+            else 2,
             -item.dominant_signal_score,
             -(item.days_since_last_activity or 0),
             item.goal_title,
@@ -1478,6 +1533,7 @@ def create_strategic_summary(
     return StrategicSummary(
         generated_at=now,
         portfolio_health_counts=portfolio_health_counts,
+        overdue_goals=overdue_goals,
         stalled_goals=stalled_goals,
         neglected_goals=neglected_goals,
         recommended_actions=actions,
@@ -1504,6 +1560,7 @@ def render_strategic_summary(
         f"  Active: {counts.total_active}  "
         f"Healthy: {counts.healthy}  "
         f"Watch: {counts.watch}  "
+        f"Overdue: {counts.overdue}  "
         f"Stalled: {counts.stalled}"
     )
 
@@ -1513,6 +1570,19 @@ def render_strategic_summary(
             f"Inactive: {counts.inactive}"
         )
 
+    lines.append("")
+
+    # Overdue work.
+    lines.append("OVERDUE WORK")
+    if summary.overdue_goals:
+        for overdue_goal in summary.overdue_goals:
+            lines.append(
+                f"  [{overdue_goal.dominant_signal} "
+                f"score={overdue_goal.dominant_signal_score}] "
+                f"{overdue_goal.goal_title}"
+            )
+    else:
+        lines.append("  None.")
     lines.append("")
 
     # Stalled work.

@@ -24,6 +24,8 @@ lines.append("ACTIVE GOALS")
 for gr in review.goals:
     if gr.health_state == "stalled":
         lines.append(f"⚠ {gr.goal.title}: {gr.progress}% - STALLED")
+    elif gr.health_state == "overdue":
+        lines.append(f"⏰ {gr.goal.title}: {gr.progress}% - OVERDUE")
     elif gr.suggested_next_step:
         next_step = gr.suggested_next_step[:60]
         lines.append(f"→ {gr.goal.title}: {gr.progress}% — {next_step}")

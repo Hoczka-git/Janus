@@ -171,14 +171,14 @@ def assess_goal_stall(
 
     if goal_deadline is not None:
         if goal_deadline < today:
-            # Overdue: only fires when no open related tasks (goal is stuck)
-            if not has_open_related:
-                signals.append((StallSignal(
-                    signal="goal_overdue",
-                    score=100,
-                    reason="Goal deadline has passed with no open tasks",
-                ), "goal_overdue"))
-                goal_deadline_signal_fired = True
+            # Overdue: fires for all goals with a past deadline, regardless
+            # of open tasks. The goal is past its deadline and needs attention.
+            signals.append((StallSignal(
+                signal="goal_overdue",
+                score=100,
+                reason="Goal deadline has passed",
+            ), "goal_overdue"))
+            goal_deadline_signal_fired = True
         elif goal_deadline == today:
             signals.append((StallSignal(
                 signal="goal_deadline_today",
