@@ -66,7 +66,7 @@ MEASUREMENT_DUE_GRACE_DAYS = 2
 # downstream policy gate decides whether to honor it.
 ESCALATION_POLICY: dict[tuple[str, int, int], str] = {
     # goal_overdue (100) → high-visibility immediate channel.
-    ("stalled", 100, 100): "telegram",
+    ("overdue", 100, 100): "telegram",
     # milestone_slipped (50–99) → same visibility tier.
     ("stalled", 50, 99): "telegram",
     # Lower-severity stalls (goal_stalled 40 / no_recent_activity 35) →
@@ -478,22 +478,33 @@ def _select_primary_action(
                 priority=_rule_priority(assessment),
             )
 
-    elif state == "stalled":
-        # §6.2.3 — stalled-signal table.
+    elif state == "overdue":
+        # Overdue goals — deadline has passed.
         if dominant == "goal_overdue":
             primary = _make_action(
                 goal_title=goal.title,
                 action_type=ESCALATE,
                 parameters={
                     "channel": _escalation_channel(state, score),
-                    "reason": "Deadline has passed with no open tasks.",
+                    "reason": "Deadline has passed.",
                     "health_state": state,
                     "dominant_signal": dominant,
                 },
                 assessment=assessment,
                 priority=_rule_priority(assessment),
             )
-        elif dominant == "milestone_slipped":
+        else:
+            primary = _make_action(
+                goal_title=goal.title,
+                action_type=INVESTIGATE,
+                parameters=_investigate_params(goal, ctx),
+                assessment=assessment,
+                priority=_rule_priority(assessment),
+            )
+
+    elif state == "stalled":
+        # §6.2.3 — stalled-signal table.
+        if dominant == "milestone_slipped":
             primary = _make_action(
                 goal_title=goal.title,
                 action_type=ESCALATE,
@@ -846,6 +857,7 @@ def _build_summary(
     by_health_state: dict[str, int] = {}
     goals_with_actions: set[str] = set()
     stalled_titles: list[str] = []
+    overdue_titles: list[str] = []
 
     for action in actions:
         by_type[action.action_type] = by_type.get(action.action_type, 0) + 1
@@ -855,6 +867,8 @@ def _build_summary(
         goals_with_actions.add(action.goal_title)
         if action.health_state == "stalled":
             stalled_titles.append(action.goal_title)
+        if action.health_state == "overdue":
+            overdue_titles.append(action.goal_title)
 
     needs_confirmation_count = sum(
         1 for a in actions if a.requires_confirmation
@@ -877,6 +891,7 @@ def _build_summary(
         by_type=by_type,
         by_health_state=by_health_state,
         stalled_goal_titles=sorted(set(stalled_titles)),
+        overdue_goal_titles=sorted(set(overdue_titles)),
         needs_confirmation_count=needs_confirmation_count,
         highest_priority_action=highest_priority_action,
     )

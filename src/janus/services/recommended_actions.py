@@ -49,14 +49,16 @@ STRATEGIC_ATTENTION_WINDOW_DAYS = 7
 # Priority: higher = more urgent. Used for ranking when multiple goals need
 # remediation.
 _REMEDIATION_RULES: dict[str, tuple[str, int]] = {
-    # --- Stalled signals (health_state = stalled) ---
-    # Goal deadline has passed with no open related tasks.
+    # --- Overdue signals (health_state = overdue) ---
+    # Goal deadline has passed.
     "goal_overdue": (
         "Deadline has passed. Either resume work immediately by adding an "
         "open related task, or mark the goal as completed/inactive if it is "
         "no longer relevant.",
         100,
     ),
+
+    # --- Stalled signals (health_state = stalled) ---
     # The deadline is today — urgent action needed.
     "goal_deadline_today": (
         "Deadline is today. Add or complete a related task now to meet the "
@@ -128,6 +130,7 @@ _REMEDIATION_RULES: dict[str, tuple[str, int]] = {
 # Priority override per health state for signals not in the rule table.
 # Default priority when a signal maps to a state but has no explicit rule.
 _HEALTH_STATE_DEFAULT_PRIORITY = {
+    "overdue": 50,
     "stalled": 40,
     "watch": 30,
     "healthy": 10,
@@ -355,7 +358,12 @@ def derive_remediation_action(
             action_text = action_text.replace("{reason}", "see goal health report")
     else:
         # No specific rule for this signal — use the health state default.
-        if health_state == "stalled":
+        if health_state == "overdue":
+            action_text = (
+                "Goal is overdue. Review related tasks and milestones to "
+                "restart progress, or mark as inactive if abandoned."
+            )
+        elif health_state == "stalled":
             action_text = (
                 "Goal is stalled. Review related tasks and milestones to "
                 "restart progress, or mark as inactive if abandoned."
@@ -429,7 +437,7 @@ def identify_neglected_goals(
     """
     neglected: list[GoalHealthAssessment] = []
     for a in assessments:
-        if a.health_state not in ("watch", "stalled"):
+        if a.health_state not in ("watch", "stalled", "overdue"):
             continue
         goal = next((g for g in goals if g.title == a.goal_title), None)
         if goal is None:
@@ -523,8 +531,11 @@ def create_recommended_actions(
     task_recs_by_goal = _task_recommendations_by_goal(recommendations)
 
     # Determine the set of goals to produce recommendations for:
-    # stalled goals (health_state == stalled) are always included;
+    # overdue and stalled goals are always included;
     # watch goals are included only if they pass the neglected threshold.
+    overdue_titles = {
+        a.goal_title for a in assessments if a.health_state == "overdue"
+    }
     stalled_titles = {
         a.goal_title for a in assessments if a.health_state == "stalled"
     }
@@ -532,7 +543,7 @@ def create_recommended_actions(
         assessments, goals, open_task_titles, today,
     )
     neglected_titles = {n.goal_title for n in neglected}
-    target_titles = stalled_titles | neglected_titles
+    target_titles = overdue_titles | stalled_titles | neglected_titles
 
     actions: list[RecommendedAction] = []
     for a in assessments:
@@ -568,11 +579,12 @@ def create_recommended_actions(
             generated_at=now,
         ))
 
-    # Rank: stalled by dominant score desc, then watch, then by
+    # Rank: overdue by dominant score desc, then stalled, then watch, then by
     # days_since_last_activity desc (spec §61).
     actions.sort(
         key=lambda r: (
-            0 if r.health_state == "stalled" else 1,
+            0 if r.health_state == "overdue" else 1
+            if r.health_state == "stalled" else 2,
             -r.dominant_signal_score,
             -(r.days_since_last_activity or 0),
             r.goal_title,

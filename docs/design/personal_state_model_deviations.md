@@ -98,7 +98,7 @@ Tasks not linked to any goal are flagged as warnings by the integrity audit, not
 - Integrity and invariant enforcement (PS-1 through PS-10)
 - Cache invalidation (fingerprint changes)
 - Lifecycle coordination
-- Spec compliance (all 23 fields, transition rules, invariants)
+- Spec compliance (all 28 fields, transition rules, invariants)
 - Edge cases (empty state, missing files, None state tasks)
 - Performance and stress (100 goals, 500 tasks)
 - Serialization round-trip
@@ -111,5 +111,5 @@ Tasks not linked to any goal are flagged as warnings by the integrity audit, not
 ## Verification
 
 - All 203 personal state tests pass
-- Full test suite: 2922 tests pass, 0 failures
+- Full test suite: 4172 tests collected, 0 failures
 - No regressions in existing functionality

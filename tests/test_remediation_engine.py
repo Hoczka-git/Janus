@@ -70,7 +70,7 @@ def _make_signal(signal, score, reason="some reason"):
 
 def _make_assessment(
     goal_title="Test Goal",
-    health_state="stalled",
+    health_state=None,
     signal="goal_overdue",
     score=80,
     reason="test signal",
@@ -79,6 +79,8 @@ def _make_assessment(
     days_since_last_activity=45,
     measurement_overdue_count=0,
 ):
+    if health_state is None:
+        health_state = "overdue" if signal == "goal_overdue" else "stalled"
     sig = _make_signal(signal, score, reason)
     return GoalHealthAssessment(
         goal_title=goal_title,
@@ -213,13 +215,13 @@ class TestOutputShape:
         assert s.summary.highest_priority_action is None
 
     def test_summary_counts_by_type(self):
-        a = _make_assessment(goal_title="Stalled Goal", signal="goal_overdue", score=100)
-        goal = _make_goal("Stalled Goal")
+        a = _make_assessment(goal_title="Overdue Goal", signal="goal_overdue", score=100)
+        goal = _make_goal("Overdue Goal")
         ctx = _make_ctx(assessments=[a], goals=[goal])
         s = create_remediation_suggestions(ctx)
         assert s.summary.by_type[ESCALATE] == 1
         assert s.summary.goals_with_actions == 1
-        assert s.summary.stalled_goal_titles == ["Stalled Goal"]
+        assert s.summary.overdue_goal_titles == ["Overdue Goal"]
 
     def test_summary_highest_priority(self):
         """The highest-priority action is the overdue (score 100) escalate."""
@@ -277,7 +279,7 @@ class TestExcludedGoals:
 
 
 class TestStalledPrimaryActions:
-    def test_stalled_goal_overdue_escalate(self):
+    def test_overdue_goal_overdue_escalate(self):
         """§6.2.3: goal_overdue → escalate, channel=telegram."""
         a = _make_assessment(goal_title="G", signal="goal_overdue", score=100)
         goal = _make_goal("G")
@@ -286,7 +288,7 @@ class TestStalledPrimaryActions:
         primary = _first_action(s, ESCALATE)
         assert primary is not None
         assert primary.parameters["channel"] == "telegram"
-        assert primary.parameters["health_state"] == "stalled"
+        assert primary.parameters["health_state"] == "overdue"
         assert primary.requires_confirmation is True
 
     def test_stalled_milestone_slipped_escalate(self):
@@ -676,14 +678,14 @@ class TestConfig:
     def test_escalation_policy_exists(self):
         """§7.2: ESCALATION_POLICY is a configurable mapping."""
         assert isinstance(ESCALATION_POLICY, dict)
-        # goal_overdue (100) in stalled → telegram.
-        assert ("stalled", 100, 100) in ESCALATION_POLICY
-        assert ESCALATION_POLICY[("stalled", 100, 100)] == "telegram"
+        # goal_overdue (100) in overdue → telegram.
+        assert ("overdue", 100, 100) in ESCALATION_POLICY
+        assert ESCALATION_POLICY[("overdue", 100, 100)] == "telegram"
 
     def test_escalation_channel_resolution(self):
         """§7.2: escalate action gets channel from ESCALATION_POLICY."""
         from janus.services.remediation import _escalation_channel
-        assert _escalation_channel("stalled", 100) == "telegram"
+        assert _escalation_channel("overdue", 100) == "telegram"
         assert _escalation_channel("stalled", 40) == "weekly_review"
         assert _escalation_channel("watch", 30) == "strategic_summary"
 
@@ -720,7 +722,7 @@ class TestStrategicSummaryIntegration:
         ctx = _make_ctx(assessments=[a], goals=[_make_goal("G")])
         s = create_remediation_suggestions(ctx)
         action = s.per_goal[0]
-        assert action.health_state == "stalled"
+        assert action.health_state == "overdue"
         assert action.dominant_signal == "goal_overdue"
         assert action.dominant_signal_score == 100
         assert action.dominant_signal_reason == "test signal"

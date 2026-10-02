@@ -254,15 +254,14 @@ class TestStalledSignalChange:
     def test_signal_clears(self):
         prev = _snap([_gs(
             goal_title="G", signals=frozenset({"goal_overdue"}),
-            health_state="stalled", dominant_signal="goal_overdue",
+            health_state="overdue", dominant_signal="goal_overdue",
             dominant_signal_score=100,
         )])
         cur = _snap([_gs(goal_title="G", signals=frozenset())])
         changes = detect_meaningful_changes(prev, cur)
         sc = [c for c in changes if c.change_type == CHANGE_STALLED_SIGNAL]
-        assert len(sc) == 1
-        assert sc[0].details["action"] == "cleared"
-        assert sc[0].details["signal"] == "goal_overdue"
+        # goal_overdue is no longer a stalled signal, so no CHANGE_STALLED_SIGNAL
+        assert len(sc) == 0
 
     def test_non_stalled_signal_does_not_fire(self):
         """progress_slow is not a stalled-work signal."""
@@ -534,18 +533,19 @@ class TestChangeOrdering:
             signals=frozenset({"goal_deadline_soon"}),
         )])
         cur = _snap([_gs(
-            goal_title="G", health_state="stalled",
+            goal_title="G", health_state="overdue",
             dominant_signal="goal_overdue", dominant_signal_score=100,
             signals=frozenset({"goal_overdue"}),
         )])
         changes = detect_meaningful_changes(prev, cur)
         types = {c.change_type for c in changes}
-        # health state, score change (>=15), stalled signal activate.
+        # health state, score change (>=15).
+        # goal_overdue is no longer a stalled signal, so no CHANGE_STALLED_SIGNAL.
         # goal_status itself didn't change -- still active -- so no
         # CHANGE_GOAL_STATUS here.
         assert CHANGE_HEALTH_STATE in types
         assert CHANGE_DOMINANT_SIGNAL_SCORE in types
-        assert CHANGE_STALLED_SIGNAL in types
+        assert CHANGE_STALLED_SIGNAL not in types
 
 
 # ===========================================================================
@@ -587,7 +587,8 @@ class TestIntegrationBuildSnapshot:
             StrategicStateSnapshot(generated_at=FIXED_NOW, goals=[cur_snap]),
         )
         assert any(c.change_type == CHANGE_HEALTH_STATE for c in changes)
-        assert any(c.change_type == CHANGE_STALLED_SIGNAL for c in changes)
+        # goal_overdue is no longer a stalled signal, so no CHANGE_STALLED_SIGNAL
+        assert not any(c.change_type == CHANGE_STALLED_SIGNAL for c in changes)
 
 
 # ===========================================================================

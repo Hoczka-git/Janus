@@ -151,7 +151,7 @@ Key phases:
   - Depends on: Phase A.
 - [x] Phase D — Agency-Aware Planning (P1)
   - execution_mode (USER/JANUS/COLLABORATIVE) + support_mode (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE). Planner chooses least substitutive mode that enables progress.
-  - Status: Implemented (design doc merged; PersonalState dataclass + PersonalStateBuilder implemented; 203 tests passing; integrated with strategic summary and next-action derivation). See PR #337, #335.
+  - Status: Implemented (ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, classify_task/dispatch_task in agency_planning service; wired into derive_next_action(); 126 agency tests pass). See PR #337, #335.
   - Depends on: Phases A, C.
 - [x] Phase E — Policy & Approval (P1/P2)
   - Action classification, configurable policies, approval requests, explicit user confirmation, auditability. Goal: increase automation without reducing user control.
@@ -172,8 +172,6 @@ Key phases:
 - [x] Complete and verify the end-to-end Goal → Task → Execution → Completion → Review lifecycle across real Janus/Hermes execution.
 - [x] Operationalize Agency-Aware Planning by integrating "execution_mode", "support_mode", and least-substitutive-mode selection into planner decisions.
 - [x] Build autonomous task-completion verification based on objective evidence from execution, children, integration, and review.
-- [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review.
-- [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
 - [x] Establish unified lifecycle observability for task creation, decomposition, execution, integration, blocking, completion, retry, and review. (Plan finalized t_d61f4ce7; spec: docs/design/unified_lifecycle_observability_spec.md; 15 lifecycle.* events; 4-phase rollout. See child tasks t_7adc5a80 audit, t_eb2d2ec9 gap analysis, t_775f6038 design spec, t_4276ffa2 synthesis.)
 - [x] Build an end-to-end autonomous lifecycle regression suite covering roots, children, swarms, integration gates, completion gates, failures, retries, and reviews.
 - [x] Domknąć Agency-Aware Next Action Planner: zintegrować PersonalState, agency context, execution_mode i support_mode z rankingiem next action.
@@ -186,7 +184,7 @@ Key phases:
 - [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [x] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`

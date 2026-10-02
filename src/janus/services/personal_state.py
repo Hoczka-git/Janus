@@ -282,7 +282,7 @@ def _derive_stalled_goals(goals: list[Goal], tasks: list[Task]) -> list[Goal]:
                 open_task_titles=open_task_titles,
                 all_task_titles=all_task_titles,
             )
-            if assessment and assessment.health_state == "stalled":
+            if assessment and assessment.health_state in ("stalled", "overdue"):
                 stalled.append(goal)
         except Exception:
             continue
@@ -310,7 +310,7 @@ def _derive_neglected_goals(goals: list[Goal], tasks: list[Task]) -> list[Goal]:
                 open_task_titles=open_task_titles,
                 all_task_titles=all_task_titles,
             )
-            if assessment and assessment.health_state in ("watch", "stalled"):
+            if assessment and assessment.health_state in ("watch", "stalled", "overdue"):
                 neglected.append(goal)
         except Exception:
             continue

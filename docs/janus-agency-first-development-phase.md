@@ -2,7 +2,7 @@
 
 ## Status
 
-**Last verified:** 2026-09-24
+**Last verified:** 2026-10-01
 **Proposed next phase**
 
 This document defines the next strategic development phase of Janus after the completion of the Goal → Task → Execution → Completion → Review loop.
@@ -529,7 +529,7 @@ Goal:
 
 **Priority: P1**
 
-**Status: Implemented.** PersonalState dataclass (23 fields), PersonalStateBuilder service, PersonalStateStatus enum, comprehensive test coverage (203 tests). See `docs/design/personal_state_model_spec.md` and `docs/design/personal_state_model_deviations.md`.
+**Status: Implemented.** PersonalState dataclass (28 fields), PersonalStateBuilder service, PersonalStateStatus enum, comprehensive test coverage (203 tests). See `docs/design/personal_state_model_spec.md` and `docs/design/personal_state_model_deviations.md`.
 
 Define and implement the minimal structured model of:
 
@@ -557,7 +557,7 @@ Goal:
 
 **Priority: P1**
 
-**Status: Implemented.** ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, select_execution_mode/select_support_mode, classify_task/classify_next_action in agency_planning service. Wired into derive_next_action(). 185 agency tests pass.
+**Status: Implemented.** ExecutionMode/SupportMode enums, TaskAgency dataclass, AgencyContext, select_execution_mode/select_support_mode, classify_task/classify_next_action in agency_planning service. Wired into derive_next_action(). 126 agency tests pass.
 
 Extend planning so Janus can distinguish between:
 

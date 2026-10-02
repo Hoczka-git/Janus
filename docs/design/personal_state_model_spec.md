@@ -6,7 +6,7 @@
 **Parent task:** t_08e7db4c (Agency-First development phase)
 **Related docs:** `docs/janus-agency-first-development-phase.md` §7, `docs/triage/architectural_roadmap_next_phase.md` §3.4/§4.1/§9, `docs/roadmap.md` Agency-First section
 
-**Implementation:** PersonalState dataclass (23 fields), PersonalStateBuilder service, PersonalStateStatus enum, and comprehensive test coverage (203 tests). See `docs/design/personal_state_model_deviations.md` for implementation details and deviations from this spec.
+**Implementation:** PersonalState dataclass (28 fields), PersonalStateBuilder service, PersonalStateStatus enum, and comprehensive test coverage (203 tests). See `docs/design/personal_state_model_deviations.md` for implementation details and deviations from this spec.
 
 ---
 
@@ -118,7 +118,7 @@ StrategicSummary (derived, not persisted)
 - **33 service modules** in `src/janus/services/` — business logic spread across many files
 - **14 integration modules** in `src/janus/integrations/` — I/O boundary
 - **6 ADRs** accepted, 3 more proposed (ADR-011, ADR-012, ADR-013)
-- **2378 tests** passing — strong invariant protection at the task/goal level
+- **4172 tests** collected — strong invariant protection at the task/goal level
 - **StrategicSummary** (`strategic_summary.py`) is the closest thing to a PersonalState read model — it aggregates goal health, signals, and recommendations but is computed on demand and not persisted
 
 ---

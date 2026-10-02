@@ -15,7 +15,7 @@ class GoalReview:
     missing_related_tasks: list[str] = field(default_factory=list)
     suggested_next_step: str | None = None
     all_related_tasks_completed: bool = False
-    health_state: str | None = None        # healthy | watch | stalled | completed
+    health_state: str | None = None        # healthy | watch | overdue | stalled | completed
     days_since_last_activity: int | None = None
     progress_delta: float | None = None    # progress change over lookback window
     remediation_action: str | None = None  # concrete actionable step tied to health state
