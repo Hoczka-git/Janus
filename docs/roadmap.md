@@ -184,7 +184,7 @@ Key phases:
 - [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [x] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
 - [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
