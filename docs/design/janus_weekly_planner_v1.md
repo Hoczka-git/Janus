@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Parent task:** t_36165f52 (architecture), t_473202bc (LLM error-handling precedent)
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-02 (revised — added UI/UX approach)
 
 ---
 
@@ -336,6 +336,34 @@ CLI dispatch in `janus/__init__.py`:
 elif command == "plan":
     handle_plan_week(filtered[2:])
 ```
+
+### 6.4 UI/UX Approach
+
+V1 is CLI-only. The UI/UX is text-based, designed for terminal output.
+
+**Design principles:**
+- **Scannable** — headings, indentation, and whitespace make the plan easy to scan
+- **Concise** — no verbose explanations; the plan speaks for itself
+- **Actionable** — every planned task has a suggested day and reason
+- **Honest** — risks are surfaced prominently, not buried
+
+**Output structure:**
+1. Header — week date range
+2. Top priorities — numbered list with goal name + action
+3. Risks — warning emoji + description
+4. Planned tasks — grouped by day, indented
+
+**No UI elements in V1:**
+- No interactive prompts
+- No progress bars
+- No color (plain text for maximum compatibility)
+- No pagination (full plan fits on one screen)
+
+**Future UI considerations (V2+):**
+- Telegram message with inline buttons for approval
+- Rich formatting (Markdown, HTML)
+- Interactive plan editing
+- Calendar preview
 
 ---
 

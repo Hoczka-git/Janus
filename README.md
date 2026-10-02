@@ -739,6 +739,10 @@ uv run janus telegram-weekly
 
 This makes Telegram a lightweight interface while Janus remains the persistent state layer.
 
+Note: The `data/` directory is gitignored and created at runtime. On a fresh
+clone, run `uv run janus today` (or any data-reading command) once to
+initialize it before using `janus telegram` or `janus telegram-weekly`.
+
 ---
 
 # Google Calendar
@@ -1053,7 +1057,7 @@ With no arguments Janus prints usage and available commands. Use
 Run the test suite:
 
 ```bash
-uv run pytest tests/ -v
+uv run pytest tests/
 ```
 
 The project uses `pytest` for automated testing.
@@ -1189,6 +1193,7 @@ janus task add|list|state|progress|complete
 janus workout add|show|summary
 janus goal list|show|add|update|complete|milestone|project|next|health|audit|repair|skills|set-skill
 janus weekly                Weekly review
+janus plan week             Generate weekly plan from goals, tasks, and calendar
 janus status                Strategic status summary
 janus inbox list|pending|triage
 janus followup list|add|show|update|complete|convert-to-task
