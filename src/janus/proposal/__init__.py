@@ -27,6 +27,7 @@ from janus.proposal.guard import (
     proposal_only_context,
 )
 from janus.proposal.models import ActionProposal, ActionType, ProposalStatus
+from janus.proposal.policy_check import ProposalPolicyCheck
 from janus.proposal.protocol import ActionProposalEngine
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "MutationBlockedError",
     "MutationGuard",
     "ProposalOnlyEngine",
+    "ProposalPolicyCheck",
     "ProposalStatus",
     "RuleBasedProposalEngine",
     "proposal_only",
