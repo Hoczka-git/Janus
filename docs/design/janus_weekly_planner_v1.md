@@ -163,79 +163,197 @@ Future versions may store plans in `data/plans.md` or a lightweight DB.
 
 ---
 
-## 4. Data Model
+## 4. Domain Model (WP-001)
 
-All models live in `janus/models/planning.py` following the established
-`@dataclass` + `__post_init__` pattern (matching `janus/models/goal.py`,
-`janus/models/task.py`).
+**WP-001** — Design Weekly Planner domain model
+**Priority:** P0
+**Parent task:** t_5d30bf1f
+**Research spec:** `docs/research-findings/planner_domain_research.md` (t_d2a5732e)
 
-### 4.1 PlanningContext
+### 4.1 Overview
+
+The weekly planner domain model defines the input (`PlanningContext`) and
+output (`WeeklyPlan`) of the planning process, along with deterministic
+signals computed before the LLM is invoked. All models are LLM-independent
+and live in `src/janus/planner/models.py`.
+
+The model follows the existing Janus `@dataclass` pattern. Identity is
+title-based (`Goal.title`, `Task.title`) — no UUIDs in V1. The planning
+week is implicit (current week, Monday–Sunday); no `week_start`/`week_end`
+fields on `PlanningContext`.
+
+### 4.2 Domain Entities
+
+#### PlanningContext (input)
 
 ```python
 @dataclass
 class PlanningContext:
-    week_start: date
-    week_end: date
-    goals: list[Goal]
-    tasks: list[Task]
-    calendar_events: list[Event]
-    signals: PlanningSignals
+    goals: list[Goal]           # active goals
+    tasks: list[Task]           # open (not completed) tasks
+    calendar: list[Event]       # calendar events for the planning period
+    signals: PlanningSignals    # pre-computed deterministic signals
 ```
 
-### 4.2 PlanningSignals (deterministic pre-computation)
+#### PlanningSignals (deterministic pre-computation)
 
 ```python
 @dataclass
 class PlanningSignals:
-    overdue_tasks: list[str]
-    due_soon_tasks: list[str]
-    stalled_goals: list[str]
-    calendar_conflicts: list[Conflict]
-    availability_hours: float        # total free hours in the week
-    competing_tasks: int             # tasks competing for same time slot
+    overdue_tasks: list[str]           # task titles past due date
+    due_soon_tasks: list[str]          # task titles due within 7 days
+    stalled_goals: list[str]           # goal titles with no recent activity
+    behind_target_goals: list[str]    # goal titles behind target progress
+    calendar_conflicts: list[str]      # human-readable conflict descriptions
+    competing_tasks: dict[str, int]    # task title → count of competing tasks
 ```
 
-### 4.3 WeeklyPlan
+Computed by `plan_cli.py::_build_context()`. No LLM calls, no side effects.
+
+#### WeeklyPlan (output)
 
 ```python
 @dataclass
 class WeeklyPlan:
     week_summary: str
-    priorities: list[Priority]
-    planned_tasks: list[PlannedTask]
-    risks: list[PlanningRisk]
+    priorities: list[PriorityEntry]    # goal priorities, ordered by importance
+    planned_tasks: list[PlannedTask]   # tasks scheduled for specific days
+    risks: list[PlanningRisk]          # risks and conflicts
 ```
 
-### 4.4 PlannedTask
+#### PriorityEntry
+
+```python
+@dataclass
+class PriorityEntry:
+    goal_id: str        # Goal.title (persistence identity)
+    reason: str         # human-readable justification
+    priority: Priority  # HIGH | MEDIUM | LOW
+```
+
+#### PlannedTask
 
 ```python
 @dataclass
 class PlannedTask:
-    task_id: str
-    goal_id: str
-    priority: int
-    reason: str
-    suggested_day: str              # ISO date YYYY-MM-DD
+    task_id: str        # Task.title (persistence identity)
+    goal_id: str        # Goal.title
+    priority: Priority  # HIGH | MEDIUM | LOW
+    reason: str         # human-readable justification
+    suggested_day: date # ISO date YYYY-MM-DD
 ```
 
-### 4.5 Priority
+#### Priority (StrEnum)
 
 ```python
-@dataclass
-class Priority:
-    goal_id: str
-    reason: str
-    priority: int                    # 1 = highest
+class Priority(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 ```
 
-### 4.6 PlanningRisk
+#### PlanningRisk
 
 ```python
 @dataclass
 class PlanningRisk:
     description: str
-    severity: str                    # low | medium | high
+    severity: RiskSeverity  # LOW | MEDIUM | HIGH
 ```
+
+#### RiskSeverity (StrEnum)
+
+```python
+class RiskSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+```
+
+### 4.3 Relationship Diagram
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                       PlanningContext                        │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────────┐  │
+│  │  Goal   │  │  Task   │  │  Event  │  │PlanningSignals │  │
+│  │ (title) │  │ (title) │  │(ephem.) │  │                │  │
+│  └────┬────┘  └────┬────┘  └─────────┘  └────────────────┘  │
+│       │            │                                         │
+└───────┼────────────┼─────────────────────────────────────────┘
+        │            │
+        │     ┌──────┴──────┐
+        │     │  WeeklyPlan │
+        │     │ ┌─────────┐ │
+        │     │ │Priority │ │
+        │     │ │Entry    │ │
+        │     │ │goal_id ─┼─┘ (many-to-one → Goal.title)
+        │     │ │priority │ │
+        │     │ └─────────┘ │
+        │     │ ┌─────────┐ │
+        │     │ │Planned  │ │
+        │     │ │Task     │ │
+        │     │ │task_id ──┼── (many-to-one → Task.title)
+        └─────┼─┤goal_id ──┼── (many-to-one → Goal.title)
+              │ │priority │ │
+              │ │suggested│ │
+              │ │_day     │ │
+              │ └─────────┘ │
+              │ ┌─────────┐ │
+              │ │Planning │ │
+              │ │Risk     │ │
+              │ │severity │ │
+              │ └─────────┘ │
+              └─────────────┘
+```
+
+### 4.4 Invariants
+
+Enforced by `LLMWeeklyPlanner._validate_plan()`:
+
+1. Every `PriorityEntry.goal_id` must exist in `context.goals` (by title).
+2. Every `PlannedTask.task_id` must exist in `context.tasks` (by title).
+3. Every `PlannedTask.goal_id` must exist in `context.goals`.
+4. No `task_id` may appear in `planned_tasks` more than once (duplicate
+   scheduling rejected).
+
+Not enforced (open):
+- `suggested_day` must be within the planning week — validation absent.
+- `PriorityEntry` ordering is not validated (list order = priority ranking).
+
+### 4.5 Interface Sketch
+
+```python
+class WeeklyPlanner(Protocol):
+    def plan(self, context: PlanningContext) -> WeeklyPlan: ...
+```
+
+Implementations:
+
+| Implementation | Status | Notes |
+|----------------|--------|-------|
+| `LLMWeeklyPlanner` | Primary (P0) | Calls LLM with structured output |
+| `RuleBasedPlanner` | Fallback | Deterministic, in `plan_cli.py` |
+| `MockPlanner` | Tests (P0) | Fixed responses for evaluation |
+
+### 4.6 Open Questions
+
+| # | Question | Status |
+|---|----------|--------|
+| 1 | `models/` vs `planner/` location for domain models | Open — implementation uses `planner/` |
+| 2 | `PriorityEntry` vs inline `Priority` in design | Open — implementation separates them |
+| 3 | Task/goal identity: title vs UUID | Open — title-based in V1 |
+| 4 | `Block`/time-block model: include or defer? | Open — missing from codebase |
+| 5 | `availability_hours` signal: add or drop? | Open — in original design, not in impl |
+| 6 | Week as explicit model vs implicit | Open — implicit current-week convention |
+| 7 | `behind_target_goals` signal computed? | Open — in model, not computed in `plan_cli.py` |
+
+### 4.7 References
+
+- Parent task: t_5d30bf1f (WP-005 design)
+- Research spec: `docs/research-findings/planner_domain_research.md` (t_d2a5732e)
+- Roadmap: `docs/roadmap.md` §WP-001
+- Implementation: `src/janus/planner/models.py`
 
 ---
 
