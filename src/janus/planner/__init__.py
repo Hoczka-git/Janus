@@ -1,7 +1,7 @@
 """Weekly Planner package.
 
 Defines the weekly planning interface and domain models, independent
-of any LLM provider.  The first implementation will be
+of any LLM provider.  The first implementation is
 ``LLMWeeklyPlanner`` (in a separate module), but the architecture also
 supports ``RuleBasedPlanner`` and ``MockPlanner``.
 
@@ -15,6 +15,8 @@ Exports:
     Priority
     RiskSeverity
     WeeklyPlanner
+    LLMClient
+    LLMWeeklyPlanner
 """
 
 from janus.planner.models import (
@@ -28,6 +30,7 @@ from janus.planner.models import (
     WeeklyPlan,
 )
 from janus.planner.protocol import WeeklyPlanner
+from janus.planner.llm_planner import LLMClient, LLMWeeklyPlanner
 
 __all__ = [
     "PlannedTask",
@@ -39,4 +42,6 @@ __all__ = [
     "RiskSeverity",
     "WeeklyPlan",
     "WeeklyPlanner",
+    "LLMClient",
+    "LLMWeeklyPlanner",
 ]
