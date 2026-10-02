@@ -1,13 +1,14 @@
 """Action Proposal Engine package.
 
-Defines the proposal-only interface, domain models, and mutation
-guardrails for the Action Proposal Engine V1.
+Defines the proposal-only interface, domain models, mutation
+guardrails, and the rule-based engine for the Action Proposal Engine V1.
 
 Exports:
     ActionProposal
     ActionType
     ProposalStatus
     ActionProposalEngine
+    RuleBasedProposalEngine
     MutationBlockedError
     MutationGuard
     ProposalOnlyEngine
@@ -16,6 +17,7 @@ Exports:
     proposal_only_context
 """
 
+from janus.proposal.engine import RuleBasedProposalEngine
 from janus.proposal.guard import (
     ImportGuard,
     MutationBlockedError,
@@ -36,6 +38,7 @@ __all__ = [
     "MutationGuard",
     "ProposalOnlyEngine",
     "ProposalStatus",
+    "RuleBasedProposalEngine",
     "proposal_only",
     "proposal_only_context",
 ]
