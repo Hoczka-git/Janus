@@ -1,6 +1,6 @@
 # Hermes / Janus Roadmap
 
-**Last verified:** 2026-10-01
+**Last verified:** 2026-10-02
 
 This document describes the strategic direction and intended sequencing for the
 Hermes / Janus system.
@@ -181,13 +181,18 @@ Key phases:
 - [x] Zbudować pełną closed-loop execution: Planner → Agency → Policy → Hermes → Evidence → Verification → State Update → Planner.
 - [x] Przeprowadzić audit granicy Janus/Hermes lifecycle: usunąć duplikację completion/integration logic i jednoznacznie zdefiniować ownership każdego etapu.
 - [x] Uaktualnić roadmapę i dokumentację do faktycznego stanu implementacji, oznaczając zaimplementowane elementy Agency/PersonalState jako completed. (Completed by t_34c8818c — Phase C/D/H updated; personal_state_model_spec.md status updated; roadmap item 182 marked complete.)
-- [ ] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [x] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
-- [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md`
+- [x] WP-001 — Design Weekly Planner domain model — P0 — Design: `docs/design/janus_weekly_planner_v1.md` — Models: `src/janus/planner/models.py` (PlanningContext, PlanningSignals, WeeklyPlan, PriorityEntry, PlannedTask, PlanningRisk, Priority/RiskSeverity as StrEnum). Tests: `tests/test_weekly_planner_interface.py`.
+- [x] WP-002 — Build PlanningContext builder — P0 — Design: `docs/design/janus_weekly_planner_v1.md` — Implemented as `_build_context()` in `src/janus/plan_cli.py` (not standalone `janus/services/planning_context.py` as design specified). Loads goals/tasks/calendar, computes deterministic signals. Tests: `tests/test_plan_cli.py::TestBuildContext`.
+- [x] WP-003 — Define WeeklyPlanner interface — P0 — Design: `docs/design/janus_weekly_planner_v1.md` — `WeeklyPlanner` Protocol in `src/janus/planner/protocol.py`. Tests: `tests/test_weekly_planner_interface.py::TestWeeklyPlannerProtocol`.
+- [x] WP-004 — Implement LLM weekly planner — P0 — Design: `docs/design/janus_weekly_planner_v1.md` — `LLMWeeklyPlanner` in `src/janus/planner/llm_planner.py`. Uses `LLMClient` protocol with `generate()` method (not `LLMProvider.complete()` as design specified). Prompt building, response parsing, validation, retry + fallback. Tests: `tests/test_llm_weekly_planner.py`.
+- [x] WP-005 — Add `janus plan week` — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — `handle_plan_week()` in `src/janus/plan_cli.py`, CLI dispatch in `src/janus/__init__.py`. Output formatting via `_format_plan()`. Tests: `tests/test_plan_cli.py::TestHandlePlanWeek`.
+- [x] WP-006 — Build weekly planner evaluation suite — P0 — Design: `docs/design/janus_weekly_planner_v1.md` — `tests/test_planner_evaluation.py` — 15 scenarios with MetricsCollector. Covers overdue tasks, stalled goals, calendar conflicts, empty context, LLM unavailability, task coverage, deadline awareness, plan validity, competing tasks, mixed priorities, and more.
+- [x] WP-007 — Define planner quality metrics — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Metrics defined in `tests/test_planner_evaluation.py`: task_coverage, overdue_handling, deadline_awareness, calendar_conflict_rate, plan_validity, unsupported_recommendations. MetricsCollector class with summary reporting.
+- [ ] WP-008 — Write Weekly Planner ADR — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Not yet written.
+- [~] WP-009 — Document Weekly Planner — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Design doc exists; runbook and example output not yet written.
+- [ ] WP-010 — Harden Weekly Planner V1 — P1 — Design: `docs/design/janus_weekly_planner_v1.md` — Not yet started.
+
+**Weekly Planner V1 implementation notes (2026-10-02):**
+- 104 planner tests pass (test_plan_cli.py, test_weekly_planner_interface.py, test_llm_weekly_planner.py, test_planner_evaluation.py).
+- Key architectural differences from design doc: Context Builder in `plan_cli.py` not standalone service; `LLMClient.generate()` vs `LLMProvider.complete()`; `RuleBasedPlanner` in `plan_cli.py` not `planner/` package; `MockPlanner` only inline test helper; `Priority` as StrEnum not int; `PlanningContext.calendar` not `calendar_events`; `behind_target_goals` extra field in `PlanningSignals`.
+- Remaining gaps: WP-008 (ADR), WP-009 (runbook/example output), WP-010 (harden V1).
