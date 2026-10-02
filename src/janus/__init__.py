@@ -42,6 +42,7 @@ from janus.research_cli import (
     print_research_help,
 )
 from janus.knowledge_cli import main as _knowledge_main
+from janus.plan_cli import handle_plan_week, print_plan_help
 from janus.decision_cli import (
     handle_decision_list,
     handle_decision_show,
@@ -282,6 +283,16 @@ def main() -> None:
             else:
                 print(f"Unknown decision subcommand: {sub}")
                 print_decision_help()
+        elif command == "plan":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_plan_help()
+                return
+            sub = filtered[1]
+            if sub == "week":
+                handle_plan_week(filtered[2:])
+            else:
+                print(f"Unknown plan subcommand: {sub}")
+                print_plan_help()
         else:
             print(f"Unknown command: {command}")
     except Exception as e:
