@@ -1,949 +1,308 @@
-# Janus Weekly Planner — V1
+# Janus Weekly Planner — V1 Design Document
 
-## 1. Cel projektu
-
-Zbudować w Janusie pierwszy produkcyjnie myślący komponent AI, który potrafi na podstawie rzeczywistych danych użytkownika wygenerować realistyczny plan kolejnego tygodnia.
-
-V1 odpowiada na jedno pytanie:
-
-> Czy Janus potrafi wiarygodnie zaplanować tydzień na podstawie aktywnych celów, zadań i kalendarza?
-
-W V1 planner **nie wykonuje żadnych zmian**. Generuje wyłącznie propozycję planu.
+**Status:** Draft for review
+**Parent task:** t_36165f52 (architecture), t_473202bc (LLM error-handling precedent)
+**Last updated:** 2026-10-02
 
 ---
 
-## 2. Zakres V1
+## 1. Overview
 
-### Input
+The LLM Weekly Planner is the first production AI-thinking component in Janus.
+It generates a structured week plan from the user's real data — active goals,
+open tasks, and calendar events — using an LLM for prioritization, reasoning,
+and conflict detection.
 
-Planner otrzymuje:
+V1 answers one question:
 
-- aktywne cele,
-- zadania,
-- kalendarz,
-- opcjonalnie podstawowe informacje o ostatniej aktywności, jeśli są już dostępne bez istotnego rozszerzania scope'u.
+> Can Janus credibly plan a week based on active goals, tasks, and calendar?
 
-Minimalny V1:
+**V1 is proposal-only.** It generates a `WeeklyPlan` and displays it. It does
+not create tasks, modify goals, write to the calendar, or trigger any side
+effects. No Telegram approval, no autonomous execution.
 
-```text
-Goals + Tasks + Calendar
+### Core architectural principle
+
+The LLM never reads files or executes business logic directly. Janus prepares
+a structured context:
+
 ```
-
-### Output
-
-Planner generuje ustrukturyzowany `WeeklyPlan` zawierający:
-
-- podsumowanie tygodnia,
-- priorytety,
-- zaplanowane zadania,
-- uzasadnienie priorytetów,
-- sugerowany dzień realizacji,
-- ryzyka i konflikty.
-
-Przykładowa struktura:
-
-```json
-{
-  "week_summary": "...",
-  "priorities": [
-    {
-      "goal_id": "career",
-      "reason": "...",
-      "priority": 1
-    }
-  ],
-  "planned_tasks": [
-    {
-      "task_id": "task-123",
-      "goal_id": "career",
-      "priority": 1,
-      "reason": "...",
-      "suggested_day": "2026-10-05"
-    }
-  ],
-  "risks": [
-    {
-      "description": "...",
-      "severity": "medium"
-    }
-  ]
-}
-```
-
----
-
-## 3. Architektura
-
-```text
-             ┌─────────────┐
-             │    Goals    │
-             └──────┬──────┘
-                    │
-             ┌──────▼──────┐
-             │    Tasks    │
-             └──────┬──────┘
-                    │
-             ┌──────▼──────┐
-             │   Calendar  │
-             └──────┬──────┘
-                    │
-                    ▼
-            ┌─────────────────┐
-            │ Context Builder │
-            └────────┬────────┘
-                     │
-                     ▼
-            ┌─────────────────┐
-            │   LLM Planner   │
-            └────────┬────────┘
-                     │
-                     ▼
-            ┌─────────────────┐
-            │  WeeklyPlan     │
-            │   validation    │
-            └────────┬────────┘
-                     │
-                     ▼
-                CLI / output
-```
-
-### Kluczowa zasada architektoniczna
-
-LLM nie powinien bezpośrednio czytać plików ani wykonywać logiki biznesowej.
-
-Janus powinien przygotować ustrukturyzowany kontekst:
-
-```text
-Domain data
+Domain data (goals, tasks, calendar)
     ↓
-Context Builder
+Context Builder (deterministic signals)
     ↓
 PlanningContext
     ↓
-LLM
+LLM (prioritization, reasoning, planning)
     ↓
 structured WeeklyPlan
     ↓
 validation
+    ↓
+CLI output
 ```
 
-Logika deterministyczna pozostaje w kodzie. LLM odpowiada przede wszystkim za:
-
-- priorytetytację,
+Deterministic logic stays in code. The LLM is responsible for:
+- prioritization,
 - reasoning,
-- planowanie,
-- wykrywanie konfliktów,
-- uzasadnianie decyzji.
+- planning,
+- conflict detection,
+- justification of decisions.
 
 ---
 
-## 4. PlanningContext builder (WP-002)
-
-**Work package:** WP-002 — Build PlanningContext builder
-**Priority:** P0
-**Depends on:** WP-001 (domain model — parent task `t_4aa88c63`)
-**Roadmap context:** Phase 1 — Domain & context (see `docs/roadmap.md` WP-002)
-
-### 4.1 Overview
-
-The PlanningContext builder is the deterministic component that aggregates Goals, Tasks, and Calendar data into a structured `PlanningContext` for the LLM planner. It is the first stage of the planning pipeline and operates entirely without LLM involvement.
-
-The builder follows the same architectural principle as the rest of Janus: **deterministic logic stays in code; the LLM only reasons over prepared context.** The builder's job is to transform raw domain data into a signal-rich, structured context that the LLM can consume without reconstructing facts from scratch.
-
-This design is P0-scoped and covers V1 only. It references the domain model defined in WP-001 (parent task `t_4aa88c63`, Alternative A — minimal model with 5 entities: `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`, `PlanningRisk`).
-
-### 4.2 Architecture
-
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        PlanningContextBuilder                       │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │  Data Loader │  │   Signal     │  │    Context Assembler     │  │
-│  │              │  │  Computer    │  │                          │  │
-│  │ • Goals      │  │              │  │  Combines loaded data +  │  │
-│  │ • Tasks      │→ │ • Overdue    │→ │  computed signals into   │  │
-│  │ • Calendar   │  │ • Due soon   │  │  PlanningContext         │  │
-│  │ • Today      │  │ • Stalled    │  │                          │  │
-│  └──────────────┘  │ • Behind     │  └──────────────────────────┘  │
-│                    │ • Conflicts  │                                 │
-│                    │ • Competing  │                                 │
-│                    └──────────────┘                                 │
-└─────────────────────────────────────────────────────────────────────┘
-         │                                              │
-         │ inputs                                        │ output
-         ▼                                              ▼
-   ┌───────────┐                                  ┌──────────────┐
-   │  Goals    │                                  │ PlanningContext│
-   │  Tasks    │                                  │ (ephemeral)   │
-   │  Calendar │                                  └──────────────┘
-   └───────────┘
-```
-
-The builder is a **pure function** from raw domain data to `PlanningContext`. It has no side effects, makes no network calls (data is pre-loaded), and does not persist its output.
-
-### 4.3 Inputs
-
-The builder accepts four categories of input:
-
-**1. Goals** — loaded from `data/goals.md` via the `markdown_goals` integration.
-
-Each goal provides:
-- `title` (identity, immutable)
-- `status` (active / completed / inactive)
-- `deadline` (optional ISO date)
-- `related_tasks` (ordered list of task titles supporting this goal)
-- `milestones` (list of milestone dicts, each with title, status, order)
-- `projects` (list of project dicts, each with title, milestone_title, status, order, related_tasks)
-- `metric_name`, `current_value`, `target_value`, `direction` (optional, for metric-based goals)
-- `recent_activity` (list of execution-feedback entries)
-
-Only goals with `status == "active"` are included in the planning context. Completed and inactive goals are filtered out at load time.
-
-**2. Tasks** — loaded from `data/tasks.md` via the `markdown_tasks` integration.
-
-Each task provides:
-- `title` (identity)
-- `due_date` (optional date)
-- `priority` (integer, default 1)
-- `state` (todo / in_progress / blocked, or None which means todo)
-- `progress` (optional integer 0-100)
-
-Only open tasks (state in {todo, in_progress, blocked}) are included. Completed tasks are filtered out at load time.
-
-**3. Calendar events** — loaded from Google Calendar via the `google_calendar` integration (read-only).
-
-Each event provides:
-- `title`
-- `start` (datetime)
-- `end` (datetime)
-- `all_day` (boolean)
-- `source` (optional connector identifier)
-
-Events are loaded for the planning week (Monday through Sunday of the target week). The calendar integration is read-only in V1 — the builder never proposes or creates calendar entries.
-
-**4. Current date** — the system clock at build time, used as the reference point for all temporal signal computation (overdue, due soon, week boundaries).
-
-### 4.4 Output: PlanningContext
-
-The `PlanningContext` is an ephemeral, in-memory data structure. It is not persisted in V1 (per Alternative A decision from WP-001). It contains:
-
-**Week metadata:**
-- `week_start` (date — Monday of the planning week)
-- `week_end` (date — Sunday of the planning week)
-- `generated_at` (datetime — when the context was built)
-- `today` (date — reference date for signal computation)
-
-**Goal signals** (one per active goal):
-- `goal_title`
-- `goal_status`
-- `goal_deadline`
-- `is_stalled` (boolean — derived from goal health assessment)
-- `is_behind_target` (boolean — derived from metric progress vs. target)
-- `days_since_last_activity` (integer or None)
-- `open_task_count` (integer — number of open related tasks)
-- `completed_task_count` (integer — number of completed related tasks)
-- `missing_task_count` (integer — related tasks not found in task list)
-- `next_action_title` (string or None — derived from next-action engine)
-- `next_action_kind` (string or None — "task", "milestone", or "project")
-- `next_action_reason` (string or None)
-
-**Task signals** (one per open task):
-- `task_title`
-- `task_state`
-- `task_priority`
-- `task_due_date`
-- `is_overdue` (boolean — due_date < today)
-- `is_due_soon` (boolean — 0 <= due_date - today <= 7 days)
-- `days_until_due` (integer or None)
-- `goal_title` (string or None — which goal this task supports, if any)
-- `is_blocked` (boolean — state == "blocked")
-
-**Calendar signals:**
-- `events` (list of events for the planning week, each with title, start, end, all_day)
-- `busy_slots` (list of (start, end) tuples derived from events)
-- `free_days` (list of weekdays with no events)
-- `conflict_count` (integer — number of task due dates that fall on days with calendar events)
-
-**Cross-cutting signals:**
-- `total_open_tasks` (integer)
-- `total_overdue_tasks` (integer)
-- `total_blocked_tasks` (integer)
-- `total_active_goals` (integer)
-- `total_stalled_goals` (integer)
-- `competing_tasks` (list of task titles that share the same due date)
-- `calendar_conflicts` (list of {task_title, event_title, date} for tasks whose due date conflicts with a calendar event)
-
-### 4.5 Key components
-
-The builder is composed of three internal components. These are design-level abstractions, not implementation classes.
-
-#### 4.5.1 Data Loader
-
-Responsible for reading raw domain data from the appropriate sources and converting it into the internal model representation.
-
-- **Goal loading**: reads `data/goals.md`, parses goal entries, constructs Goal model objects. Filters to active goals only.
-- **Task loading**: reads `data/tasks.md`, parses task entries, constructs Task model objects. Filters to open tasks only.
-- **Calendar loading**: queries Google Calendar for events in the planning week. Returns a list of Event objects. If the calendar integration is unavailable, returns an empty list (the builder must handle this gracefully).
-
-The data loader is the only component that touches external systems. It must handle missing files, parse errors, and integration failures gracefully — returning empty collections rather than raising exceptions.
-
-#### 4.5.2 Signal Computer
-
-Responsible for deriving deterministic signals from the loaded data. This is where all temporal and health-related computation happens.
-
-Signals computed:
-- **Overdue**: task due_date < today
-- **Due soon**: 0 <= (due_date - today) <= 7 days
-- **Goal stalled**: goal health assessment returns "stalled" state (delegates to existing `assess_goal_health` service)
-- **Goal behind target**: for metric-based goals, current_value has not moved toward target_value since last measurement
-- **Calendar availability**: derives busy slots from calendar events, identifies free days
-- **Deadline conflicts**: tasks whose due_date falls on a day with a calendar event
-- **Competing tasks**: tasks sharing the same due_date (more than one task per day)
-
-The signal computer delegates to existing domain services where possible:
-- `assess_goal_health` for stalled/neglected classification
-- `derive_next_action` for next-action derivation
-- `compute_goal_progress` for progress computation
-
-This ensures the builder reuses existing deterministic logic rather than duplicating it.
-
-#### 4.5.3 Context Assembler
-
-Responsible for combining loaded data and computed signals into the final `PlanningContext` structure.
-
-The assembler:
-1. Creates the week metadata (week_start, week_end, generated_at, today)
-2. Iterates over active goals, computing goal signals for each
-3. Iterates over open tasks, computing task signals for each
-4. Computes calendar signals from loaded events
-5. Computes cross-cutting signals (totals, conflicts, competing tasks)
-6. Returns the assembled `PlanningContext`
-
-The assembler is deterministic: given the same inputs, it always produces the same `PlanningContext`.
-
-### 4.6 Data flow
-
-The builder processes data in four stages:
-
-```text
-Stage 1: Load
-  Goals (markdown_goals) ──→ list[Goal] (active only)
-  Tasks (markdown_tasks) ──→ list[Task] (open only)
-  Calendar (google_calendar) ──→ list[Event] (planning week only)
-  System clock ──→ today (date)
-
-Stage 2: Compute signals
-  For each active goal:
-    → assess_goal_health(goal, today, ...) → health_state, days_since_last_activity
-    → compute_goal_progress(goal, ...) → progress
-    → derive_next_action(goal, tasks, ...) → next_action
-
-  For each open task:
-    → is_overdue = due_date < today
-    → is_due_soon = 0 <= (due_date - today) <= 7
-    → days_until_due = (due_date - today).days
-
-  For calendar:
-    → busy_slots = [(e.start, e.end) for e in events]
-    → free_days = weekdays with no events
-    → conflicts = tasks whose due_date matches a busy day
-
-Stage 3: Assemble
-  → Combine all loaded data + computed signals into PlanningContext
-
-Stage 4: Return
-  → Return PlanningContext (ephemeral, not persisted)
-```
-
-### 4.7 Edge cases
-
-The builder must handle the following edge cases gracefully:
-
-**Empty data:**
-- No active goals → PlanningContext with empty goal_signals list
-- No open tasks → PlanningContext with empty task_signals list
-- No calendar events → PlanningContext with empty events list, all days free
-- No data at all → valid PlanningContext with all empty lists (not an error)
-
-**Missing calendar integration:**
-- Calendar integration unavailable → treat as empty calendar (no events, all days free)
-- This is not an error condition; the planner should still produce a plan
-
-**Invalid references:**
-- Goal references a task title that does not exist in the task list → increment missing_task_count, do not fail
-- Task references a goal title that does not exist → task included with goal_title = None
-
-**Tasks with no due date:**
-- is_overdue = False, is_due_soon = False, days_until_due = None
-- Task is still included in the context (it is still an open task)
-
-**Goals with no related tasks:**
-- open_task_count = 0, completed_task_count = 0
-- Goal is still included (it may need attention even without tasks)
-
-**All goals completed:**
-- PlanningContext with empty goal_signals list
-- The planner should handle this (produce an empty or minimal plan)
-
-**Calendar events outside planning week:**
-- Filtered out at load time; only events within [week_start, week_end] are included
-
-### 4.8 Interface specification
-
-The builder exposes a single entry point with the following conceptual interface:
-
-```text
-PlanningContextBuilder
-  ├── __init__(project_root: Path | None = None)
-  └── build(week_start: date | None = None) → PlanningContext
-```
-
-**Parameters:**
-- `project_root`: optional override for the project root path (defaults to auto-detected root)
-- `week_start`: optional Monday of the planning week (defaults to the Monday of the current week)
-
-**Returns:**
-- A `PlanningContext` instance containing all loaded data and computed signals
-
-**Error handling:**
-- Missing data files → treated as empty collections (no error)
-- Calendar integration failure → treated as empty calendar (no error)
-- Parse errors in data files → logged and skipped (partial data is better than no data)
-- The builder never raises exceptions for data-related issues; it always returns a valid PlanningContext
-
-**Idempotency:**
-- Given the same input data and the same `today`, the builder always produces the same PlanningContext
-- The builder has no side effects and does not modify any input data
-
-### 4.9 Testing strategy
-
-The builder must be tested at two levels:
-
-**Unit tests:**
-- Signal computation: verify overdue, due soon, stalled, behind target, conflict detection
-- Edge cases: empty data, missing calendar, invalid references, tasks without due dates
-- Data loader: verify correct filtering (active goals only, open tasks only, planning week events only)
-- Context assembler: verify correct assembly of all signals into PlanningContext
-
-**Integration tests:**
-- End-to-end: load real data files → build PlanningContext → verify structure and signal correctness
-- Calendar integration: verify events are loaded and filtered correctly
-- Verify the builder works with the existing `PersonalStateBuilder` pattern (same data sources, different aggregate)
-
-**Test data:**
-- Use synthetic data files in a temporary directory (not the real `data/` directory)
-- Cover the 10 evaluation scenarios from §7 (urgent task, overdue tasks, stalled goal, no availability, deadline conflict, too many tasks, empty task list, goal without tasks, completed goal, similar-priority goals)
-
-### 4.10 Design decisions and trade-offs
-
-**Decision 1: Ephemeral output (no persistence)**
-The PlanningContext is not persisted in V1. This follows the Alternative A decision from WP-001. The context is rebuilt on each `janus plan week` invocation. This simplifies V1 but means the context cannot be cached or compared across runs. If caching is needed in V2, it can be added without changing the builder interface.
-
-**Decision 2: Reuse existing services**
-The builder delegates to `assess_goal_health`, `derive_next_action`, and `compute_goal_progress` rather than reimplementing their logic. This avoids duplication and ensures consistency with the weekly review and next-action engine. The trade-off is a coupling to these services, but they are stable domain services with well-defined interfaces.
-
-**Decision 3: Graceful degradation**
-The builder never fails due to missing or invalid data. It always returns a valid PlanningContext, possibly with empty collections. This ensures the LLM planner always receives a well-formed input, even in degenerate cases. The trade-off is that data quality issues may be silently swallowed — this is mitigated by logging.
-
-**Decision 4: Read-only calendar**
-The builder only reads calendar events. It never proposes, creates, or modifies calendar entries. This keeps the builder side-effect-free and avoids the need for calendar write permissions in V1.
-
-### 4.11 Relationship to other work packages
-
-- **WP-001 (domain model):** Defines the `PlanningContext` entity and its fields. This document specifies how that entity is populated.
-- **WP-003 (WeeklyPlanner interface):** Defines the `plan(context: PlanningContext) -> WeeklyPlan` interface. The builder produces the input for this interface.
-- **WP-004 (LLM weekly planner):** Consumes the PlanningContext produced by this builder. The quality of the builder's output directly affects the quality of the LLM's plan.
-- **WP-005 (CLI):** The `janus plan week` command will invoke the builder, then the planner, then display the result.
-- **WP-006 (evaluation):** The evaluation scenarios will test the builder's output as part of the end-to-end planning pipeline.
-
-### 4.12 Open questions for WP-003/004
-
-These questions are not resolved in this document; they are deferred to the relevant work packages:
-
-1. **Prompt format:** How should the PlanningContext be serialized for the LLM prompt? (JSON, markdown, natural language?)
-2. **Signal thresholds:** What are the exact thresholds for "due soon" (currently 7 days) and "stalled" (currently delegated to `assess_goal_health`)?
-3. **Calendar granularity:** Should the builder include all-day events, or only timed events? Should it consider event transparency (free/busy status)?
-4. **Historical context:** Should the builder include data from previous weeks (e.g., last week's plan, completed tasks) for continuity?
+## 2. Goals & Non-Goals
+
+### Goals (V1)
+
+| # | Goal | Done when |
+|---|------|-----------|
+| G1 | Generate a structured weekly plan from real user data | `janus plan week` produces a valid `WeeklyPlan` |
+| G2 | Deterministic signal computation before LLM call | Overdue, stalled, conflict signals computed in code |
+| G3 | LLM-agnostic domain model | `PlanningContext`, `WeeklyPlan`, etc. have no LLM dependency |
+| G4 | Pluggable planner interface | `WeeklyPlanner` Protocol allows LLM/RuleBased/Mock implementations |
+| G5 | Robust error handling | Invalid LLM output never reaches downstream; retry + fallback |
+| G6 | Evaluation suite | 10+ scenario tests covering edge cases |
+| G7 | No side effects | Planner never mutates tasks, goals, or calendar |
+
+### Non-Goals (V1)
+
+- Multi-agent system
+- LangGraph or any agent framework
+- MCP
+- Vector database / RAG
+- Autonomous execution
+- Telegram approval workflow
+- Long-term memory
+- Web search
+- UI (CLI only)
+- Kubernetes / cloud infrastructure
+- Plan persistence (ephemeral only)
+
+These may be considered after V1 value is validated.
 
 ---
 
-## 5. WeeklyPlanner interface (WP-003)
+## 3. Architecture Description
 
-**Work package:** WP-003 — Define WeeklyPlanner interface
-**Priority:** P0
-**Depends on:** WP-001 (domain model — parent task `t_4aa88c63`), WP-002 (PlanningContext builder — parent task `t_dec30769`)
-**Roadmap context:** Phase 2 — Planner (see `docs/roadmap.md` WP-003)
+### 3.1 Component diagram
 
-### 5.1 Purpose and scope
-
-The WeeklyPlanner interface is the abstraction that defines how Janus generates a weekly plan from a given PlanningContext. It is the second stage of the planning pipeline, consuming the output of the PlanningContext builder (WP-002) and producing a structured WeeklyPlan.
-
-The interface is designed to be implementation-agnostic. The V1 implementation will be `LLMWeeklyPlanner`, which uses an LLM to reason over the PlanningContext and produce a WeeklyPlan. The interface must also support alternative implementations (e.g., `RuleBasedPlanner`, `MockPlanner`) for testing and future use cases, without requiring changes to the rest of the application.
-
-This design is P0-scoped and covers V1 only. It references the domain model defined in WP-001 (parent task `t_4aa88c63`, Alternative A — minimal model with 5 entities: `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`, `PlanningRisk`) and the PlanningContext builder defined in WP-002 (parent task `t_dec30769`).
-
-### 5.2 Interface contract
-
-The WeeklyPlanner interface is defined as a Protocol (structural type) with a single method:
-
-```text
-WeeklyPlanner (Protocol)
-  └── plan(context: PlanningContext) -> WeeklyPlan
+```
+┌──────────────┐     ┌──────────────────┐     ┌───────────────┐
+│  Data Loaders │────▶│ Context Builder  │────▶│ PlanningContext│
+│ (goals,tasks, │     │  (deterministic  │     │  (domain model)│
+│  calendar)    │     │   signals)       │     └───────┬───────┘
+└──────────────┘     └──────────────────┘             │
+                                                       ▼
+                                              ┌──────────────────┐
+                                              │  LLMWeeklyPlanner│
+                                              │  (LLM call +     │
+                                              │   structured out)│
+                                              └────────┬─────────┘
+                                                       │
+                                                       ▼
+                                              ┌──────────────────┐
+                                              │ WeeklyPlan       │
+                                              │ validation       │
+                                              └────────┬─────────┘
+                                                       │
+                                                       ▼
+                                              ┌──────────────────┐
+                                              │ CLI / output     │
+                                              │ (janus plan week)│
+                                              └──────────────────┘
 ```
 
-**Contract:**
-- The planner receives a fully-constructed PlanningContext (produced by the PlanningContext builder from WP-002).
-- The planner returns a WeeklyPlan (defined in WP-001 domain model).
-- The planner must not modify the input PlanningContext.
-- The planner must not perform any I/O operations (no file reads, no network calls, no LLM API calls) outside of its implementation boundary. The LLM call is encapsulated within the LLMWeeklyPlanner implementation.
-- The planner must be deterministic in its interface contract: given the same PlanningContext, it should produce a semantically equivalent WeeklyPlan (though LLM-based implementations may have non-deterministic output).
+### 3.2 Data Loaders
 
-### 5.3 Method signatures
+Pure integration adapters. Each returns typed domain objects.
 
-#### 5.3.1 plan()
+| Loader | Source | Returns |
+|--------|--------|---------|
+| `load_goals()` | `markdown_goals` | `list[Goal]` |
+| `load_tasks()` | `markdown_tasks` | `list[Task]` |
+| `load_calendar()` | `google_calendar` | `list[Event]` |
 
-```text
-plan(context: PlanningContext) -> WeeklyPlan
+### 3.3 Context Builder (`janus/services/planning_context.py`)
+
+Deterministic signal computation before any LLM call. Produces
+`PlanningContext`.
+
+**Responsibilities:**
+- Filter active goals, open tasks, upcoming calendar events
+- Compute deterministic signals:
+  - task overdue / due soon
+  - goal stalled / behind target
+  - calendar availability / conflicts
+  - task-to-goal mapping density
+- Assemble `PlanningContext` dataclass
+
+**No LLM calls. No side effects. Pure function.**
+
+### 3.4 LLM Prompt Pipeline (`janus/services/planning_prompt.py`)
+
+**Responsibilities:**
+- Render `PlanningContext` into an LLM prompt
+- Call LLM with structured output schema
+- Parse and validate LLM response
+- Retry with fallback on malformed output (pattern from t_473202bc)
+
+**Interface:**
+```python
+def build_prompt(context: PlanningContext) -> str: ...
+def parse_llm_response(raw: str) -> WeeklyPlan: ...
 ```
 
-**Parameters:**
-- `context`: A PlanningContext instance containing all loaded data and computed signals for the planning week. This is the output of the PlanningContextBuilder (WP-002).
+### 3.5 State Storage
 
-**Returns:**
-- A WeeklyPlan instance containing:
-  - `week_summary`: A text summary of the week
-  - `priorities`: An ordered list of Priority objects (goal_id, reason, priority rank)
-  - `planned_tasks`: A list of PlannedTask objects (task_id, goal_id, priority, reason, suggested_day)
-  - `risks`: A list of PlanningRisk objects (description, severity)
+V1 does **not** persist plans. Plans are ephemeral — generated on demand,
+displayed, discarded. This keeps V1 simple and avoids a persistence layer
+before the value proposition is validated.
 
-**Preconditions:**
-- The PlanningContext is valid (produced by PlanningContextBuilder.build())
-- The PlanningContext contains at minimum: week metadata, goal signals, task signals, calendar signals
-
-**Postconditions:**
-- The returned WeeklyPlan is structurally valid (passes validation)
-- All task_id and goal_id references in the WeeklyPlan correspond to entities in the PlanningContext
-- The WeeklyPlan does not introduce new tasks or goals not present in the PlanningContext
-
-### 5.4 State management and lifecycle
-
-The WeeklyPlanner is **stateless** across invocations. Each call to `plan()` is independent:
-- The planner does not maintain internal state between calls
-- The planner does not cache previous plans
-- The planner does not learn from previous plans (in V1)
-
-**Lifecycle:**
-1. The planner is instantiated (constructor may accept configuration, e.g., LLM model, prompt template)
-2. The planner receives a PlanningContext via `plan()`
-3. The planner processes the context and produces a WeeklyPlan
-4. The WeeklyPlan is returned to the caller
-5. The planner instance can be discarded or reused for the next call
-
-**Resource management:**
-- The LLMWeeklyPlanner implementation manages the LLM client lifecycle (connection, API calls)
-- The planner must release any resources (e.g., LLM client connections) when no longer needed
-- In V1, the planner is invoked once per `janus plan week` command and then discarded
-
-### 5.5 Interaction patterns
-
-#### 5.5.1 Interaction with PlanningContext builder (WP-002, parent task t_dec30769)
-
-The WeeklyPlanner consumes the output of the PlanningContextBuilder:
-
-```text
-PlanningContextBuilder.build() → PlanningContext → WeeklyPlanner.plan() → WeeklyPlan
-```
-
-The PlanningContextBuilder (WP-002) is responsible for:
-- Loading raw domain data (goals, tasks, calendar)
-- Computing deterministic signals (overdue, due soon, stalled, conflicts)
-- Assembling the PlanningContext
-
-The WeeklyPlanner (WP-003) is responsible for:
-- Receiving the PlanningContext
-- Reasoning over the context (via LLM or rules)
-- Producing a WeeklyPlan
-
-The two components are decoupled: the planner does not know how the PlanningContext was built, and the builder does not know how the plan is generated.
-
-#### 5.5.2 Interaction with LLM (WP-004)
-
-The LLMWeeklyPlanner implementation (WP-004) will:
-1. Serialize the PlanningContext into a prompt
-2. Send the prompt to the LLM
-3. Parse the LLM's structured output into a WeeklyPlan
-4. Validate the WeeklyPlan
-
-The interface defined in this document does not specify how the LLM is invoked — that is the responsibility of the WP-004 implementation.
-
-#### 5.5.3 Interaction with CLI (WP-005)
-
-The `janus plan week` command will:
-1. Invoke the PlanningContextBuilder to produce a PlanningContext
-2. Pass the PlanningContext to the WeeklyPlanner
-3. Display the resulting WeeklyPlan
-
-The CLI does not interact with the planner directly — it goes through the interface.
-
-#### 5.5.4 Roadmap replenishment (#replenish)
-
-This work package was created by the roadmap replenishment system (`#replenish`) after the completion of WP-002 (parent task `t_dec30769`). The replenishment system pulled WP-003 from the roadmap (`docs/roadmap.md`) and created this task. The interface defined here is the contract that the WP-004 implementation must satisfy.
-
-### 5.6 Error handling and edge cases
-
-The WeeklyPlanner must handle the following error cases:
-
-**Invalid PlanningContext:**
-- Empty PlanningContext (no goals, no tasks, no calendar) → the planner should still produce a valid (possibly empty) WeeklyPlan
-- Malformed PlanningContext (missing required fields) → the planner should raise a ValidationError
-
-**LLM output errors (for LLMWeeklyPlanner):**
-- Invalid structured output (malformed JSON, missing required fields) → the planner should raise a PlanGenerationError
-- LLM returns references to non-existent tasks/goals → the planner should raise a ValidationError
-- LLM returns an empty plan → the planner should raise a PlanGenerationError (or return an empty plan, depending on the use case)
-
-**Provider errors:**
-- LLM API timeout → the planner should raise a ProviderError (with retry logic in WP-004)
-- LLM API rate limit → the planner should raise a ProviderError (with retry logic in WP-004)
-- LLM API authentication failure → the planner should raise a ProviderError
-
-**Edge cases:**
-- All goals completed → the planner should produce a minimal plan (no priorities, no planned tasks)
-- No open tasks → the planner should produce a plan with no planned tasks
-- Conflicting deadlines → the planner should flag the conflict in the risks section
-- Too many tasks for one week → the planner should prioritize and flag the overload in the risks section
-
-### 5.7 Dependencies and integration points
-
-**Domain model (WP-001):**
-- PlanningContext (input)
-- WeeklyPlan (output)
-- PlannedTask, Priority, PlanningRisk (output components)
-
-**PlanningContext builder (WP-002, parent task t_dec30769):**
-- Produces the PlanningContext that the planner consumes
-
-**LLM provider (WP-004):**
-- The LLMWeeklyPlanner implementation depends on an LLM provider
-- The provider is abstracted behind an interface (not specified in this document)
-
-**Validation (WP-004):**
-- The WeeklyPlan must be validated before being returned
-- Validation rules are defined in the domain model (WP-001)
-
-**CLI (WP-005):**
-- The `janus plan week` command invokes the planner
-- The CLI displays the WeeklyPlan
-
-### 5.8 Design constraints
-
-1. **Implementation-agnostic:** The interface must not depend on any specific LLM provider, prompt format, or output format.
-2. **Single responsibility:** The planner only generates plans. It does not load data, compute signals, or persist results.
-3. **Stateless:** The planner does not maintain state between invocations.
-4. **Side-effect-free:** The planner does not modify the input PlanningContext or any external state.
-5. **Replaceable:** The interface must allow swapping implementations (LLMWeeklyPlanner, RuleBasedPlanner, MockPlanner) without changing the rest of the application.
-6. **Synchronous:** The `plan()` method is synchronous (returns a WeeklyPlan, not a Future or coroutine). Async support may be added in V2 if needed.
-
-### 5.9 Testing strategy
-
-**Unit tests:**
-- Interface conformance: verify that LLMWeeklyPlanner, RuleBasedPlanner, and MockPlanner all conform to the WeeklyPlanner protocol
-- Input validation: verify that the planner handles invalid PlanningContext gracefully
-- Output validation: verify that the planner returns a valid WeeklyPlan
-
-**Integration tests:**
-- End-to-end: PlanningContextBuilder → WeeklyPlanner → WeeklyPlan
-- LLM integration: verify that LLMWeeklyPlanner correctly invokes the LLM and parses the output
-- Error handling: verify that the planner handles LLM errors, timeouts, and invalid output
-
-**Test data:**
-- Use synthetic PlanningContext instances (not real data)
-- Cover the 10 evaluation scenarios from §11 (Evaluation)
-
-### 5.10 Design decisions and trade-offs
-
-**Decision 1: Protocol (structural type) over ABC**
-The WeeklyPlanner is defined as a Protocol (structural type) rather than an abstract base class. This allows any class with a `plan()` method to conform to the interface, without requiring explicit inheritance. This is more flexible and Pythonic.
-
-**Decision 2: Single method interface**
-The interface has a single method (`plan()`). This keeps the interface simple and focused. Additional methods (e.g., `validate()`, `explain()`) can be added in V2 if needed.
-
-**Decision 3: Synchronous interface**
-The `plan()` method is synchronous. This simplifies the interface and is sufficient for V1 (the planner is invoked once per CLI command). Async support can be added in V2 if needed.
-
-**Decision 4: Stateless planner**
-The planner does not maintain state between invocations. This simplifies the implementation and makes it easier to test. State management (e.g., caching, learning) can be added in V2.
-
-### 5.11 Relationship to other work packages
-
-- **WP-001 (domain model):** Defines the PlanningContext, WeeklyPlan, PlannedTask, Priority, and PlanningRisk entities. This document specifies how these entities are used by the planner.
-- **WP-002 (PlanningContext builder, parent task t_dec30769):** Produces the PlanningContext that the planner consumes. The quality of the builder's output directly affects the quality of the planner's output.
-- **WP-004 (LLM weekly planner):** Implements the LLMWeeklyPlanner. This document defines the interface that the implementation must conform to.
-- **WP-005 (CLI):** The `janus plan week` command invokes the planner and displays the result.
-- **WP-006 (evaluation):** The evaluation scenarios will test the planner's output as part of the end-to-end planning pipeline.
-
-### 5.12 Open questions for WP-004
-
-These questions are not resolved in this document; they are deferred to the relevant work packages:
-
-1. **Prompt format:** How should the PlanningContext be serialized for the LLM prompt? (JSON, markdown, natural language?)
-2. **LLM model selection:** Which LLM model should be used for V1? What are the cost and latency constraints?
-3. **Output format:** What structured output format should the LLM produce? (JSON schema, function calling, structured output?)
-4. **Retry strategy:** How many retries should be attempted on LLM failure? What backoff strategy should be used?
-5. **Validation rules:** What are the exact validation rules for the WeeklyPlan? (e.g., must all planned tasks exist in the PlanningContext? Must priorities be unique?)
+Future versions may store plans in `data/plans.md` or a lightweight DB.
 
 ---
 
-## 6. Domain model
+## 4. Data Model
 
-Planner powinien mieć własny model domenowy, niezależny od konkretnego providera LLM.
+All models live in `janus/models/planning.py` following the established
+`@dataclass` + `__post_init__` pattern (matching `janus/models/goal.py`,
+`janus/models/task.py`).
 
-### 6.1 Minimalne modele (P0)
-
-`PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`, `PlanningRisk` — dokładnie tak, jak definiuje V1 spec §6.
-
-### 6.2 Definicje typów
+### 4.1 PlanningContext
 
 ```python
-# === models/planning.py (NOWE — proposed location) ===
-
-from dataclasses import dataclass, field
-from datetime import date
-from enum import Enum
-from typing import Optional
-
-
-class PriorityLevel(int, Enum):
-    """1 = highest priority. Lower number = higher priority."""
-    HIGH = 1
-    MEDIUM = 2
-    LOW = 3
-
-
 @dataclass
 class PlanningContext:
-    """Aggregated input for the weekly planner. Ephemeral — constructed
-    per planning cycle, not persisted."""
-    goals: list["Goal"]                    # active goals from models/goal.py
-    tasks: list["Task"]                    # open tasks from models/task.py
-    events: list["Event"]                  # calendar events from models/event.py
-    free_slots: list["TimeBlock"]          # from models/time_block.py
-    overload_warning: Optional[str] = None  # deterministic signal
-    # Deterministic signals (computed before LLM call):
-    task_overdue: list[str] = field(default_factory=list)
-    task_due_soon: list[str] = field(default_factory=list)
-    goal_stalled: list[str] = field(default_factory=list)
-    goal_behind_target: list[str] = field(default_factory=list)
-    calendar_conflicts: list[str] = field(default_factory=list)
+    week_start: date
+    week_end: date
+    goals: list[Goal]
+    tasks: list[Task]
+    calendar_events: list[Event]
+    signals: PlanningSignals
+```
 
+### 4.2 PlanningSignals (deterministic pre-computation)
 
+```python
 @dataclass
-class Priority:
-    """Goal priority ranking within the weekly plan."""
-    goal_id: str
-    reason: str
-    priority: int                         # 1-based, lower = higher priority
+class PlanningSignals:
+    overdue_tasks: list[str]
+    due_soon_tasks: list[str]
+    stalled_goals: list[str]
+    calendar_conflicts: list[Conflict]
+    availability_hours: float        # total free hours in the week
+    competing_tasks: int             # tasks competing for same time slot
+```
 
-    def __post_init__(self) -> None:
-        if self.priority < 1:
-            raise ValueError(f"Priority must be >= 1, got {self.priority}")
+### 4.3 WeeklyPlan
 
-
-@dataclass
-class PlannedTask:
-    """A single task planned for a specific day. Ephemeral — lives
-    only within a WeeklyPlan; not persisted in V1."""
-    task_title: str                       # references Task.title (title-based identity)
-    goal_title: str                       # references Goal.title
-    priority: int                         # 1 = highest
-    reason: str
-    suggested_day: date                   # YYYY-MM-DD, within the WeeklyPlan week
-    estimated_duration_minutes: Optional[int] = None  # V1 optional
-
-    def __post_init__(self) -> None:
-        if self.priority < 1:
-            raise ValueError(f"PlannedTask priority must be >= 1, got {self.priority}")
-
-
-@dataclass
-class PlanningRisk:
-    """Risk or conflict identified during planning."""
-    description: str
-    severity: str                         # "low" | "medium" | "high"
-
-    def __post_init__(self) -> None:
-        if self.severity not in ("low", "medium", "high"):
-            raise ValueError(
-                f"PlanningRisk.severity must be low/medium/high, got {self.severity!r}"
-            )
-
-
+```python
 @dataclass
 class WeeklyPlan:
-    """Output of the weekly planner. Ephemeral — generated each week,
-    not persisted in V1."""
-    week_start: date                      # Monday (ISO week start)
     week_summary: str
-    priorities: list[Priority] = field(default_factory=list)
-    planned_tasks: list[PlannedTask] = field(default_factory=list)
-    risks: list[PlanningRisk] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        # Validate all suggested_days fall within the plan week
-        week_end = self.week_start + timedelta(days=6)
-        for pt in self.planned_tasks:
-            if not (self.week_start <= pt.suggested_day <= week_end):
-                raise ValueError(
-                    f"PlannedTask.suggested_day {pt.suggested_day} is outside "
-                    f"the plan week [{self.week_start}, {week_end}]"
-                )
+    priorities: list[Priority]
+    planned_tasks: list[PlannedTask]
+    risks: list[PlanningRisk]
 ```
 
-### 6.3 Wzorce modeli (zgodne z istniejącym kodem)
+### 4.4 PlannedTask
 
-| Wzorzec | Źródło | Zastosowanie |
-|---------|--------|--------------|
-| `dataclass` + `__post_init__` walidacji | `models/task.py`, `models/goal.py` | Wszystkie nowe modele |
-| Tytuł-based tożsamość (brak UUID) | `Goal.title`, `Task.title` | `PlannedTask.task_title`, `PlannedTask.goal_title` |
-| Listy `dict` dla uników cyklicznych | `Goal.milestones`, `Goal.projects` | Nie stosujemy — PlanningContext jest ephemeral |
-| Enum-based stany | `ExecutionMode`, `SupportMode` | `PriorityLevel` enum |
+```python
+@dataclass
+class PlannedTask:
+    task_id: str
+    goal_id: str
+    priority: int
+    reason: str
+    suggested_day: str              # ISO date YYYY-MM-DD
+```
 
----
+### 4.5 Priority
 
-### 6.4 Relacje i kardynalność
+```python
+@dataclass
+class Priority:
+    goal_id: str
+    reason: str
+    priority: int                    # 1 = highest
+```
 
-```text
-PlanningContext                   WeeklyPlan
-┌──────────────────┐              ┌──────────────────┐
-│ goals: list[Goal]│              │ week_start: date  │
-│ tasks: list[Task]│              │ week_summary: str │
-│ events: list[Ev] │              │ priorities: list  │──┐
-│ free_slots: list │              │ planned_tasks: list─┐ │
-│ overload_warn:  │              │ risks: list[Risk] ───┘ │
-│ + signals       │              └────────┬─────────┘    │
-└──────────────────┘                       │              │
-         │                                 │              │
-         │ 1:N                             │ 1:N          │ 1:N
-         ▼                                 ▼              ▼
-     ┌─────────┐                    ┌────────────┐  ┌──────────────┐
-     │  Goal   │                    │  Priority   │  │PlanningRisk  │
-     └─────────┘                    └────────────┘  └──────────────┘
-                                                │
-         ┌──────────────┐                       │ 1:N
-         │    Task      │                       ▼
-         └──────────────┘              ┌──────────────────┐
-              │                        │  PlannedTask     │
-              │ 1:N                    └──────────────────┘
-              ▼                       (task_title → Task.title)
-         ┌──────────────┐           (goal_title  → Goal.title)
-         │   Event      │           (suggested_day ∈ week)
-         └──────────────┘
+### 4.6 PlanningRisk
 
-Kardynalność:
-  - WeeklyPlan pokrywa dokładnie 1 tydzień (Mon–Sun)
-  - PlannedTask należy do dokładnie 1 goal i odnosi się do 1 task
-  - Priority odnosi się do dokładnie 1 goal
-  - PlanningRisk jest niezależny (stand-alone)
-  - PlanningContext → Goals/Tasks/Events: 1:N
+```python
+@dataclass
+class PlanningRisk:
+    description: str
+    severity: str                    # low | medium | high
 ```
 
 ---
 
-## 7. Cykl życia (Lifecycle)
+## 5. LLM Interaction Flow
 
-| Entity | Cykl | Trwanie |
-|--------|------|---------|
-| `PlanningContext` | Ephemeral — budowany cyklicznie (co briefing) | Nie przetrwałego |
-| `WeeklyPlan` | Ephemeral — generowany co tydzień | Nie przetrwałego (V1) |
-| `PlannedTask` | Ephemeral w ramach WeeklyPlan | Nie przetrwałego (V1) |
-| `Priority` | Ephemeral w ramach WeeklyPlan | Nie przetrwałego (V1) |
-| `PlanningRisk` | Ephemeral w ramach WeeklyPlan | Nie przetrwałego (V1) |
+### 5.1 Provider Abstraction
 
-**Kluczowa zasada (z V1 spec §6, §9):** V1 planner NIE wykonuje żadnych side effects — generuje wyłącznie propozycję.
+V1 has no LLM provider yet. The abstraction layer:
 
-Niezgodność stanu nie jest możliwa, ponieważ modele nie są持久owane.
+```python
+class LLMProvider(Protocol):
+    def complete(self, prompt: str, schema: dict) -> str: ...
+```
 
----
+First implementation: OpenAI-compatible API via environment variables
+`JANUS_LLM_API_KEY` and `JANUS_LLM_BASE_URL`.
 
-## 8. Punkty integracji z istniejącymi komponentami Janus
+### 5.2 Structured Output
 
-### 8.1 Źródła danych (wejście Context Builder)
+LLM is prompted to return JSON conforming to the `WeeklyPlan` schema.
+Validation via `WeeklyPlan.__post_init__` after parsing.
 
-| Źródło | Plik | Wzorzec |
-|--------|------|---------|
-| Goal persistence | `src/janus/integrations/markdown_goals.py` → `load_goals()` | `Goal` dataclass, path monkeypatchable |
-| Task persistence | `src/janus/integrations/markdown_tasks.py` → `load_tasks()` | `Task` dataclass, path monkeypatchable |
-| Calendar read | `src/janus/integrations/google_calendar.py` → `list_events()` | `Event` dataclass, `maxResults=10` — needs increase |
-| Calendar connector | `src/janus/integrations/google_calendar_connector.py` | `Connector` ABC |
-| Free/busy slots | `src/janus/services/freebusy.py` → `compute_free_slots()` | `TimeBlock` model |
+### 5.3 Error Handling (pattern from t_473202bc)
 
-### 8.2 Warstwa domenowa
+The retry + fallback pattern from `kanban_decompose.py` (t_473202bc) is reused:
 
-| Element | Plik | Wzorzec |
-|---------|------|---------|
-| NextAction engine | `src/janus/domain/planning.py` | Dataclass + pure functions, domain depends only on models |
-| Domain `__init__.py` | `src/janus/domain/__init__.py` | Public API exports |
-| Layering constraint | `docs/decisions/001-hermes-janus-system-model.md` (ADR-001) | Domain may not import services |
+1. Try parse JSON → on failure, retry once with corrective nudge
+2. Retry fails → raise `PlanningError` with original response attached
+3. Invalid structured output → never pass to downstream; log + raise
+4. Provider error → retry once, then raise
+5. Timeout → retry once, then raise
 
-### 8.3 Warstwa serwisowa
+### 5.4 Prompt structure
 
-| Serwis | Plik | Zastosowanie |
-|--------|------|--------------|
-| Weekly review | `src/janus/services/weekly_review.py` | Reuse goal progress/health signals |
-| Daily briefing | `src/janus/services/daily_briefing.py` | Attention items, free slots |
-| Attention scoring | `src/janus/services/attention.py` | Deterministic scores (overdue=100, due_today=80, …) |
-| Agency planning | `src/janus/services/agency_planning.py` | Agency-aware mode selection |
-| Pipeline | `src/janus/services/pipeline.py` | Planner → Agency → Policy chain |
-| Overload detection | `src/janus/services/overload.py` | Overload warnings for context |
-
-### 8.4 CLI
-
-| Istniejący | Plik | Wzorzec do naśladowania |
-|-----------|------|------------------------|
-| `janus weekly` | `src/janus/weekly.py` | Renderer pattern |
-| `janus today` | `src/janus/daily_briefing.py` | Daily briefing flow |
-
-**Nowa komenda:** `janus plan week` — renders `WeeklyPlan` (proposal only, no side effects).
-
-### 8.5 Integrations
-
-| Wzorzec | Plik |
-|---------|------|
-| `Connector` ABC | `src/janus/integrations/connector.py` |
-| Registry | `src/janus/integrations/registry.py` |
-| Atomic I/O | `src/janus/integrations/atomic_io.py` |
-| Telegram delivery | `src/janus/integrations/telegram_weekly.py` |
+The prompt includes:
+- System prompt: role, constraints, output schema
+- User prompt: rendered `PlanningContext` with all deterministic signals
+- Output format: JSON matching `WeeklyPlan` schema
 
 ---
 
-## 9. Deterministyczne sygnały (przed LLM)
+## 6. Interface Specifications
 
-Przed wywołaniem LLM Janus powinien obliczyć:
+### 6.1 WeeklyPlanner Protocol
 
-- task overdue,
-- task due soon,
-- goal stalled,
-- goal behind target,
-- dostępność kalendarza,
-- konflikty terminów,
-- liczbę zadań konkurujących o ten sam okres.
+```python
+class WeeklyPlanner(Protocol):
+    def plan(self, context: PlanningContext) -> WeeklyPlan: ...
+```
 
-Dzięki temu LLM otrzymuje gotowe sygnały zamiast samodzielnie rekonstruować je z surowych danych.
+### 6.2 Implementations
 
----
+| Implementation | Status | Notes |
+|---------------|--------|-------|
+| `LLMWeeklyPlanner` | Primary (P0) | Calls LLM with structured output |
+| `RuleBasedPlanner` | Future | Deterministic fallback |
+| `MockPlanner` | Tests (P0) | Fixed responses for evaluation |
 
-## 10. CLI
-
-V1 powinna udostępniać komendę:
+### 6.3 CLI Interface
 
 ```bash
 uv run janus plan week
 ```
 
-Przykładowy output:
+Example output:
 
-```text
+```
 JANUS WEEKLY PLAN
 5–11 Oct 2026
 
@@ -967,107 +326,165 @@ PLANNED TASKS
 
 Monday
   ...
+
 Tuesday
   ...
 ```
 
-Na tym etapie CLI nie powinno powodować side effects.
+CLI dispatch in `janus/__init__.py`:
+```python
+elif command == "plan":
+    handle_plan_week(filtered[2:])
+```
 
 ---
 
-## 11. Evaluation
+## 7. Integration Points with the Repository
 
-Evaluation jest kluczowym elementem projektu.
+### 7.1 Existing integrations used
 
-Nie należy wymagać identycznego tekstu odpowiedzi LLM. Należy sprawdzać właściwości planu.
+| Integration | Purpose | Read/Write |
+|-------------|---------|------------|
+| `markdown_goals` | Read active goals | Read |
+| `markdown_tasks` | Read open tasks | Read |
+| `google_calendar` | Read upcoming events | Read |
+| `metric_history` | Goal progress signals | Read (via existing services) |
 
-Minimalny zestaw scenariuszy:
+### 7.2 Existing services leveraged
 
-1. Jeden pilny task.
-2. Wiele overdue tasks.
-3. Stalled goal.
-4. Brak dostępności w kalendarzu.
-5. Konflikt deadline'ów.
-6. Zbyt wiele zadań na jeden tydzień.
-7. Pusta lista zadań.
-8. Cel bez powiązanych zadań.
-9. Cel już ukończony.
-10. Kilka celów o podobnym priorytecie.
+- `janus/services/goals.py` — goal loading and status
+- `janus/services/tasks.py` — task loading and status
+- `janus/services/weekly_review.py` — weekly aggregation pattern
+- `janus/services/goal_health.py` — health signal computation
+- `janus/services/goal_progress.py` — progress tracking
 
-Przykład właściwości:
+### 7.3 Existing patterns reused
 
-> Overdue task musi zostać uwzględniony albo explicite odrzucony z uzasadnieniem.
+- `@dataclass` + `__post_init__` validation (from `janus/models/`)
+- CLI dispatch pattern (from `janus/__init__.py`)
+- Connector ABC (from `janus/integrations/connector.py`)
+- Retry + fallback error handling (from t_473202bc `kanban_decompose.py`)
+- `janus._log.emit` for structured logging
 
-Evaluation powinno umożliwiać porównywanie kolejnych wersji promptu i logiki planera.
+### 7.4 No integration with
 
----
-
-## 12. Error handling
-
-Planner powinien obsługiwać:
-
-- invalid structured output,
-- brakujące dane,
-- błędy providera LLM,
-- timeout,
-- retry,
-- niepoprawne identyfikatory zadań/celów,
-- niemożliwe lub sprzeczne rekomendacje.
-
-Nie wolno zakładać, że output LLM jest poprawny tylko dlatego, że model został poproszony o JSON.
+- Telegram (V1 is CLI-only)
+- Execution/action system (V1 proposes only)
+- Memory/vector DB (out of scope)
 
 ---
 
-## 13. Definition of Done
+## 8. Security & Permissions
 
-Projekt V1 jest zakończony, gdy:
-
-- [ ] `janus plan week` działa end-to-end.
-- [ ] Planner pobiera Goals.
-- [ ] Planner pobiera Tasks.
-- [ ] Planner pobiera Calendar.
-- [ ] Istnieje `PlanningContext`.
-- [ ] Istnieje niezależny interfejs `WeeklyPlanner`.
-- [ ] Istnieje `LLMWeeklyPlanner`.
-- [ ] LLM generuje structured output.
-- [ ] `WeeklyPlan` jest walidowany.
-- [ ] Invalid output jest obsługiwany.
-- [ ] Istnieją testy jednostkowe.
-- [ ] Istnieje zestaw evaluation scenarios.
-- [ ] Planner nie wykonuje side effects.
-- [ ] Istnieje ADR opisujący architekturę.
-- [ ] Istnieje dokumentacja.
-- [ ] Istnieje przykładowy output.
-- [ ] Można uruchomić cały flow jedną komendą.
+- **No API keys in code** — all credentials via environment variables
+  (`JANUS_LLM_API_KEY`, `JANUS_LLM_BASE_URL`)
+- **No PII in prompts** — only goal/task titles and dates, no user identifiers
+- **Plan proposals are read-only** — V1 never creates/modifies tasks,
+  goals, or calendar events
+- **Input validation** — all user data loaded through existing validated
+  integrations (markdown_goals, markdown_tasks, google_calendar)
+- **Error messages** — no stack traces or internal details in CLI output
+- **LLM output is untrusted** — all structured output validated before use;
+  invalid output never reaches downstream components
 
 ---
 
-## 14. Poza zakresem V1
+## 9. Evaluation
 
-Nie implementować w V1:
+### 9.1 Approach
 
-- multi-agent system,
-- LangGraph ani innego frameworka tylko dlatego, że jest agentowy,
-- MCP,
-- vector database,
-- RAG,
-- autonomous execution,
-- Telegram approval,
-- long-term memory,
-- web search,
-- UI,
-- Kubernetes,
-- dodatkowej infrastruktury cloudowej.
+Evaluation checks plan **properties**, not exact text. The LLM is not required
+to produce identical output across runs.
 
-Te elementy mogą być rozważone dopiero po potwierdzeniu wartości V1.
+### 9.2 Minimum scenario set
+
+| # | Scenario | Property tested |
+|---|----------|-----------------|
+| 1 | One urgent task | Urgent task prioritized |
+| 2 | Many overdue tasks | All overdue tasks addressed or explicitly rejected with reason |
+| 3 | Stalled goal | Stalled goal flagged in risks |
+| 4 | No calendar availability | Availability constraint reflected in plan |
+| 5 | Deadline conflict | Conflict detected and flagged |
+| 6 | Too many tasks for one week | Realistic capacity planning |
+| 7 | Empty task list | Graceful handling, no crash |
+| 8 | Goal with no linked tasks | Flagged as risk |
+| 9 | Already completed goal | Excluded from plan |
+| 10 | Multiple goals with similar priority | Sensible tie-breaking |
+
+### 9.3 Quality metrics (P1, WP-007)
+
+- task coverage
+- overdue-task handling
+- deadline awareness
+- calendar conflict rate
+- plan validity
+- number of unsupported recommendations
 
 ---
 
-## 15. Kolejne wersje
+## 10. Rollout Plan
+
+### Phase 1 (P0) — Domain & Context
+
+- Domain models (`PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`,
+  `PlanningRisk`, `PlanningSignals`) + tests
+- Context Builder + tests
+
+### Phase 2 (P0) — Planner Core
+
+- `WeeklyPlanner` Protocol
+- `LLMWeeklyPlanner` + prompt pipeline
+- Error handling (retry + fallback)
+
+### Phase 3 (P1) — CLI
+
+- `janus plan week` command
+- Output formatting
+
+### Phase 4 (P0) — Evaluation
+
+- 10+ scenario test suite
+- Quality metrics definition
+
+### Post-V1 (not in scope)
+
+- Human-in-the-loop approval
+- Autonomous execution
+- Telegram integration
+- Multi-agent system
+- RAG / vector DB
+
+---
+
+## 11. Definition of Done
+
+V1 is complete when:
+
+- [ ] `janus plan week` works end-to-end
+- [ ] Planner reads Goals
+- [ ] Planner reads Tasks
+- [ ] Planner reads Calendar
+- [ ] `PlanningContext` exists
+- [ ] `WeeklyPlanner` interface exists
+- [ ] `LLMWeeklyPlanner` exists
+- [ ] LLM generates structured output
+- [ ] `WeeklyPlan` is validated
+- [ ] Invalid output is handled
+- [ ] Unit tests exist
+- [ ] Evaluation scenarios exist
+- [ ] Planner has no side effects
+- [ ] ADR documenting architecture exists
+- [ ] Documentation exists
+- [ ] Example output exists
+- [ ] Entire flow runs with one command
+
+---
+
+## 12. Future Versions
 
 ### V2 — Human-in-the-loop
 
-```text
+```
 WeeklyPlan
     ↓
 Proposed actions
@@ -1077,129 +494,51 @@ User approval
 Execution
 ```
 
-Planner może proponować:
-
-- utworzenie taska,
-- zmianę priorytetu,
-- zmianę deadline'u,
-- utworzenie wydarzenia w kalendarzu.
-
-Akcje destrukcyjne lub zewnętrzne wymagają approval.
+Planner may propose: create task, change priority, change deadline, create
+calendar event. Destructive or external actions require approval.
 
 ### V3 — Autonomous execution
 
-```text
-Observe
-   ↓
-Plan
-   ↓
-Approve / policy
-   ↓
-Execute
-   ↓
-Observe result
-   ↓
-Review
+```
+Observe → Plan → Approve/policy → Execute → Observe result → Review
 ```
 
 ### V4 — Feedback loop
 
-Po tygodniu Janus analizuje:
-
-- planned actions,
-- completed actions,
-- postponed actions,
-- ignored actions,
-- goal progress,
-- prediction accuracy,
-- koszt LLM,
-- liczbę wymaganych approval.
-
-Następnie wykorzystuje wynik w kolejnym planowaniu.
+After each week, Janus analyzes: planned actions, completed actions,
+postponed actions, ignored actions, goal progress, prediction accuracy,
+LLM cost, number of approvals required. Results feed into next week's
+planning.
 
 ---
 
-## 16. Kompetencje rozwijane przez projekt
-
-Projekt ma być praktycznym ćwiczeniem w:
-
-- AI/agent architecture,
-- LLM structured output,
-- tool-oriented architecture,
-- planning,
-- evaluation,
-- human-in-the-loop,
-- reliability,
-- error handling,
-- observability,
-- API/domain design,
-- testing,
-- architecture decisions,
-- technical documentation.
-
-Docelowo projekt ma rozwijać profil:
-
-```text
-Senior Software Engineer
-        ↓
-AI / Agent Systems Engineer
-        ↓
-Staff-level system design
-        ↓
-AI Systems Architect
-```
-
----
-
-## 17. Otwarte pytania
-
-1. **Początek tygodnia:** ISO standard (Monday) vs. preferencja użytkownika (Sunday w niektórych regionach). Spec nie precyzuje.
-2. **Tożsamość task:** Title-based references są kruche przy zmianie tytułów. Istniejący wzorzec `Goal.related_tasks` ma to samo ograniczenie — V1 go nie rozwiązuje.
-3. **Provider LLM:** V1 spec wymienia `LLMWeeklyPlanner` ale nie precyzuje interfejsu providera ani oczekiwanego schema structured output.
-4. **Retry policy:** V1 spec §8 wspomina retry/error handling ale nie definiuje polityki retry ani fallbacku.
-5. **Timezone:** Eventy kalendarzowe są timezone-aware; planner musi spójnie obsługiwać timezone dla `suggested_day`.
-6. **Pojemność dzienna:** V1 spec nie definiuje ile zadań może być zaplanowanych na dzień ani jak wykrywać overload.
-7. **Relacja z weekly review:** Czy planner ma zastąpić czy uzupełnić istniejący `weekly_review.py`? Spec nie precyzuje.
-
----
-
-## 18. Następne kroki (minimalne)
-
-1. **Stworzyć modele** (`src/janus/models/planning.py`): `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`, `PlanningRisk` — zgodnie z §6.2, z `__post_init__` walidacją.
-2. **Stworzyć interfejs** (`src/janus/domain/weekly_planner.py`): `WeeklyPlanner` Protocol + `LLMWeeklyPlanner` stub.
-3. **Zbudować Context Builder** (`src/janus/services/`): agreguje Goals + Tasks + Calendar + deterministic signals.
-4. **Dodać CLI** `janus plan week` (wzorzec `weekly.py`).
-5. **Dodać testy** (`tests/test_weekly_planner.py`) z 10+ scenariuszami z V1 spec §11.
-6. **Wyeliminować 7 otwartych pytań** z §17 przed rozpoczęciem implementacji — szczególnie week start day i LLM output schema.
-
----
-
-## Roadmap tasks
+## 13. Roadmap Tasks
 
 ### Phase 1 — Domain & context
 
 #### WP-001 — Design Weekly Planner domain model
 **Priority:** P0
 
-Zaprojektować `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority` i `PlanningRisk`.
+Design `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`,
+`PlanningRisk`.
 
 **Done when:**
-- modele są niezależne od LLM,
-- mają walidację,
-- istnieją testy,
-- nie zawierają logiki providera.
+- models are LLM-independent,
+- have validation,
+- have tests,
+- contain no provider logic.
 
 #### WP-002 — Build PlanningContext builder
 **Priority:** P0
 **Depends on:** WP-001
 
-Zbudować komponent agregujący Goals, Tasks i Calendar do `PlanningContext`.
+Build component aggregating Goals, Tasks, and Calendar into `PlanningContext`.
 
 **Done when:**
-- jeden komponent generuje kompletny context,
-- obsługiwane są puste dane,
-- obsługiwane są edge cases,
-- istnieją testy.
+- one component generates complete context,
+- empty data handled,
+- edge cases handled,
+- tests exist.
 
 ---
 
@@ -1209,26 +548,24 @@ Zbudować komponent agregujący Goals, Tasks i Calendar do `PlanningContext`.
 **Priority:** P0
 **Depends on:** WP-001
 
-Wprowadzić abstrakcję `WeeklyPlanner` umożliwiającą wymianę implementacji.
+Introduce `WeeklyPlanner` abstraction enabling implementation swap.
 
 **Done when:**
-- istnieje protocol/interface,
-- `LLMWeeklyPlanner` może być podstawioną implementacją,
-- możliwe jest użycie mock/rule-based implementacji w testach.
+- protocol/interface exists,
+- `LLMWeeklyPlanner` can be a drop-in implementation,
+- mock/rule-based implementations work in tests.
 
 #### WP-004 — Implement LLM weekly planner
 **Priority:** P0
 **Depends on:** WP-002, WP-003
 
-Zaimplementować przepływ:
-
-`PlanningContext → prompt → LLM → structured WeeklyPlan`
+Implement flow: `PlanningContext → prompt → LLM → structured WeeklyPlan`.
 
 **Done when:**
-- structured output jest walidowany,
-- błędny output nie przechodzi dalej,
-- istnieje retry/error handling,
-- provider jest odseparowany od domeny.
+- structured output is validated,
+- invalid output does not pass through,
+- retry/error handling exists,
+- provider is separated from domain.
 
 ---
 
@@ -1238,14 +575,14 @@ Zaimplementować przepływ:
 **Priority:** P1
 **Depends on:** WP-004
 
-Dodać CLI generujące tygodniowy plan.
+Add CLI generating weekly plan.
 
 **Done when:**
-- komenda działa end-to-end,
-- pokazuje priorytety,
-- pokazuje planned tasks,
-- pokazuje risks,
-- nie wykonuje side effects.
+- command works end-to-end,
+- shows priorities,
+- shows planned tasks,
+- shows risks,
+- no side effects.
 
 ---
 
@@ -1255,27 +592,22 @@ Dodać CLI generujące tygodniowy plan.
 **Priority:** P0
 **Depends on:** WP-004
 
-Zbudować minimum 10 scenariuszy testowych obejmujących m.in. overdue tasks, stalled goals, konflikty i brak dostępności.
+Build 10+ test scenarios covering overdue tasks, stalled goals, conflicts,
+and unavailable calendar.
 
 **Done when:**
-- scenariusze są reprodukowalne,
-- testują właściwości odpowiedzi,
-- można porównywać kolejne wersje planera/promptu.
+- scenarios are reproducible,
+- test response properties,
+- can compare planner/prompt versions.
 
 #### WP-007 — Define planner quality metrics
 **Priority:** P1
 **Depends on:** WP-006
 
-Zdefiniować metryki jakości planowania.
+Define planning quality metrics.
 
-Minimum:
-
-- task coverage,
-- overdue-task handling,
-- deadline awareness,
-- calendar conflict rate,
-- plan validity,
-- number of unsupported recommendations.
+Minimum: task coverage, overdue-task handling, deadline awareness,
+calendar conflict rate, plan validity, unsupported recommendations.
 
 ---
 
@@ -1285,20 +617,14 @@ Minimum:
 **Priority:** P1
 **Depends on:** WP-004
 
-Udokumentować:
-
-- granicę między kodem deterministycznym i LLM,
-- domain model,
-- context building,
-- structured output,
-- error handling,
-- brak side effects w V1.
+Document: deterministic vs LLM boundary, domain model, context building,
+structured output, error handling, no side effects in V1.
 
 #### WP-009 — Document Weekly Planner
 **Priority:** P1
 **Depends on:** WP-005, WP-006, WP-008
 
-Dodać dokumentację uruchomienia, architektury, przykładowego outputu i ograniczeń.
+Add runbook, architecture docs, example output, and limitations.
 
 ---
 
@@ -1308,26 +634,52 @@ Dodać dokumentację uruchomienia, architektury, przykładowego outputu i ograni
 **Priority:** P1
 **Depends on:** WP-007, WP-009
 
-Przegląd całości i usunięcie problemów przed uznaniem V1 za zakończone.
+Full review and fix pass before V1 is considered done.
 
 **Done when:**
-- wszystkie DoD spełnione,
-- testy przechodzą,
-- evaluation suite działa,
-- dokumentacja jest aktualna,
-- flow można uruchomić jedną komendą.
+- all DoD met,
+- tests pass,
+- evaluation suite runs,
+- documentation current,
+- flow runs with one command.
 
 ---
 
-## V2 backlog
+### V2 backlog
 
-Po ukończeniu V1:
+After V1 completion:
 
-- `WP-011` — Design action proposal model
-- `WP-012` — Add human approval workflow
-- `WP-013` — Add task mutation tools
-- `WP-014` — Add calendar mutation tools
-- `WP-015` — Add execution policy
-- `WP-016` — Add execution result tracking
-- `WP-017` — Add weekly review loop
-- `WP-018` — Add planner feedback/evaluation loop
+- WP-011 — Design action proposal model
+- WP-012 — Add human approval workflow
+- WP-013 — Add task mutation tools
+- WP-014 — Add calendar mutation tools
+- WP-015 — Add execution policy
+- WP-016 — Add execution result tracking
+- WP-017 — Add weekly review loop
+- WP-018 — Add planner feedback/evaluation loop
+
+---
+
+## 14. Open Questions
+
+| # | Question | Status |
+|---|----------|--------|
+| 1 | LLM provider selection — which provider for V1? | Open — OpenAI-compatible default, confirm endpoint and model with user |
+| 2 | Structured output validation location — `__post_init__` or separate validator? | Open |
+| 3 | Context Builder granularity — use existing services or compute directly? | Open |
+| 4 | Plan persistence — confirmed V1: no persistence, ephemeral only | Resolved |
+| 5 | Calendar integration — does `google_calendar` provide free/busy or just event listing? | Open |
+
+---
+
+## 15. Decisions Log
+
+| Decision | Rationale |
+|----------|-----------|
+| No persistence in V1 | Keeps scope minimal; validates value before adding complexity |
+| Deterministic signals before LLM | Reduces token usage, improves plan quality |
+| Protocol-based abstraction | Enables mock/rule-based implementations for testing |
+| CLI-only output in V1 | No Telegram approval needed; proposals only |
+| `@dataclass` + `__post_init__` | Matches existing model pattern in Janus |
+| Retry + fallback for LLM errors | Reuses proven pattern from t_473202bc |
+| Evaluation tests properties, not text | LLM output is non-deterministic; properties are stable |
