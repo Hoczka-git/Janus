@@ -44,6 +44,8 @@ def show_weekly(trace_id: str | None = None) -> None:
                 print(f"Days since last activity: {gr.days_since_last_activity}")
             if gr.health_state == "stalled":
                 print("  ⚠ STALLED — attention required")
+            if gr.health_state == "overdue":
+                print("  ⏰ OVERDUE — deadline passed, action needed")
             if gr.suggested_next_step:
                 print("Suggested next step:")
                 print(f"- {gr.suggested_next_step}")
