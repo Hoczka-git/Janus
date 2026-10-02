@@ -504,6 +504,66 @@ class TestScenarioRunner:
         assert d["scenario_id"] == "S01"
         assert d["passed"] is True
 
+    def test_run_scenario_s06_capacity_overload(self) -> None:
+        """Should run S06 (capacity overload) and pass."""
+        runner = ScenarioRunner()
+        loader = FixtureLoader()
+        scenario = loader.load_by_id("S06")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.error is None
+        assert result.planner_result is not None
+        assert result.planner_result.success is True
+        assert result.planner_result.plan is not None
+
+    def test_run_scenario_s07_empty_task_list(self) -> None:
+        """Should run S07 (empty task list) and pass."""
+        runner = ScenarioRunner()
+        loader = FixtureLoader()
+        scenario = loader.load_by_id("S07")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.error is None
+        assert result.planner_result is not None
+        assert result.planner_result.success is True
+        assert result.planner_result.plan is not None
+
+    def test_run_scenario_s08_goal_without_tasks(self) -> None:
+        """Should run S08 (goal without tasks) and pass."""
+        runner = ScenarioRunner()
+        loader = FixtureLoader()
+        scenario = loader.load_by_id("S08")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.error is None
+        assert result.planner_result is not None
+        assert result.planner_result.success is True
+        assert result.planner_result.plan is not None
+
+    def test_run_scenario_s09_conflicting_priorities(self) -> None:
+        """Should run S09 (conflicting priorities) and pass."""
+        runner = ScenarioRunner()
+        loader = FixtureLoader()
+        scenario = loader.load_by_id("S09")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.error is None
+        assert result.planner_result is not None
+        assert result.planner_result.success is True
+        assert result.planner_result.plan is not None
+
+    def test_run_scenario_s10_blocked_dependency(self) -> None:
+        """Should run S10 (blocked dependency) and pass."""
+        runner = ScenarioRunner()
+        loader = FixtureLoader()
+        scenario = loader.load_by_id("S10")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.error is None
+        assert result.planner_result is not None
+        assert result.planner_result.success is True
+        assert result.planner_result.plan is not None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MOCK LLM CLIENT TESTS
@@ -588,3 +648,70 @@ class TestIntegration:
         runner.run_scenario(scenario)
         assert len(scenario.context.tasks) == original_task_count
         assert len(scenario.context.goals) == original_goal_count
+
+    def test_full_pipeline_s06(self) -> None:
+        """Should load, run, and validate S06 end-to-end."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenario = loader.load_by_id("S06")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.assertion_report is not None
+        assert result.assertion_report.all_passed is True
+
+    def test_full_pipeline_s07(self) -> None:
+        """Should load, run, and validate S07 end-to-end."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenario = loader.load_by_id("S07")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.assertion_report is not None
+        assert result.assertion_report.all_passed is True
+
+    def test_full_pipeline_s08(self) -> None:
+        """Should load, run, and validate S08 end-to-end."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenario = loader.load_by_id("S08")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.assertion_report is not None
+        assert result.assertion_report.all_passed is True
+
+    def test_full_pipeline_s09(self) -> None:
+        """Should load, run, and validate S09 end-to-end."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenario = loader.load_by_id("S09")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.assertion_report is not None
+        assert result.assertion_report.all_passed is True
+
+    def test_full_pipeline_s10(self) -> None:
+        """Should load, run, and validate S10 end-to-end."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenario = loader.load_by_id("S10")
+        result = runner.run_scenario(scenario)
+        assert result.passed is True
+        assert result.assertion_report is not None
+        assert result.assertion_report.all_passed is True
+
+    def test_all_scenarios_run_independently(self) -> None:
+        """Each scenario should produce the same result when run in isolation."""
+        loader = FixtureLoader()
+        runner = ScenarioRunner()
+        scenarios = loader.load_all()
+        assert len(scenarios) == 10
+        for scenario in scenarios:
+            result1 = runner.run_scenario(scenario)
+            result2 = runner.run_scenario(scenario)
+            assert result1.passed == result2.passed, (
+                f"Scenario {scenario.id} not deterministic"
+            )
+            if result1.planner_result and result2.planner_result:
+                assert result1.planner_result.plan == result2.planner_result.plan, (
+                    f"Scenario {scenario.id} produced different plans"
+                )
