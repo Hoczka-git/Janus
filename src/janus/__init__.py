@@ -43,6 +43,17 @@ from janus.research_cli import (
 )
 from janus.knowledge_cli import main as _knowledge_main
 from janus.plan_cli import handle_plan_week, print_plan_help
+from janus.proposal_cli import (
+    handle_proposal_list,
+    handle_proposal_show,
+    handle_proposal_approve,
+    handle_proposal_reject,
+    handle_proposal_execute,
+    handle_execution_list,
+    handle_execution_show,
+    print_proposal_help,
+    print_execution_help,
+)
 from janus.decision_cli import (
     handle_decision_list,
     handle_decision_show,
@@ -293,6 +304,36 @@ def main() -> None:
             else:
                 print(f"Unknown plan subcommand: {sub}")
                 print_plan_help()
+        elif command == "proposal":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_proposal_help()
+                return
+            sub = filtered[1]
+            if sub == "list":
+                handle_proposal_list(filtered[2:])
+            elif sub == "show":
+                handle_proposal_show(filtered[2:])
+            elif sub == "approve":
+                handle_proposal_approve(filtered[2:])
+            elif sub == "reject":
+                handle_proposal_reject(filtered[2:])
+            elif sub == "execute":
+                handle_proposal_execute(filtered[2:])
+            else:
+                print(f"Unknown proposal subcommand: {sub}")
+                print_proposal_help()
+        elif command == "execution":
+            if len(filtered) < 2 or filtered[1] in ("-h", "--help", "help"):
+                print_execution_help()
+                return
+            sub = filtered[1]
+            if sub == "list":
+                handle_execution_list(filtered[2:])
+            elif sub == "show":
+                handle_execution_show(filtered[2:])
+            else:
+                print(f"Unknown execution subcommand: {sub}")
+                print_execution_help()
         else:
             print(f"Unknown command: {command}")
     except Exception as e:
