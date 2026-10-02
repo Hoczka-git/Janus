@@ -177,7 +177,234 @@ bez zmiany reszty aplikacji.
 
 ---
 
-## 5. Deterministyczne sygnały
+## 5. WeeklyPlanner interface (WP-003)
+
+**Work package:** WP-003 — Define WeeklyPlanner interface
+**Priority:** P0
+**Depends on:** WP-001 (domain model — parent task `t_4aa88c63`), WP-002 (PlanningContext builder — parent task `t_dec30769`)
+**Roadmap context:** Phase 2 — Planner (see `docs/roadmap.md` WP-003)
+
+### 5.1 Purpose and scope
+
+The WeeklyPlanner interface is the abstraction that defines how Janus generates a weekly plan from a given PlanningContext. It is the second stage of the planning pipeline, consuming the output of the PlanningContext builder (WP-002) and producing a structured WeeklyPlan.
+
+The interface is designed to be implementation-agnostic. The V1 implementation will be `LLMWeeklyPlanner`, which uses an LLM to reason over the PlanningContext and produce a WeeklyPlan. The interface must also support alternative implementations (e.g., `RuleBasedPlanner`, `MockPlanner`) for testing and future use cases, without requiring changes to the rest of the application.
+
+This design is P0-scoped and covers V1 only. It references the domain model defined in WP-001 (parent task `t_4aa88c63`, Alternative A — minimal model with 5 entities: `PlanningContext`, `WeeklyPlan`, `PlannedTask`, `Priority`, `PlanningRisk`) and the PlanningContext builder defined in WP-002 (parent task `t_dec30769`).
+
+### 5.2 Interface contract
+
+The WeeklyPlanner interface is defined as a Protocol (structural type) with a single method:
+
+```text
+WeeklyPlanner (Protocol)
+  └── plan(context: PlanningContext) -> WeeklyPlan
+```
+
+**Contract:**
+- The planner receives a fully-constructed PlanningContext (produced by the PlanningContext builder from WP-002).
+- The planner returns a WeeklyPlan (defined in WP-001 domain model).
+- The planner must not modify the input PlanningContext.
+- The planner must not perform any I/O operations (no file reads, no network calls, no LLM API calls) outside of its implementation boundary. The LLM call is encapsulated within the LLMWeeklyPlanner implementation.
+- The planner must be deterministic in its interface contract: given the same PlanningContext, it should produce a semantically equivalent WeeklyPlan (though LLM-based implementations may have non-deterministic output).
+
+### 5.3 Method signatures
+
+#### 5.3.1 plan()
+
+```text
+plan(context: PlanningContext) -> WeeklyPlan
+```
+
+**Parameters:**
+- `context`: A PlanningContext instance containing all loaded data and computed signals for the planning week. This is the output of the PlanningContextBuilder (WP-002).
+
+**Returns:**
+- A WeeklyPlan instance containing:
+  - `week_summary`: A text summary of the week
+  - `priorities`: An ordered list of Priority objects (goal_id, reason, priority rank)
+  - `planned_tasks`: A list of PlannedTask objects (task_id, goal_id, priority, reason, suggested_day)
+  - `risks`: A list of PlanningRisk objects (description, severity)
+
+**Preconditions:**
+- The PlanningContext is valid (produced by PlanningContextBuilder.build())
+- The PlanningContext contains at minimum: week metadata, goal signals, task signals, calendar signals
+
+**Postconditions:**
+- The returned WeeklyPlan is structurally valid (passes validation)
+- All task_id and goal_id references in the WeeklyPlan correspond to entities in the PlanningContext
+- The WeeklyPlan does not introduce new tasks or goals not present in the PlanningContext
+
+### 5.4 State management and lifecycle
+
+The WeeklyPlanner is **stateless** across invocations. Each call to `plan()` is independent:
+- The planner does not maintain internal state between calls
+- The planner does not cache previous plans
+- The planner does not learn from previous plans (in V1)
+
+**Lifecycle:**
+1. The planner is instantiated (constructor may accept configuration, e.g., LLM model, prompt template)
+2. The planner receives a PlanningContext via `plan()`
+3. The planner processes the context and produces a WeeklyPlan
+4. The WeeklyPlan is returned to the caller
+5. The planner instance can be discarded or reused for the next call
+
+**Resource management:**
+- The LLMWeeklyPlanner implementation manages the LLM client lifecycle (connection, API calls)
+- The planner must release any resources (e.g., LLM client connections) when no longer needed
+- In V1, the planner is invoked once per `janus plan week` command and then discarded
+
+### 5.5 Interaction patterns
+
+#### 5.5.1 Interaction with PlanningContext builder (WP-002, parent task t_dec30769)
+
+The WeeklyPlanner consumes the output of the PlanningContextBuilder:
+
+```text
+PlanningContextBuilder.build() → PlanningContext → WeeklyPlanner.plan() → WeeklyPlan
+```
+
+The PlanningContextBuilder (WP-002) is responsible for:
+- Loading raw domain data (goals, tasks, calendar)
+- Computing deterministic signals (overdue, due soon, stalled, conflicts)
+- Assembling the PlanningContext
+
+The WeeklyPlanner (WP-003) is responsible for:
+- Receiving the PlanningContext
+- Reasoning over the context (via LLM or rules)
+- Producing a WeeklyPlan
+
+The two components are decoupled: the planner does not know how the PlanningContext was built, and the builder does not know how the plan is generated.
+
+#### 5.5.2 Interaction with LLM (WP-004)
+
+The LLMWeeklyPlanner implementation (WP-004) will:
+1. Serialize the PlanningContext into a prompt
+2. Send the prompt to the LLM
+3. Parse the LLM's structured output into a WeeklyPlan
+4. Validate the WeeklyPlan
+
+The interface defined in this document does not specify how the LLM is invoked — that is the responsibility of the WP-004 implementation.
+
+#### 5.5.3 Interaction with CLI (WP-005)
+
+The `janus plan week` command will:
+1. Invoke the PlanningContextBuilder to produce a PlanningContext
+2. Pass the PlanningContext to the WeeklyPlanner
+3. Display the resulting WeeklyPlan
+
+The CLI does not interact with the planner directly — it goes through the interface.
+
+#### 5.5.4 Roadmap replenishment (#replenish)
+
+This work package was created by the roadmap replenishment system (`#replenish`) after the completion of WP-002 (parent task `t_dec30769`). The replenishment system pulled WP-003 from the roadmap (`docs/roadmap.md`) and created this task. The interface defined here is the contract that the WP-004 implementation must satisfy.
+
+### 5.6 Error handling and edge cases
+
+The WeeklyPlanner must handle the following error cases:
+
+**Invalid PlanningContext:**
+- Empty PlanningContext (no goals, no tasks, no calendar) → the planner should still produce a valid (possibly empty) WeeklyPlan
+- Malformed PlanningContext (missing required fields) → the planner should raise a ValidationError
+
+**LLM output errors (for LLMWeeklyPlanner):**
+- Invalid structured output (malformed JSON, missing required fields) → the planner should raise a PlanGenerationError
+- LLM returns references to non-existent tasks/goals → the planner should raise a ValidationError
+- LLM returns an empty plan → the planner should raise a PlanGenerationError (or return an empty plan, depending on the use case)
+
+**Provider errors:**
+- LLM API timeout → the planner should raise a ProviderError (with retry logic in WP-004)
+- LLM API rate limit → the planner should raise a ProviderError (with retry logic in WP-004)
+- LLM API authentication failure → the planner should raise a ProviderError
+
+**Edge cases:**
+- All goals completed → the planner should produce a minimal plan (no priorities, no planned tasks)
+- No open tasks → the planner should produce a plan with no planned tasks
+- Conflicting deadlines → the planner should flag the conflict in the risks section
+- Too many tasks for one week → the planner should prioritize and flag the overload in the risks section
+
+### 5.7 Dependencies and integration points
+
+**Domain model (WP-001):**
+- PlanningContext (input)
+- WeeklyPlan (output)
+- PlannedTask, Priority, PlanningRisk (output components)
+
+**PlanningContext builder (WP-002, parent task t_dec30769):**
+- Produces the PlanningContext that the planner consumes
+
+**LLM provider (WP-004):**
+- The LLMWeeklyPlanner implementation depends on an LLM provider
+- The provider is abstracted behind an interface (not specified in this document)
+
+**Validation (WP-004):**
+- The WeeklyPlan must be validated before being returned
+- Validation rules are defined in the domain model (WP-001)
+
+**CLI (WP-005):**
+- The `janus plan week` command invokes the planner
+- The CLI displays the WeeklyPlan
+
+### 5.8 Design constraints
+
+1. **Implementation-agnostic:** The interface must not depend on any specific LLM provider, prompt format, or output format.
+2. **Single responsibility:** The planner only generates plans. It does not load data, compute signals, or persist results.
+3. **Stateless:** The planner does not maintain state between invocations.
+4. **Side-effect-free:** The planner does not modify the input PlanningContext or any external state.
+5. **Replaceable:** The interface must allow swapping implementations (LLMWeeklyPlanner, RuleBasedPlanner, MockPlanner) without changing the rest of the application.
+6. **Synchronous:** The `plan()` method is synchronous (returns a WeeklyPlan, not a Future or coroutine). Async support may be added in V2 if needed.
+
+### 5.9 Testing strategy
+
+**Unit tests:**
+- Interface conformance: verify that LLMWeeklyPlanner, RuleBasedPlanner, and MockPlanner all conform to the WeeklyPlanner protocol
+- Input validation: verify that the planner handles invalid PlanningContext gracefully
+- Output validation: verify that the planner returns a valid WeeklyPlan
+
+**Integration tests:**
+- End-to-end: PlanningContextBuilder → WeeklyPlanner → WeeklyPlan
+- LLM integration: verify that LLMWeeklyPlanner correctly invokes the LLM and parses the output
+- Error handling: verify that the planner handles LLM errors, timeouts, and invalid output
+
+**Test data:**
+- Use synthetic PlanningContext instances (not real data)
+- Cover the 10 evaluation scenarios from §8 (Evaluation)
+
+### 5.10 Design decisions and trade-offs
+
+**Decision 1: Protocol (structural type) over ABC**
+The WeeklyPlanner is defined as a Protocol (structural type) rather than an abstract base class. This allows any class with a `plan()` method to conform to the interface, without requiring explicit inheritance. This is more flexible and Pythonic.
+
+**Decision 2: Single method interface**
+The interface has a single method (`plan()`). This keeps the interface simple and focused. Additional methods (e.g., `validate()`, `explain()`) can be added in V2 if needed.
+
+**Decision 3: Synchronous interface**
+The `plan()` method is synchronous. This simplifies the interface and is sufficient for V1 (the planner is invoked once per CLI command). Async support can be added in V2 if needed.
+
+**Decision 4: Stateless planner**
+The planner does not maintain state between invocations. This simplifies the implementation and makes it easier to test. State management (e.g., caching, learning) can be added in V2.
+
+### 5.11 Relationship to other work packages
+
+- **WP-001 (domain model):** Defines the PlanningContext, WeeklyPlan, PlannedTask, Priority, and PlanningRisk entities. This document specifies how these entities are used by the planner.
+- **WP-002 (PlanningContext builder, parent task t_dec30769):** Produces the PlanningContext that the planner consumes. The quality of the builder's output directly affects the quality of the planner's output.
+- **WP-004 (LLM weekly planner):** Implements the LLMWeeklyPlanner. This document defines the interface that the implementation must conform to.
+- **WP-005 (CLI):** The `janus plan week` command invokes the planner and displays the result.
+- **WP-006 (evaluation):** The evaluation scenarios will test the planner's output as part of the end-to-end planning pipeline.
+
+### 5.12 Open questions for WP-004
+
+These questions are not resolved in this document; they are deferred to the relevant work packages:
+
+1. **Prompt format:** How should the PlanningContext be serialized for the LLM prompt? (JSON, markdown, natural language?)
+2. **LLM model selection:** Which LLM model should be used for V1? What are the cost and latency constraints?
+3. **Output format:** What structured output format should the LLM produce? (JSON schema, function calling, structured output?)
+4. **Retry strategy:** How many retries should be attempted on LLM failure? What backoff strategy should be used?
+5. **Validation rules:** What are the exact validation rules for the WeeklyPlan? (e.g., must all planned tasks exist in the PlanningContext? Must priorities be unique?)
+
+---
+
+## 6. Deterministic signals
 
 Przed wywołaniem LLM Janus powinien obliczyć przynajmniej:
 
@@ -193,7 +420,7 @@ Dzięki temu LLM otrzymuje gotowe sygnały zamiast samodzielnie rekonstruować j
 
 ---
 
-## 6. CLI
+## 7. CLI
 
 V1 powinna udostępniać komendę w rodzaju:
 
@@ -236,7 +463,7 @@ Na tym etapie CLI nie powinno powodować side effects.
 
 ---
 
-## 7. Evaluation
+## 8. Evaluation
 
 Evaluation jest kluczowym elementem projektu.
 
@@ -263,7 +490,7 @@ Evaluation powinno umożliwiać porównywanie kolejnych wersji promptu i logiki 
 
 ---
 
-## 8. Error handling
+## 9. Error handling
 
 Planner powinien obsługiwać:
 
@@ -279,7 +506,7 @@ Nie wolno zakładać, że output LLM jest poprawny tylko dlatego, że model zost
 
 ---
 
-## 9. Definition of Done
+## 10. Definition of Done
 
 Projekt V1 jest zakończony, gdy:
 
@@ -303,7 +530,7 @@ Projekt V1 jest zakończony, gdy:
 
 ---
 
-## 10. Poza zakresem V1
+## 11. Poza zakresem V1
 
 Nie implementować w V1:
 
@@ -324,7 +551,7 @@ Te elementy mogą być rozważone dopiero po potwierdzeniu wartości V1.
 
 ---
 
-## 11. Kolejne wersje
+## 12. Kolejne wersje
 
 ### V2 — Human-in-the-loop
 
@@ -380,7 +607,7 @@ Następnie wykorzystuje wynik w kolejnym planowaniu.
 
 ---
 
-## 12. Kompetencje rozwijane przez projekt
+## 13. Kompetencje rozwijane przez projekt
 
 Projekt ma być praktycznym ćwiczeniem w:
 
