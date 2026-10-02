@@ -12,12 +12,13 @@ Design reference: docs/design/action_proposal_engine_v1.md
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from janus.planner.models import PlanningContext, WeeklyPlan
 from janus.proposal.models import ActionProposal
 
 
+@runtime_checkable
 class ActionProposalEngine(Protocol):
     """Interface for action proposal engine implementations.
 

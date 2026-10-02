@@ -8,14 +8,17 @@ Exports:
     ActionType
     ProposalStatus
     ActionProposalEngine
+    RuleBasedProposalEngine
 """
 
+from janus.proposal.engine import RuleBasedProposalEngine
 from janus.proposal.models import ActionProposal, ActionType, ProposalStatus
 from janus.proposal.protocol import ActionProposalEngine
 
 __all__ = [
     "ActionProposal",
+    "ActionProposalEngine",
     "ActionType",
     "ProposalStatus",
-    "ActionProposalEngine",
+    "RuleBasedProposalEngine",
 ]

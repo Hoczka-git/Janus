@@ -126,7 +126,19 @@ of the interface.
 ### 4.2 V1 Implementation
 
 The V1 implementation is `RuleBasedProposalEngine` (deterministic,
-rule-based). It is implemented in a separate task (t_d0423159).
+rule-based). It is implemented in `src/janus/proposal/engine.py`.
+
+**Rules:**
+
+| Rule | Trigger | ActionType | Source |
+|------|---------|------------|--------|
+| 1 | Overdue task in plan | `RESCHEDULE_TASK` | `rule:overdue` |
+| 2 | Goal without tasks | `CREATE_TASK` | `rule:missing_task` |
+| 3 | Priority mismatch | `CHANGE_PRIORITY` | `rule:priority_mismatch` |
+| 4 | Planned task with suggested_day | `CREATE_CALENDAR_EVENT` | `rule:calendar_entry` |
+| 5 | High-severity risk | `UPDATE_TASK` | `rule:risk` |
+
+The engine is pure: no side effects, no I/O, no state mutation.
 
 ---
 
