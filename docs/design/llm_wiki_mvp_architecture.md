@@ -245,7 +245,7 @@ Page appears in wiki index (via Hermes llm-wiki skill)
 | `markdown_research.py` | `src/janus/integrations/markdown_research.py` | Research artifact persistence |
 | `markdown_curation.py` | `src/janus/integrations/markdown_curation.py` | Curation proposal persistence |
 | Attention bridge | `emit_knowledge_gaps_as_attention()` | Knowledge gaps → daily briefing |
-| Obsidian vault | `/mnt/c/Users/dan11/Documents/HermesVault/Obsidian` | Wiki storage (currently nearly empty) |
+| Obsidian vault | `/mnt/Obsidian` | Wiki storage (currently nearly empty) |
 | `search_files` | Hermes tool | Finding pages by content or filename |
 | `read_file` | Hermes tool | Reading wiki pages |
 | Git versioning | Repository | Wiki history and backup |
@@ -292,7 +292,7 @@ Page appears in wiki index (via Hermes llm-wiki skill)
 
 | Dependency | Purpose | Risk |
 |---|---|---|
-| Obsidian vault path | Wiki storage location | Path must be accessible from WSL (`/mnt/c/...`) |
+| Obsidian vault path | Wiki storage location | Path must be accessible from WSL (`/mnt/Obsidian/...`) |
 | Hermes agent runtime | LLM query engine and wiki maintenance | Requires active Hermes session |
 | Git | Version control and history | Standard, low risk |
 | LLM (via Hermes) | Query synthesis, page generation, cross-referencing | Hallucination risk — mitigated by provenance markers and lint |

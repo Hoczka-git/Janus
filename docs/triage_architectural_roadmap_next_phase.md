@@ -535,7 +535,7 @@ The remaining P0 items below do not depend on P0-1 being open — they are still
 **Scope:**
 - `services/knowledge_pipeline.py` — add `curation_gate()`, `human_approval()`, `promote_to_obsidian()`
 - `integrations/obsidian_promoter.py` — wire up for actual promotion (currently unused)
-- Use vault versioning now available at `/mnt/c/Users/dan11/Documents/HermesVault`
+- Use vault versioning now available at `/mnt/Obsidian`
 
 **Out of scope:**
 - Knowledge pipeline restructuring — work within existing `validate_artifact()`, `generate_summary()`, `emit_knowledge_gaps_as_attention()`

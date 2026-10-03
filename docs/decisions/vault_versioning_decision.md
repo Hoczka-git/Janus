@@ -1,6 +1,6 @@
 # Obsidian Vault Versioning Decision Document
 
-**Vault path:** `/mnt/c/Users/dan11/Documents/HermesVault`
+**Vault path:** `/mnt/Obdisian`
 **Decision date:** 2026-09-01
 **Last verified:** 2026-09-24
 **Based on:** Vault audit (t_1138b7e6) + direct file inspection

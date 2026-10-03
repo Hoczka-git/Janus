@@ -1,6 +1,6 @@
 # Obsidian Vault Audit Report
 
-**Vault path:** `/mnt/c/Users/dan11/Documents/HermesVault` (Windows filesystem, accessed via WSL)
+**Vault path:** `/mnt/Obsidian` (Windows filesystem, accessed via WSL)
 **Audit date:** 2026-09-01
 **Total size:** 374 MB
 **Total files:** 105 | **Total directories:** 25

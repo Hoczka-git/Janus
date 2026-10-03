@@ -14,7 +14,7 @@ Three parent investigations were reconciled against the current HEAD (`0f6caec`,
 reconciliation confirmed that the "uncommitted doc updates" flagged by t_3a254c43 have
 been **committed** by `2dc1b72` — they are no longer at risk of loss. Additionally, the
 vault versioning decision (flagged as OPEN in prior versions) has been
-**executed**: the HermesVault at `/mnt/c/Users/dan11/Documents/HermesVault`
+**executed**: the HermesVault at `/mnt/Obsidian`
 now has a `.git` directory, an applied `.gitignore`, and two initial commits
 (`fcf155d` initial commit of 16 fitness notes + `.obsidian` config, `a534147`
 adding `BACKUP_WORKFLOW.md`).
@@ -197,7 +197,7 @@ and should be archived or removed:
 | 3 | "Roadmap items 113–116 not yet marked complete" | t_c5c6c0e1 | **RESOLVED** — `2dc1b72` marked all 4 as `[x]` |
 | 4 | "Product backlog: observability and goal execution planning not done" | t_c5c6c0e1 | **RESOLVED** — `2dc1b72` marked both `[done]` |
 | 5 | "reconciliation_report.md (2026-09-17, t_c5c6c0e1) missing" | t_c5c6c0e1, t_aae7cef4 | **COMMITTED** by `2dc1b72` — report was superseded by `reconciliation_report_2026-09-18.md` and `reconciliation_synthesis_2026-09-18.md`, both created by `2dc1b72` |
-| 6 | "Vault versioning decision not executed — no `.git` in HermesVault" | t_3a254c43, t_8b815b18, vault_versioning_state_report.md | **RESOLVED** — HermesVault at `/mnt/c/Users/dan11/Documents/HermesVault` now has `.git`, `.gitignore` (applied), and two initial commits (`fcf155d`, `a534147`) including `BACKUP_WORKFLOW.md`. |
+| 6 | "Vault versioning decision not executed — no `.git` in HermesVault" | t_3a254c43, t_8b815b18, vault_versioning_state_report.md | **RESOLVED** — HermesVault at `/mnt/Obsidian` now has `.git`, `.gitignore` (applied), and two initial commits (`fcf155d`, `a534147`) including `BACKUP_WORKFLOW.md`. |
 | 7 | "data/questions.json unresolved — awaiting user routing" | t_aae7cef4, reconciliation_synthesis_2026-09-18 | **RESOLVED** — The `data/` directory was removed from git by commit `80b1e8e` ("removed data files from git"). `data/questions.json` does not exist at HEAD. |
 | 8 | "Endurance challenge follow-ups in data/tasks.md are subsumed" | t_aae7cef4 | **STALE** — `data/tasks.md` does not exist at HEAD (removed by `80b1e8e`). Challenge dates (Sep 26–28) have passed. Reference is historical only. |
 | 9 | "3 goals at/above target in data/goals.md need auto-completion review" | t_3a254c43, t_aae7cef4 | **STALE** — `data/goals.md` does not exist at HEAD (removed by `80b1e8e`). Goal state is local-only and not tracked in the repository. |
@@ -272,7 +272,7 @@ GAP-006 is RESOLVED — ADR §Neutral updated to Option B.
 | data_protection.py deleted | No longer in repository (PR #204) |
 | **GAP-005 and GAP-007 UPDATE (t_ this task):** | **CLOSED** — `data_protection.py` deleted; all `protected_write` callers migrated; 0 grep matches for `protected_write` in `src/janus/` |
 | CI grep gate not in verification.py | `src/janus/verification.py:1144` — `check_files_immutable` is immutable-files check, not write-path gate |
-| Vault IS versioned (decision executed) | `/mnt/c/Users/dan11/Documents/HermesVault` — `.git` exists with commits `fcf155d`, `a534147` |
+| Vault IS versioned (decision executed) | `/mnt/Obsidian` — `.git` exists with commits `fcf155d`, `a534147` |
 | data/ directory removed from git | `git log --oneline 80b1e8e` — "removed data files from git"; `ls data/` → not found at HEAD |
 | Vault versioning audit is stale | `docs/research/obsidian_vault_audit.md:111` says "No version control" but vault now has `.git` |
 | **GAP-004 and GAP-006 UPDATE 2026-09-21 (t_8a6768e8)** | **RESOLVED** — ADR-004 Phases 3-5 implemented; §Neutral updated to Option B |

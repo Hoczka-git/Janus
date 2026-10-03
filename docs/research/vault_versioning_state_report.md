@@ -10,7 +10,7 @@
 
 The term "vault versioning" in this codebase spans **two distinct domains**:
 
-1. **Obsidian Vault (HermesVault)** — the user's personal Obsidian knowledge vault at `/mnt/c/Users/dan11/Documents/HermesVault`
+1. **Obsidian Vault (HermesVault)** — the user's personal Obsidian knowledge vault at `/mnt/Obsidian`
 2. **Internal Model Versioning** — in-repo version tracking for research artifacts, knowledge summaries, skills, plugins, and project metadata
 
 Both are investigated below.
@@ -36,7 +36,7 @@ The decision establishes a `.gitignore`-based versioning scheme:
 
 > No version control. No `.git` directory exists. The vault has no history/backup via Git.
 
-**Evidence:** The audit (2026-09-01) confirms the vault at `/mnt/c/Users/dan11/Documents/HermesVault` has no `.git` directory. The decision was documented but **never executed** — no git repo was initialized in the vault.
+**Evidence:** The audit (2026-09-01) confirms the vault at `/mnt/Obsidian` has no `.git` directory. The decision was documented but **never executed** — no git repo was initialized in the vault.
 
 ### 2.3 Vault Content Summary
 
