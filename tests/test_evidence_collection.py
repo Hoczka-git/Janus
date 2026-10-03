@@ -1078,3 +1078,156 @@ class TestEvidenceCollectionEdgeCases:
         assert collected.logs[0].message == "Custom summary message"
         assert collected.logs[0].source == "execution_feedback"
         assert collected.logs[0].level == "INFO"
+
+
+# ── Additional focused edge-case tests ────────────────────────────────────────
+
+
+class TestEvidenceAdditionalEdgeCases:
+    """Additional edge-case tests for evidence collection."""
+
+    def test_collect_safe_with_malformed_result(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """collect_safe should return ERROR for a result that raises during collection."""
+
+        class BadResult:
+            @property
+            def metadata(self):
+                raise RuntimeError("metadata access failed")
+
+            @property
+            def evidence(self):
+                raise RuntimeError("evidence access failed")
+
+        result = collector.collect_safe(BadResult())  # type: ignore[arg-type]
+        assert result.status == EvidenceStatus.ERROR
+        assert len(result.errors) == 1
+        assert "metadata access failed" in result.errors[0]
+
+    def test_from_dict_with_partial_components(self) -> None:
+        """from_dict should handle partial component dicts gracefully."""
+        data = {
+            "task_id": "t_partial",
+            "domain_object": "task",
+            "domain_title": "Partial",
+            "command_outputs": [{"command": "ls", "stdout": "file1"}],
+            "logs": [{"source": "test", "message": "hello"}],
+            "state_snapshots": [{"label": "pre", "state": {"key": "val"}}],
+            "file_changes": [{"path": "src/foo.py"}],
+        }
+        evidence = Evidence.from_dict(data)
+        assert evidence.task_id == "t_partial"
+        assert len(evidence.command_outputs) == 1
+        assert evidence.command_outputs[0].command == "ls"
+        assert evidence.command_outputs[0].exit_code is None
+        assert len(evidence.logs) == 1
+        assert evidence.logs[0].level == "INFO"
+        assert len(evidence.state_snapshots) == 1
+        assert evidence.state_snapshots[0].state == {"key": "val"}
+        assert len(evidence.file_changes) == 1
+        assert evidence.file_changes[0].change_type == "modified"
+
+    def test_to_dict_with_empty_lists(self) -> None:
+        """to_dict should produce empty lists for unset components."""
+        evidence = Evidence(task_id="t_empty", domain_object="task", domain_title="Empty")
+        data = evidence.to_dict()
+        assert data["command_outputs"] == []
+        assert data["logs"] == []
+        assert data["state_snapshots"] == []
+        assert data["file_changes"] == []
+        assert data["errors"] == []
+
+    def test_evidence_status_enum_comparison(self) -> None:
+        """EvidenceStatus members should compare equal to their string values."""
+        assert EvidenceStatus.SUCCESS == "success"
+        assert EvidenceStatus.PARTIAL == "partial"
+        assert EvidenceStatus.EMPTY == "empty"
+        assert EvidenceStatus.ERROR == "error"
+        assert EvidenceStatus.SUCCESS != EvidenceStatus.ERROR
+
+    def test_collect_with_tests_passed_and_no_files(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """tests_passed=True with no changed_files should be PARTIAL."""
+        metadata = JanusDomainMetadata(object="task", title="Tests only")
+        evidence = EvidencePackage(
+            task_id="t_tests_only",
+            summary="Tests only",
+            tests_passed=True,
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.PARTIAL
+        assert collected.tests_passed is True
+        assert len(collected.command_outputs) == 1
+        assert collected.command_outputs[0].exit_code == 0
+        assert collected.file_changes == []
+
+    def test_collect_with_files_and_tests_failed(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """changed_files + tests_passed=False should be SUCCESS with exit_code=1."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Failed tests",
+            changed_files=["src/foo.py"],
+        )
+        evidence = EvidencePackage(
+            task_id="t_fail",
+            summary="Tests failed",
+            changed_files=["src/foo.py"],
+            tests_passed=False,
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.SUCCESS
+        assert collected.tests_passed is False
+        assert len(collected.command_outputs) == 1
+        assert collected.command_outputs[0].exit_code == 1
+        assert "tests failed" in collected.summary
+
+    def test_collect_summary_with_metrics(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Summary should include metric update count when metric_updates present."""
+        metadata = JanusDomainMetadata(object="goal", title="Goal with metrics")
+        evidence = EvidencePackage(
+            task_id="t_metrics",
+            summary="Metric updates",
+            metric_updates=[
+                {"metric_name": "accuracy", "value": 0.95},
+                {"metric_name": "loss", "value": 0.05},
+                {"metric_name": "f1", "value": 0.90},
+            ],
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert "3 metric update(s)" in collected.summary
+
+    def test_collect_summary_with_pr_url(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Summary should include PR URL when pr_url is present."""
+        metadata = JanusDomainMetadata(object="task", title="PR task")
+        evidence = EvidencePackage(
+            task_id="t_pr",
+            summary="Has PR",
+            pr_url="https://github.com/example/repo/pull/123",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert "PR: https://github.com/example/repo/pull/123" in collected.summary
+
+    def test_from_dict_with_invalid_status(self) -> None:
+        """from_dict should raise ValueError for invalid status string."""
+        import pytest
+
+        with pytest.raises(ValueError):
+            Evidence.from_dict({"status": "invalid_status"})
+
+    def test_evidence_default_collected_at(self) -> None:
+        """Evidence should auto-generate collected_at timestamp."""
+        evidence = Evidence(task_id="t_ts", domain_object="task", domain_title="Timestamp")
+        assert evidence.collected_at != ""
+        assert "T" in evidence.collected_at  # ISO-8601 format

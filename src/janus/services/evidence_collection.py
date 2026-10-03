@@ -417,10 +417,24 @@ class EvidenceCollector:
         try:
             return self.collect(result)
         except Exception as exc:
+            # Safely extract task_id/domain from result, handling cases where
+            # accessing result.evidence or result.metadata itself raises.
+            try:
+                task_id = getattr(result.evidence, "task_id", "")
+            except Exception:
+                task_id = ""
+            try:
+                domain_object = getattr(result.metadata, "object", "unknown")
+            except Exception:
+                domain_object = "unknown"
+            try:
+                domain_title = getattr(result.metadata, "title", "unknown")
+            except Exception:
+                domain_title = "unknown"
             return Evidence(
-                task_id=getattr(result.evidence, "task_id", ""),
-                domain_object=getattr(result.metadata, "object", "unknown"),
-                domain_title=getattr(result.metadata, "title", "unknown"),
+                task_id=task_id,
+                domain_object=domain_object,
+                domain_title=domain_title,
                 status=EvidenceStatus.ERROR,
                 errors=[str(exc)],
                 summary=f"Evidence collection failed: {exc}",
