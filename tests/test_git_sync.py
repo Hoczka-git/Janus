@@ -27,6 +27,7 @@ from janus.git_sync import (
     ALREADY_UP_TO_DATE,
     detect_target_branch,
     detect_task_branch,
+    get_target_branch_config,
     is_branch_stale,
     sync_branch,
 )
@@ -492,3 +493,57 @@ class TestRebaseVerification:
         _git_ok(repo, "fetch", "origin")
         remote_commits = _git_ok(repo, "log", "--oneline", "origin/wt/task")
         assert "task commit" in remote_commits
+
+
+# ── Target branch config tests ───────────────────────────────────────────────
+
+
+class TestGetTargetBranchConfig:
+    def test_no_config_file_returns_none(self, tmp_path):
+        """No janus.toml → no override."""
+        assert get_target_branch_config(str(tmp_path)) is None
+
+    def test_config_with_branch_override(self, tmp_path):
+        """janus.toml with [target_branch] branch = "main" → returns "main"."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[target_branch]\nbranch = "main"\n')
+        assert get_target_branch_config(str(tmp_path)) == "main"
+
+    def test_config_with_custom_branch_name(self, tmp_path):
+        """Config can specify any branch name, not just main/master."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[target_branch]\nbranch = "develop"\n')
+        assert get_target_branch_config(str(tmp_path)) == "develop"
+
+    def test_config_without_target_branch_section(self, tmp_path):
+        """janus.toml exists but has no [target_branch] section → None."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[other_section]\nkey = "value"\n')
+        assert get_target_branch_config(str(tmp_path)) is None
+
+    def test_config_with_empty_branch_value(self, tmp_path):
+        """[target_branch] branch = "" → None (empty is not a valid override)."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[target_branch]\nbranch = ""\n')
+        assert get_target_branch_config(str(tmp_path)) is None
+
+    def test_config_with_missing_branch_key(self, tmp_path):
+        """[target_branch] section exists but no branch key → None."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[target_branch]\nother_key = "value"\n')
+        assert get_target_branch_config(str(tmp_path)) is None
+
+    def test_config_with_invalid_toml(self, tmp_path):
+        """Invalid TOML → None (graceful fallback, no crash)."""
+        config = tmp_path / "janus.toml"
+        config.write_text('this is not valid toml {{{')
+        assert get_target_branch_config(str(tmp_path)) is None
+
+    def test_config_in_subdirectory_not_found(self, tmp_path):
+        """Config is read from the exact cwd, not parent directories."""
+        config = tmp_path / "janus.toml"
+        config.write_text('[target_branch]\nbranch = "main"\n')
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        # Config is at tmp_path, not in subdir — should return None
+        assert get_target_branch_config(str(subdir)) is None
