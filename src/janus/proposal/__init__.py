@@ -21,6 +21,8 @@ Exports:
     ApprovalStatus
     ApprovalDecision
     ApprovalContext
+    GateResult
+    evaluate_gate
     InMemoryApprovalGate
     ProposalPolicyCheck
 """
@@ -30,7 +32,9 @@ from janus.proposal.approval_contract import (
     ApprovalDecision,
     ApprovalGate,
     ApprovalStatus,
+    GateResult,
     PolicyCheck,
+    evaluate_gate,
 )
 from janus.proposal.approval_gate import InMemoryApprovalGate
 from janus.proposal.approval_workflow import ApprovalWorkflow
@@ -56,6 +60,7 @@ __all__ = [
     "ApprovalGate",
     "ApprovalStatus",
     "ApprovalWorkflow",
+    "GateResult",
     "ImportGuard",
     "InMemoryApprovalGate",
     "MutationBlockedError",
@@ -65,6 +70,7 @@ __all__ = [
     "ProposalPolicyCheck",
     "ProposalStatus",
     "RuleBasedProposalEngine",
+    "evaluate_gate",
     "proposal_only",
     "proposal_only_context",
 ]
