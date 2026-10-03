@@ -1231,3 +1231,295 @@ class TestEvidenceAdditionalEdgeCases:
         evidence = Evidence(task_id="t_ts", domain_object="task", domain_title="Timestamp")
         assert evidence.collected_at != ""
         assert "T" in evidence.collected_at  # ISO-8601 format
+
+
+# ── Malformed input tests ────────────────────────────────────────────────────
+
+
+class TestEvidenceCollectionMalformed:
+    """Tests for graceful handling of malformed ExecutionResult inputs."""
+
+    def test_collect_with_string_changed_files(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """String changed_files should be treated as a single file path."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="String files",
+            changed_files="src/single.py",  # type: ignore[arg-type]
+        )
+        evidence = EvidencePackage(
+            task_id="t_str_files",
+            summary="String files",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.PARTIAL
+        assert len(collected.file_changes) == 1
+        assert collected.file_changes[0].path == "src/single.py"
+
+    def test_collect_with_int_summary(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer summary should be coerced to string."""
+        metadata = JanusDomainMetadata(object="task", title="Int summary")
+        evidence = EvidencePackage(
+            task_id="t_int_summary",
+            summary=42,  # type: ignore[arg-type]
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.EMPTY
+        assert len(collected.logs) == 1
+        assert collected.logs[0].message == "42"
+
+    def test_collect_with_string_tests_passed(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """String 'false' for tests_passed should be treated as False."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="String tests",
+            changed_files=["src/foo.py"],
+        )
+        evidence = EvidencePackage(
+            task_id="t_str_tests",
+            summary="String tests",
+            changed_files=["src/foo.py"],
+            tests_passed="false",  # type: ignore[arg-type]
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.SUCCESS
+        assert collected.tests_passed is False
+        assert collected.command_outputs[0].exit_code == 1
+
+    def test_collect_with_string_tests_passed_true(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """String 'true' for tests_passed should be treated as True."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="String tests true",
+            changed_files=["src/foo.py"],
+        )
+        evidence = EvidencePackage(
+            task_id="t_str_tests_true",
+            summary="String tests true",
+            changed_files=["src/foo.py"],
+            tests_passed="true",  # type: ignore[arg-type]
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.SUCCESS
+        assert collected.tests_passed is True
+        assert collected.command_outputs[0].exit_code == 0
+
+    def test_collect_with_int_domain_object(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer domain object should be coerced to string."""
+        metadata = JanusDomainMetadata(
+            object=123,  # type: ignore[arg-type]
+            title="Int object",
+        )
+        evidence = EvidencePackage(task_id="t_int_obj", summary="test")
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.domain_object == "123"
+
+    def test_collect_with_int_domain_title(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer domain title should be coerced to string."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title=456,  # type: ignore[arg-type]
+        )
+        evidence = EvidencePackage(task_id="t_int_title", summary="test")
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.domain_title == "456"
+
+    def test_collect_with_non_list_metric_updates(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Non-list metric_updates should not crash."""
+        metadata = JanusDomainMetadata(object="goal", title="Bad metrics")
+        evidence = EvidencePackage(
+            task_id="t_bad_metrics",
+            summary="Bad metrics",
+            metric_updates="not_a_list",  # type: ignore[arg-type]
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.EMPTY
+
+    def test_collect_with_none_changed_files_in_both(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """None changed_files in both metadata and evidence should be EMPTY."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="None files",
+            changed_files=None,
+        )
+        evidence = EvidencePackage(
+            task_id="t_none_files",
+            summary="None files",
+            changed_files=None,
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.EMPTY
+        assert collected.file_changes == []
+
+    def test_collect_safe_with_raising_property(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """collect_safe should handle properties that raise exceptions."""
+
+        class RaisingEvidence:
+            @property
+            def task_id(self):
+                raise RuntimeError("task_id property failed")
+
+            @property
+            def summary(self):
+                raise RuntimeError("summary property failed")
+
+        class RaisingResult:
+            metadata = JanusDomainMetadata(object="task", title="test")
+            evidence = RaisingEvidence()  # type: ignore[assignment]
+
+        result = RaisingResult()  # type: ignore[arg-type]
+        collected = collector.collect_safe(result)
+        assert collected.status == EvidenceStatus.ERROR
+        assert len(collected.errors) == 1
+
+    def test_collect_safe_with_raising_metadata_property(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """collect_safe should handle metadata properties that raise."""
+
+        class RaisingMetadata:
+            @property
+            def object(self):
+                raise RuntimeError("object property failed")
+
+            @property
+            def title(self):
+                raise RuntimeError("title property failed")
+
+        class RaisingResult:
+            metadata = RaisingMetadata()  # type: ignore[assignment]
+            evidence = EvidencePackage(task_id="t_test", summary="test")
+
+        result = RaisingResult()  # type: ignore[arg-type]
+        collected = collector.collect_safe(result)
+        assert collected.status == EvidenceStatus.ERROR
+        assert len(collected.errors) == 1
+
+    def test_collect_with_changed_files_as_tuple(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Tuple changed_files should be handled like a list."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Tuple files",
+            changed_files=("src/a.py", "src/b.py"),  # type: ignore[arg-type]
+        )
+        evidence = EvidencePackage(
+            task_id="t_tuple",
+            summary="Tuple files",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.PARTIAL
+        assert len(collected.file_changes) == 2
+
+    def test_collect_with_changed_files_containing_none(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """None items in changed_files should be filtered out."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="None items",
+            changed_files=["src/a.py", None, "src/b.py"],  # type: ignore[list-item]
+        )
+        evidence = EvidencePackage(
+            task_id="t_none_items",
+            summary="None items",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.PARTIAL
+        assert len(collected.file_changes) == 2
+        assert collected.file_changes[0].path == "src/a.py"
+        assert collected.file_changes[1].path == "src/b.py"
+
+    def test_collect_with_changed_files_containing_ints(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer items in changed_files should be coerced to strings."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Int items",
+            changed_files=[123, "src/b.py"],  # type: ignore[list-item]
+        )
+        evidence = EvidencePackage(
+            task_id="t_int_items",
+            summary="Int items",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.PARTIAL
+        assert len(collected.file_changes) == 2
+        assert collected.file_changes[0].path == "123"
+        assert collected.file_changes[1].path == "src/b.py"
+
+    def test_collect_with_empty_string_changed_files(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Empty string changed_files should be treated as no files."""
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Empty string files",
+            changed_files="",  # type: ignore[arg-type]
+        )
+        evidence = EvidencePackage(
+            task_id="t_empty_str",
+            summary="Empty string files",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.status == EvidenceStatus.EMPTY
+        assert collected.file_changes == []
+
+    def test_collect_with_int_task_id(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer task_id should be coerced to string."""
+        metadata = JanusDomainMetadata(object="task", title="Int task id")
+        evidence = EvidencePackage(
+            task_id=789,  # type: ignore[arg-type]
+            summary="Int task id",
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.task_id == "789"
+
+    def test_collect_with_int_pr_url(
+        self, collector: EvidenceCollector
+    ) -> None:
+        """Integer pr_url should be coerced to string."""
+        metadata = JanusDomainMetadata(object="task", title="Int pr url")
+        evidence = EvidencePackage(
+            task_id="t_int_pr",
+            summary="Int pr url",
+            pr_url=12345,  # type: ignore[arg-type]
+        )
+        result = ExecutionResultMessage(metadata=metadata, evidence=evidence)
+        collected = collector.collect(result)
+        assert collected.pr_url == "12345"
+        assert collected.status == EvidenceStatus.PARTIAL
