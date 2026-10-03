@@ -431,6 +431,416 @@ class TestEvidenceComponents:
         assert EvidenceStatus.ERROR == "error"
 
 
+# ── Graceful degradation tests ───────────────────────────────────────────────
+
+
+class TestGracefulDegradation:
+    """Tests for graceful degradation with missing/partial inputs."""
+
+    def test_collect_none_returns_error(self, collector: EvidenceCollector) -> None:
+        result = collector.collect(None)
+        assert result.status == EvidenceStatus.ERROR
+        assert len(result.errors) == 1
+        assert "No execution result" in result.errors[0]
+
+    def test_collect_none_has_empty_task_id(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.task_id == ""
+
+    def test_collect_none_has_unknown_domain(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.domain_object == "unknown"
+        assert result.domain_title == "unknown"
+
+    def test_collect_none_has_empty_file_changes(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.file_changes == []
+
+    def test_collect_none_has_empty_command_outputs(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.command_outputs == []
+
+    def test_collect_none_has_empty_logs(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.logs == []
+
+    def test_collect_none_has_empty_state_snapshots(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.state_snapshots == []
+
+    def test_collect_none_has_none_tests_passed(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.tests_passed is None
+
+    def test_collect_none_has_none_pr_url(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect(None)
+        assert result.pr_url is None
+
+    def test_collect_none_to_dict_json_serializable(
+        self, collector: EvidenceCollector
+    ) -> None:
+        import json
+
+        result = collector.collect(None)
+        data = result.to_dict()
+        json_str = json.dumps(data)
+        assert isinstance(json_str, str)
+        assert len(json_str) > 0
+
+    def test_collect_none_round_trip(
+        self, collector: EvidenceCollector
+    ) -> None:
+        original = collector.collect(None)
+        data = original.to_dict()
+        restored = Evidence.from_dict(data)
+        assert restored.status == EvidenceStatus.ERROR
+        assert restored.task_id == ""
+        assert restored.domain_object == "unknown"
+
+    def test_collect_with_none_metadata(
+        self, collector: EvidenceCollector
+    ) -> None:
+        evidence_pkg = EvidencePackage(
+            task_id="t_nometa",
+            summary="test",
+            changed_files=["src/foo.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=None,  # type: ignore[arg-type]
+            evidence=evidence_pkg,
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.domain_object == "unknown"
+        assert result.domain_title == "unknown"
+        assert result.task_id == "t_nometa"
+
+    def test_collect_with_none_evidence(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Test task",
+            changed_files=["src/bar.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata,
+            evidence=None,  # type: ignore[arg-type]
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.domain_object == "task"
+        assert result.domain_title == "Test task"
+        assert result.task_id == ""
+
+    def test_collect_with_both_none(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result_msg = ExecutionResultMessage(
+            metadata=None,  # type: ignore[arg-type]
+            evidence=None,  # type: ignore[arg-type]
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.EMPTY
+        assert result.domain_object == "unknown"
+        assert result.task_id == ""
+
+    def test_collect_with_empty_changed_files(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Empty files",
+            changed_files=[],
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_empty_files",
+            summary="No files changed",
+            changed_files=[],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.EMPTY
+        assert result.file_changes == []
+
+    def test_collect_with_empty_summary(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="No summary",
+            changed_files=["src/foo.py"],
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_nosummary",
+            summary="",
+            changed_files=["src/foo.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.logs == []
+
+    def test_collect_with_only_pr_url(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="PR only",
+            pr_url="https://github.com/example/repo/pull/99",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_pronly",
+            summary="Only PR",
+            pr_url="https://github.com/example/repo/pull/99",
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.pr_url == "https://github.com/example/repo/pull/99"
+        assert result.file_changes == []
+
+    def test_collect_with_only_body(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="research",
+            title="Research artifact",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_body",
+            summary="Has body",
+            body="# Research finding\n\nSome content",
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.domain_object == "research"
+
+    def test_collect_with_only_janus_body(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="decision",
+            title="ADR",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_jbody",
+            summary="Has janus_body",
+            janus_body="# ADR-001\n\nDecision",
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.domain_object == "decision"
+
+    def test_collect_with_tests_failed(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Failing tests",
+            changed_files=["src/foo.py"],
+            tests_passed=False,
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_fail",
+            summary="Tests failed",
+            changed_files=["src/foo.py"],
+            tests_passed=False,
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.SUCCESS
+        assert result.tests_passed is False
+        assert result.command_outputs[0].exit_code == 1
+
+    def test_collect_with_changed_files_in_evidence_only(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Files in evidence",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_evfiles",
+            summary="Files in evidence",
+            changed_files=["src/from_evidence.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert len(result.file_changes) == 1
+        assert result.file_changes[0].path == "src/from_evidence.py"
+
+    def test_collect_with_changed_files_in_both(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Files in both",
+            changed_files=["src/from_metadata.py"],
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_both",
+            summary="Files in both",
+            changed_files=["src/from_evidence.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        # metadata.changed_files takes precedence (short-circuit or)
+        assert len(result.file_changes) == 1
+        assert result.file_changes[0].path == "src/from_metadata.py"
+
+    def test_collect_safe_with_none_still_works(
+        self, collector: EvidenceCollector
+    ) -> None:
+        result = collector.collect_safe(None)
+        assert result.status == EvidenceStatus.ERROR
+
+    def test_collect_safe_with_valid_still_works(
+        self, collector: EvidenceCollector, full_result: ExecutionResultMessage
+    ) -> None:
+        result = collector.collect_safe(full_result)
+        assert result.status == EvidenceStatus.SUCCESS
+
+    def test_collect_with_special_characters_in_title(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Task with 'quotes' and \"double quotes\" & <special>",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_special",
+            summary="Special chars",
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.EMPTY
+        assert "quotes" in result.domain_title
+
+    def test_collect_with_unicode_in_summary(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Unicode task",
+            changed_files=["src/unicode.py"],
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_unicode",
+            summary="Zażółć gęślą jaźń 🎉",
+            changed_files=["src/unicode.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert len(result.logs) == 1
+        assert "Zażółć" in result.logs[0].message
+
+    def test_collect_with_very_long_summary(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Long summary",
+            changed_files=["src/long.py"],
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_long",
+            summary="x" * 10000,
+            changed_files=["src/long.py"],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert len(result.logs) == 1
+        assert len(result.logs[0].message) == 10000
+
+    def test_collect_with_many_changed_files(
+        self, collector: EvidenceCollector
+    ) -> None:
+        files = [f"src/module_{i}.py" for i in range(100)]
+        metadata = JanusDomainMetadata(
+            object="task",
+            title="Many files",
+            changed_files=files,
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_many",
+            summary="Many files",
+            changed_files=files,
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert len(result.file_changes) == 100
+
+    def test_collect_with_metric_updates(
+        self, collector: EvidenceCollector
+    ) -> None:
+        metadata = JanusDomainMetadata(
+            object="goal",
+            title="Goal with metrics",
+        )
+        evidence_pkg = EvidencePackage(
+            task_id="t_metrics",
+            summary="Metric updates",
+            metric_updates=[
+                {"metric_name": "accuracy", "value": 0.95},
+                {"metric_name": "loss", "value": 0.05},
+            ],
+        )
+        result_msg = ExecutionResultMessage(
+            metadata=metadata, evidence=evidence_pkg
+        )
+        result = collector.collect(result_msg)
+        assert result.status == EvidenceStatus.PARTIAL
+        assert result.domain_object == "goal"
+
+
 # ── Additional edge-case tests ───────────────────────────────────────────────
 
 
@@ -552,8 +962,9 @@ class TestEvidenceCollectionEdgeCases:
         evidence = EvidencePackage(task_id="t_none_meta", summary="test")
         result = ExecutionResultMessage(metadata=None, evidence=evidence)  # type: ignore
         collected = collector.collect_safe(result)
-        assert collected.status == EvidenceStatus.ERROR
-        assert len(collected.errors) == 1
+        assert collected.status == EvidenceStatus.EMPTY
+        assert collected.domain_object == "unknown"
+        assert collected.task_id == "t_none_meta"
 
     def test_collect_safe_with_none_evidence(
         self, collector: EvidenceCollector
@@ -562,13 +973,14 @@ class TestEvidenceCollectionEdgeCases:
         metadata = JanusDomainMetadata(object="task", title="test")
         result = ExecutionResultMessage(metadata=metadata, evidence=None)  # type: ignore
         collected = collector.collect_safe(result)
-        assert collected.status == EvidenceStatus.ERROR
-        assert len(collected.errors) == 1
+        assert collected.status == EvidenceStatus.EMPTY
+        assert collected.domain_object == "task"
+        assert collected.task_id == ""
 
     def test_collect_safe_error_preserves_task_id(
         self, collector: EvidenceCollector
     ) -> None:
-        """collect_safe error should preserve task_id from evidence."""
+        """collect_safe should preserve task_id from evidence."""
         evidence = EvidencePackage(task_id="t_preserve", summary="test")
         result = ExecutionResultMessage(metadata=None, evidence=evidence)  # type: ignore
         collected = collector.collect_safe(result)
@@ -577,7 +989,7 @@ class TestEvidenceCollectionEdgeCases:
     def test_collect_safe_error_preserves_domain(
         self, collector: EvidenceCollector
     ) -> None:
-        """collect_safe error should preserve domain info from metadata."""
+        """collect_safe should preserve domain info from metadata."""
         metadata = JanusDomainMetadata(object="goal", title="My Goal")
         evidence = EvidencePackage(task_id="t_domain", summary="test")
         result = ExecutionResultMessage(metadata=metadata, evidence=None)  # type: ignore
