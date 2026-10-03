@@ -31,6 +31,7 @@ from janus.proposal.approval_contract import (
     ApprovalGate,
     ApprovalStatus,
     PolicyCheck,
+    PolicyCheckResult,
 )
 from janus.proposal.approval_gate import InMemoryApprovalGate
 from janus.proposal.approval_workflow import ApprovalWorkflow
@@ -61,6 +62,7 @@ __all__ = [
     "MutationBlockedError",
     "MutationGuard",
     "PolicyCheck",
+    "PolicyCheckResult",
     "ProposalOnlyEngine",
     "ProposalPolicyCheck",
     "ProposalStatus",

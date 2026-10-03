@@ -26,6 +26,7 @@ from janus.proposal import (
     ApprovalStatus,
     InMemoryApprovalGate,
     PolicyCheck,
+    PolicyCheckResult,
     ProposalPolicyCheck,
     ProposalStatus,
 )
@@ -34,7 +35,6 @@ from janus.proposal.approval_contract import (
     PolicyCheck as PolicyCheckProtocol,
 )
 from janus.proposal.models import RiskLevel
-from janus.models.policy_p1 import PolicyVerdict
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ class TestPackageExports:
         proposal = _make_proposal()
         context = ApprovalContext(
             proposal=proposal,
-            policy_verdict=PolicyVerdict.ALLOW,
+            policy_result=PolicyCheckResult(passed=True),
             approval_status=ApprovalStatus.PENDING,
         )
         assert context.proposal is proposal
@@ -234,15 +234,15 @@ class TestContractEvaluation:
         # Gate should not be invoked for ALLOW
         assert gate.check_approval(proposal.proposal_id) == ApprovalStatus.PENDING
 
-    def test_ask_flow_gate_invoked(self) -> None:
-        """ASK verdict should be resolved by gate."""
+    def test_fail_flow_gate_invoked(self) -> None:
+        """Failed policy check should be resolved by gate."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(risk=RiskLevel.HIGH)
 
-        verdict = checker.check(proposal)
-        # For ASK, gate should be invoked
-        if verdict.value == "ask":
+        result = checker.check(proposal)
+        # For failed check, gate should be invoked
+        if not result.passed:
             gate.record_decision(
                 ApprovalDecision(
                     proposal_id=proposal.proposal_id,
