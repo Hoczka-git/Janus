@@ -13,7 +13,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -24,8 +24,10 @@ from janus.proposal.approval_contract import (
     ApprovalDecision,
     ApprovalGate,
     ApprovalStatus,
+    GateResult,
     PolicyCheck,
     PolicyCheckResult,
+    evaluate_gate,
 )
 
 
@@ -447,3 +449,122 @@ class TestActionProposalIntegration:
             approver="user",
         )
         assert decision.proposal_id == proposal.proposal_id
+
+
+# ── GateResult dataclass ────────────────────────────────────────────────────
+
+
+class TestGateResult:
+    def test_passed_true(self) -> None:
+        result = GateResult(passed=True)
+        assert result.passed is True
+        assert result.reason == ""
+
+    def test_passed_false_with_reason(self) -> None:
+        result = GateResult(passed=False, reason="Status is not APPROVED")
+        assert result.passed is False
+        assert result.reason == "Status is not APPROVED"
+
+    def test_is_dataclass(self) -> None:
+        import dataclasses
+
+        assert dataclasses.is_dataclass(GateResult)
+
+
+# ── evaluate_gate function signature ────────────────────────────────────────
+
+
+class TestEvaluateGateSignature:
+    def test_is_callable(self) -> None:
+        assert callable(evaluate_gate)
+
+    def test_accepts_proposal_and_decision(self) -> None:
+        """evaluate_gate accepts an ActionProposal and an ApprovalDecision."""
+        proposal = ActionProposal(
+            proposal_id="AP-gate-test",
+            reason="Test proposal",
+        )
+        decision = ApprovalDecision(
+            proposal_id="AP-gate-test",
+            status=ApprovalStatus.APPROVED,
+            approver="user",
+        )
+        result = evaluate_gate(proposal, decision)
+        assert isinstance(result, GateResult)
+
+    def test_returns_gate_result_type(self) -> None:
+        """evaluate_gate's return type annotation is GateResult."""
+        import inspect
+
+        sig = inspect.signature(evaluate_gate)
+        # With `from __future__ import annotations`, annotations are strings
+        assert sig.return_annotation in ("GateResult", GateResult)
+
+    def test_parameter_types(self) -> None:
+        """evaluate_gate's parameter types are ActionProposal and ApprovalDecision."""
+        import inspect
+
+        sig = inspect.signature(evaluate_gate)
+        params = list(sig.parameters.values())
+        assert len(params) == 2
+        assert params[0].name == "proposal"
+        assert params[1].name == "decision"
+
+
+# ── evaluate_gate behavior ──────────────────────────────────────────────────
+
+
+class TestEvaluateGateBehavior:
+    def _make_proposal(self) -> ActionProposal:
+        return ActionProposal(
+            proposal_id="AP-gate-behavior",
+            reason="Test proposal",
+        )
+
+    def test_approved_with_valid_identity_and_timestamp_passes(self) -> None:
+        proposal = self._make_proposal()
+        decision = ApprovalDecision(
+            proposal_id="AP-gate-behavior",
+            status=ApprovalStatus.APPROVED,
+            approver="user",
+            decided_at=datetime.now() - timedelta(minutes=1),
+        )
+        result = evaluate_gate(proposal, decision)
+        assert result.passed is True
+        assert result.reason == ""
+
+    def test_denied_status_fails(self) -> None:
+        proposal = self._make_proposal()
+        decision = ApprovalDecision(
+            proposal_id="AP-gate-behavior",
+            status=ApprovalStatus.REJECTED,
+            approver="user",
+            decided_at=datetime.now() - timedelta(minutes=1),
+        )
+        result = evaluate_gate(proposal, decision)
+        assert result.passed is False
+        assert "not APPROVED" in result.reason
+
+    def test_missing_identity_fails(self) -> None:
+        proposal = self._make_proposal()
+        decision = ApprovalDecision(
+            proposal_id="AP-gate-behavior",
+            status=ApprovalStatus.APPROVED,
+            approver="",
+            decided_at=datetime.now() - timedelta(minutes=1),
+        )
+        result = evaluate_gate(proposal, decision)
+        assert result.passed is False
+        assert "Approver" in result.reason
+
+    def test_future_timestamp_fails(self) -> None:
+        proposal = self._make_proposal()
+        decision = ApprovalDecision(
+            proposal_id="AP-gate-behavior",
+            status=ApprovalStatus.APPROVED,
+            approver="user",
+            decided_at=datetime.now() + timedelta(hours=1),
+        )
+        result = evaluate_gate(proposal, decision)
+        assert result.passed is False
+        assert "future" in result.reason

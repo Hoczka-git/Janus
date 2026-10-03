@@ -258,6 +258,83 @@ class ApprovalContext:
         return self.approval_status == ApprovalStatus.APPROVED
 
 
+# ── Gate evaluation result ───────────────────────────────────────────────────
+
+
+@dataclass
+class GateResult:
+    """The result of evaluating whether an approval gate passes.
+
+    Produced by :func:`evaluate_gate` when checking whether a proposal's
+    approval record satisfies the gate conditions.
+
+    Attributes:
+        passed: True if the gate conditions are met (status is APPROVED,
+            approver is non-empty, timestamp is present and not in the future).
+        reason: Human-readable explanation of the outcome. Empty when
+            ``passed`` is True.
+    """
+
+    passed: bool
+    reason: str = ""
+
+
+# ── Gate evaluation function signature ───────────────────────────────────────
+
+
+def evaluate_gate(proposal: ActionProposal, decision: ApprovalDecision) -> GateResult:
+    """Evaluate whether an approval gate passes for a given proposal.
+
+    This is the contract-layer function signature for gate evaluation.
+    It accepts an :class:`ActionProposal` and an :class:`ApprovalDecision`
+    record and returns a :class:`GateResult` indicating whether the gate
+    passes.
+
+    The gate checks:
+    1. The approval status is ``APPROVED``.
+    2. The approver identity is present and non-empty.
+    3. The timestamp is present and not in the future.
+
+    Args:
+        proposal: The ActionProposal being evaluated.
+        decision: The approval decision record to check against the gate.
+
+    Returns:
+        A :class:`GateResult` with ``passed`` set to True if all conditions
+        are met, or False with a descriptive ``reason`` otherwise.
+
+    Note:
+        This is a contract-layer signature only — no implementation logic.
+        Concrete implementations live in the gate layer (e.g.,
+        ``approval_gate.py``).
+    """
+    if decision.status != ApprovalStatus.APPROVED:
+        return GateResult(
+            passed=False,
+            reason=f"Status is {decision.status}, not APPROVED",
+        )
+
+    if not decision.approver or not decision.approver.strip():
+        return GateResult(
+            passed=False,
+            reason="Approver identity is missing or empty",
+        )
+
+    if decision.decided_at is None:
+        return GateResult(
+            passed=False,
+            reason="Timestamp is missing",
+        )
+
+    if decision.decided_at > datetime.now():
+        return GateResult(
+            passed=False,
+            reason="Timestamp is in the future",
+        )
+
+    return GateResult(passed=True)
+
+
 # ── Boundary definition ──────────────────────────────────────────────────────
 
 """
