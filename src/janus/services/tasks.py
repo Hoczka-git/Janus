@@ -228,7 +228,6 @@ def _target_branch(root: Path, override: Optional[str] = None) -> Optional[str]:
     if override:
         return override
     from janus.git_sync import detect_target_branch, get_target_branch_config
-
     override = get_target_branch_config(str(root))
     if override:
         return override

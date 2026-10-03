@@ -22,7 +22,7 @@ from janus.models.policy import (
     create_default_policy,
 )
 from janus.models.policy_p1 import PolicyVerdict
-from janus.proposal.approval_contract import PolicyCheck
+from janus.proposal.approval_contract import PolicyCheck, PolicyCheckResult
 from janus.proposal.models import ActionProposal, ActionType
 
 
@@ -50,7 +50,7 @@ class ProposalPolicyCheck:
     """Concrete implementation of the PolicyCheck protocol.
 
     Evaluates an ActionProposal against the default policy and returns
-    a PolicyVerdict. The check is deterministic and side-effect free.
+    a :class:`PolicyCheckResult`. The check is deterministic and side-effect free.
 
     The evaluation maps the proposal's action type to a PolicyAction,
     uses the proposal's risk level directly, and assumes ImpactLevel.LOW
@@ -60,8 +60,8 @@ class ProposalPolicyCheck:
     Usage::
 
         checker = ProposalPolicyCheck()
-        verdict = checker.check(proposal)
-        if verdict == PolicyVerdict.ALLOW:
+        result = checker.check(proposal)
+        if result.passed:
             # proceed without approval
             ...
     """
@@ -75,7 +75,7 @@ class ProposalPolicyCheck:
         """
         self._policy = policy if policy is not None else create_default_policy()
 
-    def check(self, proposal: ActionProposal) -> PolicyVerdict:
+    def check(self, proposal: ActionProposal) -> PolicyCheckResult:
         """Evaluate a proposal against policy rules.
 
         Args:
@@ -84,12 +84,10 @@ class ProposalPolicyCheck:
                 ``parameters``, and ``metadata`` to make its determination.
 
         Returns:
-            A PolicyVerdict:
-            - ``ALLOW`` — the proposal may proceed without human approval.
-            - ``ASK`` — the proposal requires human approval via the
-              ApprovalGate.
-            - ``DENY`` — the proposal is blocked; cannot proceed even with
-              human approval.
+            A :class:`PolicyCheckResult`:
+            - ``passed=True`` — the proposal may proceed without human approval.
+            - ``passed=False`` — the proposal requires human approval via the
+              ApprovalGate or is blocked.
         """
         policy_action = _ACTION_TYPE_TO_POLICY_ACTION.get(
             proposal.action_type, PolicyAction.UPDATE
@@ -99,4 +97,10 @@ class ProposalPolicyCheck:
             risk=proposal.risk,
             impact=ImpactLevel.LOW,
         )
-        return _DECISION_TO_VERDICT[decision]
+        verdict = _DECISION_TO_VERDICT[decision]
+        if verdict == PolicyVerdict.ALLOW:
+            return PolicyCheckResult(passed=True)
+        return PolicyCheckResult(
+            passed=False,
+            reason=f"Policy verdict: {verdict.value}",
+        )

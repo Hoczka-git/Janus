@@ -716,6 +716,8 @@ def _workspace_changed_files(task: Any) -> list[str]:
     else:
         # Compare against the merge-base with the target to capture only this
         # task's commits, mirroring the integration contract's diff-stat intent.
+        # If origin/<target> doesn't exist (e.g. local-only repo), fall back
+        # to the first commit.
         base = _run_git(ws_path, [git, "merge-base", "origin/" + target, "HEAD"])
         if not base:
             # Target branch detected but no remote tracking branch exists
