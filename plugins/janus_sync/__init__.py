@@ -709,7 +709,11 @@ def _workspace_changed_files(task: Any) -> list[str]:
     else:
         # Compare against the merge-base with the target to capture only this
         # task's commits, mirroring the integration contract's diff-stat intent.
+        # If origin/<target> doesn't exist (e.g. local-only repo), fall back
+        # to the first commit.
         base = _run_git(ws_path, [git, "merge-base", "origin/" + target, "HEAD"])
+        if not base:
+            base = _first_commit(ws_path, git)
     if not base:
         # No base to diff against (e.g. empty repo) — list nothing.
         return []
@@ -733,19 +737,18 @@ def _first_commit(ws_path: Path, git: str) -> Optional[str]:
 
 
 def _detect_target_branch(ws_path: Path, git: str) -> Optional[str]:
-    """Resolve the repository's target (trunk) branch name via ``origin/HEAD``.
+    """Resolve the repository's target (trunk) branch name.
 
-    Returns the branch name without the ``origin/`` prefix, or ``None`` when
-    it cannot be determined (e.g. no remote configured).  Mirrors the
-    resolution order in ``janus.git_sync.detect_target_branch``.
+    Delegates to :func:`janus.git_sync.detect_target_branch` for the canonical
+    resolution order (origin/HEAD → main → master → origin/main → origin/master).
+    Also checks the repository-level ``janus.toml`` config override first.
     """
-    try:
-        head = _run_git(ws_path, [git, "rev-parse", "--abbrev-ref", "origin/HEAD"])
-    except Exception:  # noqa: BLE001
-        return None
-    if not head or head == "origin/HEAD":
-        return None
-    return head.split("/", 1)[1] if "/" in head else head
+    from janus.git_sync import detect_target_branch, get_target_branch_config
+
+    override = get_target_branch_config(str(ws_path))
+    if override:
+        return override
+    return detect_target_branch(str(ws_path))
 
 
 def _run_git(cwd: Path, args: list[str]) -> str:

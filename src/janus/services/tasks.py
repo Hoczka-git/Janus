@@ -219,9 +219,12 @@ def _current_branch(root: Path) -> Optional[str]:
 
 
 def _target_branch(root: Path) -> Optional[str]:
-    """Resolve the target branch name per the sync-detection order."""
-    from janus.git_sync import detect_target_branch
+    """Resolve the target branch name: config override first, then auto-detect."""
+    from janus.git_sync import detect_target_branch, get_target_branch_config
 
+    override = get_target_branch_config(str(root))
+    if override:
+        return override
     return detect_target_branch(str(root))
 
 
