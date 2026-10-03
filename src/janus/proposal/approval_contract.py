@@ -289,9 +289,9 @@ def evaluate_gate(proposal: ActionProposal, decision: ApprovalDecision) -> GateR
         are met, or False with a descriptive ``reason`` otherwise.
 
     Note:
-        This is a contract-layer signature only — no implementation logic.
-        Concrete implementations live in the gate layer (e.g.,
-        ``approval_gate.py``).
+        This is the contract-layer implementation of the gate. It checks
+        that the decision has been approved, has a non-empty approver
+        identity, and a decided_at timestamp that is not in the future.
     """
     if decision.status != ApprovalStatus.APPROVED:
         return GateResult(
