@@ -1,594 +1,436 @@
-"""Tests for the Human Approval and Policy Check contract.
+"""Tests for the approval contract layer interfaces and schema.
 
 Covers:
-- ApprovalDecision enum
-- ApprovalRecord (construction, validation, properties, serialization)
-- PolicyCheckResult (construction, validation, properties, serialization)
-- ApprovalGate protocol
-- PolicyCheck protocol
-- ApprovalPolicyContract (evaluate logic, short-circuit, ready invariants)
-- ContractEvaluation (blocked_reason, serialization)
+- ApprovalStatus enum
+- ApprovalDecision dataclass
+- ApprovalGate protocol (runtime_checkable, cannot instantiate)
+- PolicyCheck protocol (runtime_checkable, cannot instantiate)
+- ApprovalContext dataclass and its properties
+- Boundary between approval and policy check
+- Integration with ActionProposal model
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 import pytest
 
-from janus.proposal import (
-    ActionProposal,
-    ActionType,
+from janus.models.policy import RiskLevel
+from janus.models.policy_p1 import PolicyVerdict
+from janus.proposal import ActionProposal, ActionType, ProposalStatus
+from janus.proposal.approval_contract import (
+    ApprovalContext,
     ApprovalDecision,
     ApprovalGate,
-    ApprovalPolicyContract,
-    ApprovalRecord,
-    ContractEvaluation,
+    ApprovalStatus,
     PolicyCheck,
-    PolicyCheckResult,
-    ProposalStatus,
 )
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── ApprovalStatus enum ─────────────────────────────────────────────────────
 
 
-def _make_proposal(
-    proposal_id: str = "AP-001",
-    action_type: ActionType = ActionType.CREATE_TASK,
-    status: ProposalStatus = ProposalStatus.PROPOSED,
-    **kwargs: Any,
-) -> ActionProposal:
-    """Create a minimal valid ActionProposal for testing."""
-    return ActionProposal(
-        proposal_id=proposal_id,
-        action_type=action_type,
-        reason="Test proposal",
-        source="test",
-        status=status,
-        **kwargs,
-    )
+class TestApprovalStatus:
+    def test_values(self) -> None:
+        assert ApprovalStatus.PENDING == "pending"
+        assert ApprovalStatus.APPROVED == "approved"
+        assert ApprovalStatus.REJECTED == "rejected"
+        assert ApprovalStatus.DEFERRED == "deferred"
+
+    def test_membership(self) -> None:
+        assert len(ApprovalStatus) == 4
+
+    def test_str_enum(self) -> None:
+        assert isinstance(ApprovalStatus.PENDING, str)
+        assert isinstance(ApprovalStatus.APPROVED, str)
+        assert isinstance(ApprovalStatus.REJECTED, str)
+        assert isinstance(ApprovalStatus.DEFERRED, str)
+
+    def test_distinct_from_proposal_status(self) -> None:
+        """ApprovalStatus and ProposalStatus are distinct enums."""
+        approval_values = {s.value for s in ApprovalStatus}
+        proposal_values = {s.value for s in ProposalStatus}
+        # ApprovalStatus uses lowercase, ProposalStatus uses uppercase
+        assert "pending" in approval_values
+        assert "pending" not in proposal_values
+        assert "deferred" in approval_values
+        assert "deferred" not in proposal_values
+        assert "PROPOSED" in proposal_values
+        assert "PROPOSED" not in approval_values
+        assert "EXECUTED" in proposal_values
+        assert "EXECUTED" not in approval_values
 
 
-class MockApprovalGate:
-    """A mock ApprovalGate that returns a pre-configured result."""
-
-    def __init__(self, record: ApprovalRecord | None = None) -> None:
-        self._record = record
-        self.call_count = 0
-
-    def check(self, proposal: ActionProposal) -> ApprovalRecord | None:
-        self.call_count += 1
-        return self._record
-
-
-class MockPolicyCheck:
-    """A mock PolicyCheck that returns a pre-configured result."""
-
-    def __init__(self, result: PolicyCheckResult | None = None) -> None:
-        self._result = result or PolicyCheckResult(allowed=True, reason="OK")
-        self.call_count = 0
-
-    def check(self, proposal: ActionProposal) -> PolicyCheckResult:
-        self.call_count += 1
-        return self._result
-
-
-# ── ApprovalDecision enum ────────────────────────────────────────────────────
+# ── ApprovalDecision dataclass ──────────────────────────────────────────────
 
 
 class TestApprovalDecision:
-    def test_values(self) -> None:
-        assert ApprovalDecision.APPROVE == "APPROVE"
-        assert ApprovalDecision.REJECT == "REJECT"
-        assert ApprovalDecision.EDIT == "EDIT"
-
-    def test_membership(self) -> None:
-        assert len(ApprovalDecision) == 3
-
-
-# ── ApprovalRecord ───────────────────────────────────────────────────────────
-
-
-class TestApprovalRecord:
-    def test_minimal_construction(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
+    def test_minimal_construct(self) -> None:
+        decision = ApprovalDecision(
+            proposal_id="AP-abc123",
+            status=ApprovalStatus.APPROVED,
             approver="user",
         )
-        assert record.proposal_id == "AP-001"
-        assert record.decision == ApprovalDecision.APPROVE
-        assert record.approver == "user"
-        assert record.reason == ""
-        assert record.resulting_proposal is None
-        assert record.source == ""
-        assert record.decided_at is not None
+        assert decision.proposal_id == "AP-abc123"
+        assert decision.status == ApprovalStatus.APPROVED
+        assert decision.approver == "user"
+        assert isinstance(decision.decided_at, datetime)
+        assert decision.rationale == ""
 
-    def test_full_construction(self) -> None:
-        proposal = _make_proposal()
+    def test_full_construct(self) -> None:
         now = datetime.now().astimezone()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.EDIT,
+        decision = ApprovalDecision(
+            proposal_id="AP-abc123",
+            status=ApprovalStatus.REJECTED,
             approver="admin",
             decided_at=now,
-            reason="Changed priority",
-            resulting_proposal=proposal,
-            source="cli",
+            rationale="Too risky",
         )
-        assert record.proposal_id == "AP-001"
-        assert record.decision == ApprovalDecision.EDIT
-        assert record.approver == "admin"
-        assert record.decided_at == now
-        assert record.reason == "Changed priority"
-        assert record.resulting_proposal is proposal
-        assert record.source == "cli"
+        assert decision.proposal_id == "AP-abc123"
+        assert decision.status == ApprovalStatus.REJECTED
+        assert decision.approver == "admin"
+        assert decision.decided_at == now
+        assert decision.rationale == "Too risky"
 
-    def test_empty_proposal_id_raises(self) -> None:
-        with pytest.raises(ValueError, match="proposal_id"):
-            ApprovalRecord(
-                proposal_id="",
-                decision=ApprovalDecision.APPROVE,
+    def test_decided_at_auto_set(self) -> None:
+        decision = ApprovalDecision(
+            proposal_id="AP-1",
+            status=ApprovalStatus.APPROVED,
+            approver="user",
+        )
+        assert decision.decided_at is not None
+        assert isinstance(decision.decided_at, datetime)
+
+    def test_all_statuses(self) -> None:
+        for status in ApprovalStatus:
+            decision = ApprovalDecision(
+                proposal_id="AP-1",
+                status=status,
                 approver="user",
             )
-
-    def test_whitespace_proposal_id_raises(self) -> None:
-        with pytest.raises(ValueError, match="proposal_id"):
-            ApprovalRecord(
-                proposal_id="   ",
-                decision=ApprovalDecision.APPROVE,
-                approver="user",
-            )
-
-    def test_empty_approver_raises(self) -> None:
-        with pytest.raises(ValueError, match="approver"):
-            ApprovalRecord(
-                proposal_id="AP-001",
-                decision=ApprovalDecision.APPROVE,
-                approver="",
-            )
-
-    def test_whitespace_approver_raises(self) -> None:
-        with pytest.raises(ValueError, match="approver"):
-            ApprovalRecord(
-                proposal_id="AP-001",
-                decision=ApprovalDecision.APPROVE,
-                approver="   ",
-            )
-
-    def test_edit_without_resulting_proposal_raises(self) -> None:
-        with pytest.raises(ValueError, match="resulting_proposal"):
-            ApprovalRecord(
-                proposal_id="AP-001",
-                decision=ApprovalDecision.EDIT,
-                approver="user",
-                resulting_proposal=None,
-            )
-
-    def test_approve_with_resulting_proposal_allowed(self) -> None:
-        """APPROVE/REJECT may have a resulting_proposal (not required, but allowed)."""
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-            resulting_proposal=proposal,
-        )
-        assert record.resulting_proposal is proposal
-
-    def test_is_approved(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        assert record.is_approved is True
-        assert record.is_rejected is False
-        assert record.is_edit is False
-
-    def test_is_rejected(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.REJECT,
-            approver="user",
-        )
-        assert record.is_approved is False
-        assert record.is_rejected is True
-        assert record.is_edit is False
-
-    def test_is_edit(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.EDIT,
-            approver="user",
-            resulting_proposal=proposal,
-        )
-        assert record.is_approved is False
-        assert record.is_rejected is False
-        assert record.is_edit is True
-
-    def test_to_dict(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.EDIT,
-            approver="admin",
-            reason="test",
-            resulting_proposal=proposal,
-            source="cli",
-        )
-        d = record.to_dict()
-        assert d["proposal_id"] == "AP-001"
-        assert d["decision"] == "EDIT"
-        assert d["approver"] == "admin"
-        assert d["reason"] == "test"
-        assert d["source"] == "cli"
-        assert d["resulting_proposal"] is not None
-        rp = d["resulting_proposal"]
-        assert isinstance(rp, dict)
-        assert rp["proposal_id"] == "AP-001"
-
-    def test_to_dict_without_resulting_proposal(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        d = record.to_dict()
-        assert d["resulting_proposal"] is None
+            assert decision.status == status
 
 
-# ── PolicyCheckResult ────────────────────────────────────────────────────────
-
-
-class TestPolicyCheckResult:
-    def test_allowed_construction(self) -> None:
-        result = PolicyCheckResult(allowed=True, reason="All checks passed")
-        assert result.allowed is True
-        assert result.denied is False
-        assert result.reason == "All checks passed"
-        assert result.rule_id == ""
-        assert result.timestamp is not None
-
-    def test_denied_construction(self) -> None:
-        result = PolicyCheckResult(allowed=False, reason="Action type not supported")
-        assert result.allowed is False
-        assert result.denied is True
-        assert result.reason == "Action type not supported"
-
-    def test_empty_reason_raises(self) -> None:
-        with pytest.raises(ValueError, match="reason"):
-            PolicyCheckResult(allowed=True, reason="")
-
-    def test_whitespace_reason_raises(self) -> None:
-        with pytest.raises(ValueError, match="reason"):
-            PolicyCheckResult(allowed=True, reason="   ")
-
-    def test_to_dict(self) -> None:
-        result = PolicyCheckResult(
-            allowed=False,
-            reason="Missing target",
-            rule_id="R-001",
-        )
-        d = result.to_dict()
-        assert d["allowed"] is False
-        assert d["reason"] == "Missing target"
-        assert d["rule_id"] == "R-001"
-        assert "timestamp" in d
-
-
-# ── ApprovalGate protocol ────────────────────────────────────────────────────
+# ── ApprovalGate protocol ───────────────────────────────────────────────────
 
 
 class TestApprovalGateProtocol:
-    def test_mock_satisfies_protocol(self) -> None:
-        gate = MockApprovalGate()
-        assert isinstance(gate, ApprovalGate)
+    def test_is_protocol(self) -> None:
+        assert hasattr(ApprovalGate, "_is_protocol")
+        assert getattr(ApprovalGate, "_is_protocol") is True
 
-    def test_returns_none_when_not_approved(self) -> None:
-        gate = MockApprovalGate(record=None)
-        proposal = _make_proposal()
-        assert gate.check(proposal) is None
+    def test_cannot_instantiate(self) -> None:
+        with pytest.raises(TypeError):
+            ApprovalGate()  # type: ignore[abstract]
 
-    def test_returns_record_when_approved(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        proposal = _make_proposal()
-        assert gate.check(proposal) is record
+    def test_concrete_implementation(self) -> None:
+        """A concrete class implementing the protocol can be instantiated."""
+
+        class MockApprovalGate:
+            def check_approval(self, proposal_id: str) -> ApprovalStatus:
+                return ApprovalStatus.PENDING
+
+            def record_decision(self, decision: ApprovalDecision) -> None:
+                pass
+
+            def get_decision(self, proposal_id: str) -> ApprovalDecision | None:
+                return None
+
+        gate: ApprovalGate = MockApprovalGate()  # type: ignore[assignment]
+        assert gate.check_approval("AP-1") == ApprovalStatus.PENDING
+        assert gate.get_decision("AP-1") is None
+
+    def test_has_required_methods(self) -> None:
+        assert hasattr(ApprovalGate, "check_approval")
+        assert hasattr(ApprovalGate, "record_decision")
+        assert hasattr(ApprovalGate, "get_decision")
+
+    def test_no_policy_evaluation_methods(self) -> None:
+        """ApprovalGate must NOT have policy evaluation methods."""
+        assert not hasattr(ApprovalGate, "check")
+        assert not hasattr(ApprovalGate, "evaluate")
+        assert not hasattr(ApprovalGate, "evaluate_policy")
 
 
-# ── PolicyCheck protocol ─────────────────────────────────────────────────────
+# ── PolicyCheck protocol ────────────────────────────────────────────────────
 
 
 class TestPolicyCheckProtocol:
-    def test_mock_satisfies_protocol(self) -> None:
-        check = MockPolicyCheck()
-        assert isinstance(check, PolicyCheck)
+    def test_is_protocol(self) -> None:
+        assert hasattr(PolicyCheck, "_is_protocol")
+        assert getattr(PolicyCheck, "_is_protocol") is True
 
-    def test_returns_result(self) -> None:
-        expected = PolicyCheckResult(allowed=True, reason="OK")
-        check = MockPolicyCheck(result=expected)
-        proposal = _make_proposal()
-        assert check.check(proposal) is expected
+    def test_cannot_instantiate(self) -> None:
+        with pytest.raises(TypeError):
+            PolicyCheck()  # type: ignore[abstract]
+
+    def test_concrete_implementation(self) -> None:
+        """A concrete class implementing the protocol can be instantiated."""
+
+        class MockPolicyCheck:
+            def check(self, proposal: ActionProposal) -> PolicyVerdict:
+                return PolicyVerdict.ALLOW
+
+        checker: PolicyCheck = MockPolicyCheck()  # type: ignore[assignment]
+        proposal = ActionProposal(reason="test")
+        assert checker.check(proposal) == PolicyVerdict.ALLOW
+
+    def test_has_required_methods(self) -> None:
+        assert hasattr(PolicyCheck, "check")
+
+    def test_no_approval_recording_methods(self) -> None:
+        """PolicyCheck must NOT have approval recording methods."""
+        assert not hasattr(PolicyCheck, "record_decision")
+        assert not hasattr(PolicyCheck, "check_approval")
+        assert not hasattr(PolicyCheck, "get_decision")
 
 
-# ── ApprovalPolicyContract ───────────────────────────────────────────────────
+# ── ApprovalContext dataclass ───────────────────────────────────────────────
 
 
-class TestApprovalPolicyContract:
-    def test_evaluate_approved_and_allowed(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        proposal = _make_proposal()
-        result = contract.evaluate(proposal)
-
-        assert result.approved is True
-        assert result.approval_record is record
-        assert result.policy_result is not None
-        assert result.policy_result.allowed is True
-        assert result.ready is True
-        assert result.blocked_reason is None
-        assert gate.call_count == 1
-        assert policy.call_count == 1
-
-    def test_evaluate_approved_but_denied(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(
-            result=PolicyCheckResult(allowed=False, reason="Unsupported action")
-        )
-        contract = ApprovalPolicyContract(gate, policy)
-
-        proposal = _make_proposal()
-        result = contract.evaluate(proposal)
-
-        assert result.approved is True
-        assert result.approval_record is record
-        assert result.policy_result is not None
-        assert result.policy_result.allowed is False
-        assert result.ready is False
-        assert result.blocked_reason is not None
-        assert "Policy check denied" in result.blocked_reason
-        assert gate.call_count == 1
-        assert policy.call_count == 1
-
-    def test_evaluate_not_approved_short_circuits(self) -> None:
-        gate = MockApprovalGate(record=None)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        proposal = _make_proposal()
-        result = contract.evaluate(proposal)
-
-        assert result.approved is False
-        assert result.approval_record is None
-        assert result.policy_result is None
-        assert result.ready is False
-        assert result.blocked_reason == "Proposal has no valid human approval"
-        assert gate.call_count == 1
-        # Policy check must NOT be called when approval gate fails
-        assert policy.call_count == 0
-
-    def test_evaluate_rejected_proposal(self) -> None:
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.REJECT,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        proposal = _make_proposal()
-        result = contract.evaluate(proposal)
-
-        # REJECT is still an ApprovalRecord, so the gate returns it.
-        # The contract treats any non-None record as "approved" at the gate level.
-        # The policy check will still run. This is correct: the gate checks
-        # for the *existence* of an approval record, not the decision type.
-        # Downstream execution logic must check record.is_approved separately.
-        assert result.approved is True
-        assert result.approval_record is record
-        assert result.ready is True  # policy passed, gate passed
-
-    def test_evaluate_edit_proposal(self) -> None:
-        original = _make_proposal(proposal_id="AP-001")
-        edited = ActionProposal(
-            proposal_id="AP-001",
+class TestApprovalContext:
+    def _make_proposal(self) -> ActionProposal:
+        return ActionProposal(
+            proposal_id="AP-test",
             action_type=ActionType.CREATE_TASK,
-            reason="Edited reason",
-            source="test",
+            reason="Test proposal",
+            risk=RiskLevel.LOW,
         )
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.EDIT,
-            approver="user",
-            resulting_proposal=edited,
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
 
-        result = contract.evaluate(original)
-
-        assert result.approved is True
-        assert result.approval_record is record
-        assert result.ready is True
-
-    def test_properties(self) -> None:
-        gate = MockApprovalGate()
-        policy = MockPolicyCheck()
-        contract = ApprovalPolicyContract(gate, policy)
-        assert contract.approval_gate is gate
-        assert contract.policy_check is policy
-
-
-# ── ContractEvaluation ───────────────────────────────────────────────────────
-
-
-class TestContractEvaluation:
-    def test_ready_true_requires_approved_and_policy(self) -> None:
-        proposal = _make_proposal()
-        with pytest.raises(ValueError, match="ready=True requires"):
-            ContractEvaluation(
-                proposal=proposal,
-                approved=False,
-                approval_record=None,
-                policy_result=None,
-                ready=True,
-            )
-
-    def test_ready_true_requires_policy_allowed(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        with pytest.raises(ValueError, match="policy_result.allowed"):
-            ContractEvaluation(
-                proposal=proposal,
-                approved=True,
-                approval_record=record,
-                policy_result=PolicyCheckResult(allowed=False, reason="Denied"),
-                ready=True,
-            )
-
-    def test_blocked_reason_ready(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        result = ContractEvaluation(
+    def test_minimal_construct(self) -> None:
+        proposal = self._make_proposal()
+        ctx = ApprovalContext(
             proposal=proposal,
-            approved=True,
-            approval_record=record,
-            policy_result=PolicyCheckResult(allowed=True, reason="OK"),
-            ready=True,
+            policy_verdict=PolicyVerdict.ALLOW,
         )
-        assert result.blocked_reason is None
+        assert ctx.proposal is proposal
+        assert ctx.policy_verdict == PolicyVerdict.ALLOW
+        assert ctx.approval_status == ApprovalStatus.PENDING
+        assert ctx.decision is None
 
-    def test_blocked_reason_not_approved(self) -> None:
-        proposal = _make_proposal()
-        result = ContractEvaluation(
+    def test_full_construct(self) -> None:
+        proposal = self._make_proposal()
+        decision = ApprovalDecision(
+            proposal_id="AP-test",
+            status=ApprovalStatus.APPROVED,
+            approver="user",
+        )
+        ctx = ApprovalContext(
             proposal=proposal,
-            approved=False,
-            approval_record=None,
-            policy_result=None,
-            ready=False,
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.APPROVED,
+            decision=decision,
         )
-        assert result.blocked_reason == "Proposal has no valid human approval"
+        assert ctx.proposal is proposal
+        assert ctx.policy_verdict == PolicyVerdict.ASK
+        assert ctx.approval_status == ApprovalStatus.APPROVED
+        assert ctx.decision is decision
 
-    def test_blocked_reason_policy_denied(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
+    # -- is_resolved --
+
+    def test_resolved_when_allow(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ALLOW,
         )
-        result = ContractEvaluation(
+        assert ctx.is_resolved is True
+
+    def test_resolved_when_deny(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.DENY,
+        )
+        assert ctx.is_resolved is True
+
+    def test_not_resolved_when_ask_pending(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.PENDING,
+        )
+        assert ctx.is_resolved is False
+
+    def test_resolved_when_ask_approved(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.APPROVED,
+        )
+        assert ctx.is_resolved is True
+
+    def test_resolved_when_ask_rejected(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.REJECTED,
+        )
+        assert ctx.is_resolved is True
+
+    def test_resolved_when_ask_deferred(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.DEFERRED,
+        )
+        assert ctx.is_resolved is True
+
+    # -- is_approved --
+
+    def test_approved_when_allow(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ALLOW,
+        )
+        assert ctx.is_approved is True
+
+    def test_not_approved_when_deny(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.DENY,
+        )
+        assert ctx.is_approved is False
+
+    def test_not_approved_when_ask_pending(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.PENDING,
+        )
+        assert ctx.is_approved is False
+
+    def test_approved_when_ask_approved(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.APPROVED,
+        )
+        assert ctx.is_approved is True
+
+    def test_not_approved_when_ask_rejected(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.REJECTED,
+        )
+        assert ctx.is_approved is False
+
+    def test_not_approved_when_ask_deferred(self) -> None:
+        ctx = ApprovalContext(
+            proposal=self._make_proposal(),
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.DEFERRED,
+        )
+        assert ctx.is_approved is False
+
+
+# ── Boundary between ApprovalGate and PolicyCheck ──────────────────────────
+
+
+class TestBoundary:
+    def test_approval_gate_has_no_policy_methods(self) -> None:
+        """ApprovalGate must not expose policy evaluation."""
+        assert not hasattr(ApprovalGate, "check")
+        assert not hasattr(ApprovalGate, "evaluate")
+        assert not hasattr(ApprovalGate, "evaluate_policy")
+
+    def test_policy_check_has_no_approval_methods(self) -> None:
+        """PolicyCheck must not expose approval recording."""
+        assert not hasattr(PolicyCheck, "record_decision")
+        assert not hasattr(PolicyCheck, "check_approval")
+        assert not hasattr(PolicyCheck, "get_decision")
+
+    def test_approval_gate_is_not_policy_check(self) -> None:
+        """The two protocols are distinct and non-overlapping."""
+        gate_methods = {"check_approval", "record_decision", "get_decision"}
+        policy_methods = {"check"}
+        assert gate_methods.isdisjoint(policy_methods)
+
+    def test_policy_check_returns_verdict_enum(self) -> None:
+        """PolicyCheck.check returns PolicyVerdict, not ApprovalStatus."""
+        # This is a type-level contract: the return type is PolicyVerdict
+        # which has ALLOW/ASK/DENY, while ApprovalStatus has
+        # PENDING/APPROVED/REJECTED/DEFERRED
+        assert PolicyVerdict.ALLOW != ApprovalStatus.APPROVED
+        assert PolicyVerdict.DENY != ApprovalStatus.REJECTED
+
+    def test_approval_gate_returns_status_enum(self) -> None:
+        """ApprovalGate.check_approval returns ApprovalStatus, not PolicyVerdict."""
+        assert ApprovalStatus.PENDING != PolicyVerdict.ASK
+        assert ApprovalStatus.APPROVED != PolicyVerdict.ALLOW
+
+
+# ── Integration with ActionProposal ─────────────────────────────────────────
+
+
+class TestActionProposalIntegration:
+    def test_proposal_has_proposal_id(self) -> None:
+        """ActionProposal must have proposal_id for ApprovalGate integration."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "proposal_id")
+        assert isinstance(proposal.proposal_id, str)
+
+    def test_proposal_has_status(self) -> None:
+        """ActionProposal must have status for tracking approval outcome."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "status")
+        assert isinstance(proposal.status, ProposalStatus)
+
+    def test_proposal_has_risk(self) -> None:
+        """ActionProposal must have risk for PolicyCheck evaluation."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "risk")
+        assert isinstance(proposal.risk, RiskLevel)
+
+    def test_proposal_has_action_type(self) -> None:
+        """ActionProposal must have action_type for PolicyCheck evaluation."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "action_type")
+        assert isinstance(proposal.action_type, ActionType)
+
+    def test_proposal_has_parameters(self) -> None:
+        """ActionProposal must have parameters for PolicyCheck evaluation."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "parameters")
+        assert isinstance(proposal.parameters, dict)
+
+    def test_proposal_has_metadata(self) -> None:
+        """ActionProposal must have metadata for PolicyCheck evaluation."""
+        proposal = ActionProposal(reason="test")
+        assert hasattr(proposal, "metadata")
+        assert isinstance(proposal.metadata, dict)
+
+    def test_approval_context_wraps_proposal(self) -> None:
+        """ApprovalContext is the integration point that wraps ActionProposal."""
+        proposal = ActionProposal(
+            proposal_id="AP-integration",
+            reason="Integration test",
+            risk=RiskLevel.MEDIUM,
+        )
+        ctx = ApprovalContext(
             proposal=proposal,
-            approved=True,
-            approval_record=record,
-            policy_result=PolicyCheckResult(allowed=False, reason="Missing target"),
-            ready=False,
+            policy_verdict=PolicyVerdict.ASK,
+            approval_status=ApprovalStatus.APPROVED,
+            decision=ApprovalDecision(
+                proposal_id="AP-integration",
+                status=ApprovalStatus.APPROVED,
+                approver="user",
+            ),
         )
-        assert result.blocked_reason is not None
-        assert "Missing target" in result.blocked_reason
+        assert ctx.proposal.proposal_id == "AP-integration"
+        assert ctx.proposal.risk == RiskLevel.MEDIUM
+        assert ctx.is_resolved is True
+        assert ctx.is_approved is True
 
-    def test_to_dict(self) -> None:
-        proposal = _make_proposal()
-        record = ApprovalRecord(
-            proposal_id="AP-001",
-            decision=ApprovalDecision.APPROVE,
+    def test_proposal_id_links_decision_to_proposal(self) -> None:
+        """ApprovalDecision.proposal_id must match ActionProposal.proposal_id."""
+        proposal = ActionProposal(
+            proposal_id="AP-link-test",
+            reason="Test",
+        )
+        decision = ApprovalDecision(
+            proposal_id="AP-link-test",
+            status=ApprovalStatus.APPROVED,
             approver="user",
         )
-        result = ContractEvaluation(
-            proposal=proposal,
-            approved=True,
-            approval_record=record,
-            policy_result=PolicyCheckResult(allowed=True, reason="OK"),
-            ready=True,
-        )
-        d = result.to_dict()
-        assert d["proposal_id"] == "AP-001"
-        assert d["approved"] is True
-        assert d["ready"] is True
-        assert d["blocked_reason"] is None
-        assert d["approval_record"] is not None
-        assert d["policy_result"] is not None
-
-
-# ── Integration with ActionProposal ──────────────────────────────────────────
-
-
-class TestApprovalContractIntegration:
-    def test_proposal_with_approved_status(self) -> None:
-        """A proposal with APPROVED status can be evaluated through the contract."""
-        proposal = _make_proposal(status=ProposalStatus.APPROVED)
-        record = ApprovalRecord(
-            proposal_id=proposal.proposal_id,
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        result = contract.evaluate(proposal)
-        assert result.ready is True
-
-    def test_proposal_with_rejected_status(self) -> None:
-        """A proposal with REJECTED status still has an ApprovalRecord (the REJECT decision)."""
-        proposal = _make_proposal(status=ProposalStatus.REJECTED)
-        record = ApprovalRecord(
-            proposal_id=proposal.proposal_id,
-            decision=ApprovalDecision.REJECT,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        result = contract.evaluate(proposal)
-        # The gate returns the record (it exists), policy passes.
-        # The contract's evaluate() treats any non-None record as "approved" at gate level.
-        # This is by design: the gate checks for the *existence* of a record.
-        # Execution logic must check record.is_approved separately.
-        assert result.approved is True
-        assert result.ready is True
-
-    def test_proposal_with_executed_status(self) -> None:
-        """A proposal with EXECUTED status can still be evaluated (idempotency check is downstream)."""
-        proposal = _make_proposal(status=ProposalStatus.EXECUTED)
-        record = ApprovalRecord(
-            proposal_id=proposal.proposal_id,
-            decision=ApprovalDecision.APPROVE,
-            approver="user",
-        )
-        gate = MockApprovalGate(record=record)
-        policy = MockPolicyCheck(result=PolicyCheckResult(allowed=True, reason="OK"))
-        contract = ApprovalPolicyContract(gate, policy)
-
-        result = contract.evaluate(proposal)
-        assert result.ready is True
+        assert decision.proposal_id == proposal.proposal_id

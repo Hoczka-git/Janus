@@ -1,7 +1,7 @@
 """Action Proposal Engine package.
 
 Defines the proposal-only interface, domain models, mutation
-guardrails, the rule-based engine, and the approval/policy contract
+guardrails, the rule-based engine, and the approval contract layer
 for the Action Proposal Engine V1.
 
 Exports:
@@ -16,24 +16,23 @@ Exports:
     ImportGuard
     proposal_only
     proposal_only_context
-    ApprovalDecision
-    ApprovalRecord
-    PolicyCheckResult
     ApprovalGate
     PolicyCheck
-    ApprovalPolicyContract
-    ContractEvaluation
+    ApprovalStatus
+    ApprovalDecision
+    ApprovalContext
+    InMemoryApprovalGate
+    ProposalPolicyCheck
 """
 
-from janus.proposal.approval import (
+from janus.proposal.approval_contract import (
+    ApprovalContext,
     ApprovalDecision,
     ApprovalGate,
-    ApprovalPolicyContract,
-    ApprovalRecord,
-    ContractEvaluation,
+    ApprovalStatus,
     PolicyCheck,
-    PolicyCheckResult,
 )
+from janus.proposal.approval_gate import InMemoryApprovalGate
 from janus.proposal.engine import RuleBasedProposalEngine
 from janus.proposal.guard import (
     ImportGuard,
@@ -44,23 +43,24 @@ from janus.proposal.guard import (
     proposal_only_context,
 )
 from janus.proposal.models import ActionProposal, ActionType, ProposalStatus
+from janus.proposal.policy_check import ProposalPolicyCheck
 from janus.proposal.protocol import ActionProposalEngine
 
 __all__ = [
     "ActionProposal",
     "ActionProposalEngine",
     "ActionType",
+    "ApprovalContext",
     "ApprovalDecision",
     "ApprovalGate",
-    "ApprovalPolicyContract",
-    "ApprovalRecord",
-    "ContractEvaluation",
+    "ApprovalStatus",
     "ImportGuard",
+    "InMemoryApprovalGate",
     "MutationBlockedError",
     "MutationGuard",
     "PolicyCheck",
-    "PolicyCheckResult",
     "ProposalOnlyEngine",
+    "ProposalPolicyCheck",
     "ProposalStatus",
     "RuleBasedProposalEngine",
     "proposal_only",

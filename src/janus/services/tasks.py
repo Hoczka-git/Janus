@@ -1635,6 +1635,70 @@ def set_task_state(title: str, state: str) -> Task:
     return task
 
 
+def set_task_due_date(title: str, due_date: date | None) -> Task:
+    """Update the due date of an open task, preserving all other metadata.
+
+    Args:
+        title: exact task title to match
+        due_date: new due date (None to clear)
+
+    Returns the updated Task.
+
+    Raises:
+        ValueError: if no matching open task found, if multiple match,
+                     if the matching task is already completed, or if
+                     the due date is invalid.
+    """
+    _validate_title(title)
+    _validate_due_date(due_date)
+
+    raw_content = TASKS_PATH.read_text()
+    lines = raw_content.splitlines()
+    matches: list[int] = []
+
+    for i, line in enumerate(lines):
+        if not line.startswith("- [ ] "):
+            continue
+        content = line[len("- [ ] "):]
+        task_title = content.split(" | ", 1)[0] if " | " in content else content
+        if task_title == title:
+            matches.append(i)
+
+    if not matches:
+        raise ValueError(f"Task not found: {title}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple open tasks found with title: {title}")
+
+    idx = matches[0]
+    task = _parse_task_line(lines[idx], idx + 1)
+    if task is None:
+        raise ValueError(f"Task not found: {title}")
+
+    task.due_date = due_date
+    lines[idx] = _format_task_line(task)
+    content = "\n".join(lines) + "\n"
+    read_modify_write(
+        TASKS_PATH,
+        lambda cur: content if compute_content_hash(cur) == compute_content_hash(raw_content) else cur,
+        backup=True,
+    )
+
+    emit(
+        logger,
+        "service.task.mutated",
+        trace_id=None,
+        span_id="service",
+        operation="set_due_date",
+        task_title=title,
+        previous_state=None,
+        new_state=None,
+        new_progress=None,
+        message=f"Task '{title}' due date set to {due_date.isoformat() if due_date else 'None'}",
+    )
+
+    return task
+
+
 def set_task_progress(title: str, progress: int) -> Task:
     """Update the progress of an open task, preserving all other metadata.
 
