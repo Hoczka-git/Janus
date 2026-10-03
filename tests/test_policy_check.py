@@ -3,7 +3,7 @@
 Covers:
 - ProposalPolicyCheck implements PolicyCheck protocol
 - ActionType → PolicyAction mapping
-- Risk-based verdicts (LOW → ALLOW, MEDIUM → ASK, HIGH → ASK/DENY)
+- Risk-based results (LOW → passed, MEDIUM/HIGH → not passed)
 - Determinism (same input → same output)
 - Side-effect free (proposal not modified)
 - Integration with ApprovalContext
@@ -20,7 +20,6 @@ from janus.models.policy import (
     RiskLevel,
     create_default_policy,
 )
-from janus.models.policy_p1 import PolicyVerdict
 from janus.proposal import ActionProposal, ActionType, ProposalStatus
 from janus.proposal.approval_contract import (
     ApprovalContext,
@@ -28,6 +27,7 @@ from janus.proposal.approval_contract import (
     ApprovalGate,
     ApprovalStatus,
     PolicyCheck,
+    PolicyCheckResult,
 )
 from janus.proposal.policy_check import ProposalPolicyCheck
 
@@ -64,11 +64,11 @@ class TestPolicyCheckProtocol:
         assert hasattr(checker, "check")
         assert callable(checker.check)
 
-    def test_check_returns_policy_verdict(self) -> None:
+    def test_check_returns_policy_check_result(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal()
         result = checker.check(proposal)
-        assert isinstance(result, PolicyVerdict)
+        assert isinstance(result, PolicyCheckResult)
 
     def test_no_approval_recording_methods(self) -> None:
         checker = ProposalPolicyCheck()
@@ -84,92 +84,92 @@ class TestActionTypeMapping:
     def test_create_task_maps_to_create(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(action_type=ActionType.CREATE_TASK)
-        # CREATE_TASK with LOW risk → ALLOW
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        # CREATE_TASK with LOW risk → passed
+        assert checker.check(proposal).passed is True
 
     def test_update_task_maps_to_update(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(action_type=ActionType.UPDATE_TASK)
-        # UPDATE_TASK with LOW risk → ALLOW
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        # UPDATE_TASK with LOW risk → passed
+        assert checker.check(proposal).passed is True
 
     def test_reschedule_task_maps_to_update(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(action_type=ActionType.RESCHEDULE_TASK)
-        # RESCHEDULE_TASK with LOW risk → ALLOW
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        # RESCHEDULE_TASK with LOW risk → passed
+        assert checker.check(proposal).passed is True
 
     def test_change_priority_maps_to_update(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(action_type=ActionType.CHANGE_PRIORITY)
-        # CHANGE_PRIORITY with LOW risk → ALLOW
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        # CHANGE_PRIORITY with LOW risk → passed
+        assert checker.check(proposal).passed is True
 
     def test_create_calendar_event_maps_to_create(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(action_type=ActionType.CREATE_CALENDAR_EVENT)
-        # CREATE_CALENDAR_EVENT with LOW risk → ALLOW
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        # CREATE_CALENDAR_EVENT with LOW risk → passed
+        assert checker.check(proposal).passed is True
 
 
-# ── Risk-based verdicts ──────────────────────────────────────────────────────
+# ── Risk-based results ───────────────────────────────────────────────────────
 
 
-class TestRiskBasedVerdicts:
-    def test_low_risk_create_returns_allow(self) -> None:
+class TestRiskBasedResults:
+    def test_low_risk_create_passes(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.CREATE_TASK,
             risk=RiskLevel.LOW,
         )
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        assert checker.check(proposal).passed is True
 
-    def test_medium_risk_create_returns_ask(self) -> None:
+    def test_medium_risk_create_fails(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.CREATE_TASK,
             risk=RiskLevel.MEDIUM,
         )
-        assert checker.check(proposal) == PolicyVerdict.ASK
+        assert checker.check(proposal).passed is False
 
-    def test_high_risk_create_returns_ask(self) -> None:
+    def test_high_risk_create_fails(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.CREATE_TASK,
             risk=RiskLevel.HIGH,
         )
-        assert checker.check(proposal) == PolicyVerdict.ASK
+        assert checker.check(proposal).passed is False
 
-    def test_low_risk_update_returns_allow(self) -> None:
+    def test_low_risk_update_passes(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.UPDATE_TASK,
             risk=RiskLevel.LOW,
         )
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        assert checker.check(proposal).passed is True
 
-    def test_medium_risk_update_returns_ask(self) -> None:
+    def test_medium_risk_update_fails(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.UPDATE_TASK,
             risk=RiskLevel.MEDIUM,
         )
-        assert checker.check(proposal) == PolicyVerdict.ASK
+        assert checker.check(proposal).passed is False
 
-    def test_high_risk_update_returns_ask(self) -> None:
+    def test_high_risk_update_fails(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.UPDATE_TASK,
             risk=RiskLevel.HIGH,
         )
-        assert checker.check(proposal) == PolicyVerdict.ASK
+        assert checker.check(proposal).passed is False
 
 
 # ── Determinism ──────────────────────────────────────────────────────────────
 
 
 class TestDeterminism:
-    def test_same_proposal_same_verdict(self) -> None:
+    def test_same_proposal_same_result(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(
             action_type=ActionType.CREATE_TASK,
@@ -177,7 +177,7 @@ class TestDeterminism:
         )
         result1 = checker.check(proposal)
         result2 = checker.check(proposal)
-        assert result1 == result2
+        assert result1.passed == result2.passed
 
     def test_multiple_calls_consistent(self) -> None:
         checker = ProposalPolicyCheck()
@@ -186,7 +186,7 @@ class TestDeterminism:
             risk=RiskLevel.HIGH,
         )
         results = [checker.check(proposal) for _ in range(10)]
-        assert all(r == results[0] for r in results)
+        assert all(r.passed == results[0].passed for r in results)
 
 
 # ── Side-effect free ─────────────────────────────────────────────────────────
@@ -219,7 +219,7 @@ class TestSideEffectFree:
         checker.check(proposal)
         # A second checker with default policy should behave identically
         checker2 = ProposalPolicyCheck()
-        assert checker2.check(proposal) == checker.check(proposal)
+        assert checker2.check(proposal).passed == checker.check(proposal).passed
 
 
 # ── Custom policy ────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ class TestSideEffectFree:
 
 class TestCustomPolicy:
     def test_custom_policy_overrides_default(self) -> None:
-        """A custom policy can change the verdict."""
+        """A custom policy can change the result."""
         custom_policy = Policy(
             rules=[
                 PolicyRule(
@@ -247,7 +247,7 @@ class TestCustomPolicy:
             action_type=ActionType.CREATE_TASK,
             risk=RiskLevel.LOW,
         )
-        assert checker.check(proposal) == PolicyVerdict.DENY
+        assert checker.check(proposal).passed is False
 
     def test_custom_policy_with_no_matching_rules(self) -> None:
         """When no rules match, the default decision is used."""
@@ -261,39 +261,39 @@ class TestCustomPolicy:
             action_type=ActionType.CREATE_TASK,
             risk=RiskLevel.HIGH,
         )
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        assert checker.check(proposal).passed is True
 
 
 # ── Integration with ApprovalContext ─────────────────────────────────────────
 
 
 class TestApprovalContextIntegration:
-    def test_allow_produces_resolved_context(self) -> None:
+    def test_pass_produces_resolved_context(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(risk=RiskLevel.LOW)
-        verdict = checker.check(proposal)
+        result = checker.check(proposal)
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=verdict,
+            policy_result=result,
         )
         assert ctx.is_resolved is True
         assert ctx.is_approved is True
 
-    def test_ask_produces_unresolved_context(self) -> None:
+    def test_fail_produces_unresolved_context(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(risk=RiskLevel.MEDIUM)
-        verdict = checker.check(proposal)
+        result = checker.check(proposal)
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=verdict,
+            policy_result=result,
         )
         assert ctx.is_resolved is False
         assert ctx.is_approved is False
 
-    def test_ask_resolved_by_approval_gate(self) -> None:
+    def test_fail_resolved_by_approval_gate(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(risk=RiskLevel.MEDIUM)
-        verdict = checker.check(proposal)
+        result = checker.check(proposal)
         decision = ApprovalDecision(
             proposal_id=proposal.proposal_id,
             status=ApprovalStatus.APPROVED,
@@ -301,14 +301,14 @@ class TestApprovalContextIntegration:
         )
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=verdict,
+            policy_result=result,
             approval_status=ApprovalStatus.APPROVED,
             decision=decision,
         )
         assert ctx.is_resolved is True
         assert ctx.is_approved is True
 
-    def test_deny_produces_resolved_not_approved(self) -> None:
+    def test_fail_produces_unresolved_not_approved(self) -> None:
         custom_policy = Policy(
             rules=[
                 PolicyRule(
@@ -325,12 +325,12 @@ class TestApprovalContextIntegration:
         )
         checker = ProposalPolicyCheck(policy=custom_policy)
         proposal = _make_proposal(risk=RiskLevel.LOW)
-        verdict = checker.check(proposal)
+        result = checker.check(proposal)
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=verdict,
+            policy_result=result,
         )
-        assert ctx.is_resolved is True
+        assert ctx.is_resolved is False
         assert ctx.is_approved is False
 
 
@@ -342,26 +342,26 @@ class TestEdgeCases:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(parameters={})
         result = checker.check(proposal)
-        assert isinstance(result, PolicyVerdict)
+        assert isinstance(result, PolicyCheckResult)
 
     def test_empty_metadata(self) -> None:
         checker = ProposalPolicyCheck()
         proposal = _make_proposal(metadata={})
         result = checker.check(proposal)
-        assert isinstance(result, PolicyVerdict)
+        assert isinstance(result, PolicyCheckResult)
 
-    def test_all_action_types_produce_valid_verdicts(self) -> None:
+    def test_all_action_types_produce_valid_results(self) -> None:
         checker = ProposalPolicyCheck()
         for action_type in ActionType:
             proposal = _make_proposal(action_type=action_type)
             result = checker.check(proposal)
-            assert isinstance(result, PolicyVerdict)
-            assert result in (PolicyVerdict.ALLOW, PolicyVerdict.ASK, PolicyVerdict.DENY)
+            assert isinstance(result, PolicyCheckResult)
+            assert result.passed in (True, False)
 
-    def test_all_risk_levels_produce_valid_verdicts(self) -> None:
+    def test_all_risk_levels_produce_valid_results(self) -> None:
         checker = ProposalPolicyCheck()
         for risk in RiskLevel:
             proposal = _make_proposal(risk=risk)
             result = checker.check(proposal)
-            assert isinstance(result, PolicyVerdict)
-            assert result in (PolicyVerdict.ALLOW, PolicyVerdict.ASK, PolicyVerdict.DENY)
+            assert isinstance(result, PolicyCheckResult)
+            assert result.passed in (True, False)

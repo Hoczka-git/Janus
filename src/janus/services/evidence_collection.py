@@ -19,6 +19,7 @@ Module interface:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from janus._log import emit
 from janus.services.evidence import (
@@ -36,6 +37,55 @@ from janus.services.execution_feedback import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── Safe field access helpers ────────────────────────────────────────────────
+
+
+def _safe_str(value: Any, default: str = "") -> str:
+    """Coerce a value to a string, returning *default* if *value* is None."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _safe_str_list(value: Any) -> list[str]:
+    """Coerce a value to a list of strings.
+
+    - ``None`` → ``[]``
+    - ``str`` → ``[value]`` if non-empty, else ``[]``
+    - ``list``/``tuple`` → ``[str(item) for item in value if item is not None]``
+    - anything else → ``[]``
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item is not None]
+    return []
+
+
+def _safe_bool_or_none(value: Any) -> bool | None:
+    """Coerce a value to ``bool`` or ``None``.
+
+    - ``None`` → ``None``
+    - ``bool`` → as-is
+    - ``int``/``float`` → ``bool(value)``
+    - ``str`` → ``True`` for ``"true"``, ``"1"``, ``"yes"`` (case-insensitive)
+    - anything else → ``None``
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return None
 
 
 # ── Evidence collector ───────────────────────────────────────────────────────
@@ -78,8 +128,9 @@ class EvidenceCollector:
                 summary="Evidence collection failed: no execution result",
             )
 
-        metadata = result.metadata
-        evidence_pkg = result.evidence
+        # Safely access metadata and evidence
+        metadata = getattr(result, "metadata", None)
+        evidence_pkg = getattr(result, "evidence", None)
 
         # Handle None metadata / evidence gracefully
         if metadata is None:
@@ -87,31 +138,44 @@ class EvidenceCollector:
         if evidence_pkg is None:
             evidence_pkg = EvidencePackage(task_id="", summary="")
 
-        # Build file changes from changed_files
-        changed_files = metadata.changed_files or evidence_pkg.changed_files or []
+        # Safely extract fields
+        domain_object = _safe_str(getattr(metadata, "object", "unknown"), "unknown")
+        domain_title = _safe_str(getattr(metadata, "title", "unknown"), "unknown")
+        task_id = _safe_str(getattr(evidence_pkg, "task_id", ""))
+        summary = _safe_str(getattr(evidence_pkg, "summary", ""))
+        pr_url_raw = getattr(evidence_pkg, "pr_url", None)
+        pr_url = str(pr_url_raw) if pr_url_raw is not None else None
+        tests_passed = _safe_bool_or_none(getattr(evidence_pkg, "tests_passed", None))
+
+        # Safely extract changed_files
+        metadata_changed_files = _safe_str_list(getattr(metadata, "changed_files", None))
+        evidence_changed_files = _safe_str_list(getattr(evidence_pkg, "changed_files", None))
+        changed_files = metadata_changed_files or evidence_changed_files or []
+
+        # Build file changes
         file_changes = [
             FileChange(path=path, change_type="modified")
             for path in changed_files
         ]
 
-        # Build command outputs from evidence
+        # Build command outputs
         command_outputs = []
-        if evidence_pkg.tests_passed is not None:
+        if tests_passed is not None:
             command_outputs.append(
                 CommandOutput(
                     command="pytest",
-                    stdout=f"tests_passed={evidence_pkg.tests_passed}",
-                    exit_code=0 if evidence_pkg.tests_passed else 1,
+                    stdout=f"tests_passed={tests_passed}",
+                    exit_code=0 if tests_passed else 1,
                 )
             )
 
-        # Build logs from evidence summary
+        # Build logs
         logs = []
-        if evidence_pkg.summary:
+        if summary:
             logs.append(
                 LogEntry(
                     source="execution_feedback",
-                    message=evidence_pkg.summary,
+                    message=summary,
                     level="INFO",
                 )
             )
@@ -124,18 +188,19 @@ class EvidenceCollector:
                     label="post-execution",
                     state={
                         "changed_files": changed_files,
-                        "tests_passed": evidence_pkg.tests_passed,
-                        "pr_url": evidence_pkg.pr_url,
+                        "tests_passed": tests_passed,
+                        "pr_url": pr_url,
                     },
                 )
             )
 
         # Determine status
         has_changed_files = bool(changed_files)
-        has_tests = evidence_pkg.tests_passed is not None
-        has_pr = bool(evidence_pkg.pr_url)
-        has_body = bool(evidence_pkg.body or evidence_pkg.janus_body)
-        has_metrics = bool(evidence_pkg.metric_updates)
+        has_tests = tests_passed is not None
+        has_pr = bool(pr_url)
+        has_body = bool(getattr(evidence_pkg, "body", None) or getattr(evidence_pkg, "janus_body", None))
+        metric_updates = getattr(evidence_pkg, "metric_updates", None)
+        has_metrics = isinstance(metric_updates, list) and bool(metric_updates)
 
         if not has_changed_files and not has_tests and not has_pr and not has_body and not has_metrics:
             status = EvidenceStatus.EMPTY
@@ -145,28 +210,26 @@ class EvidenceCollector:
             status = EvidenceStatus.PARTIAL
 
         # Build summary
-        parts = [f"Evidence for {metadata.object}={metadata.title!r}"]
+        parts = [f"Evidence for {domain_object}={domain_title!r}"]
         if has_changed_files:
             parts.append(f"{len(file_changes)} file(s) changed")
         if has_tests:
-            parts.append(
-                f"tests {'passed' if evidence_pkg.tests_passed else 'failed'}"
-            )
+            parts.append(f"tests {'passed' if tests_passed else 'failed'}")
         if has_pr:
-            parts.append(f"PR: {evidence_pkg.pr_url}")
-        if has_metrics and evidence_pkg.metric_updates is not None:
-            parts.append(f"{len(evidence_pkg.metric_updates)} metric update(s)")
+            parts.append(f"PR: {pr_url}")
+        if isinstance(metric_updates, list) and metric_updates:
+            parts.append(f"{len(metric_updates)} metric update(s)")
 
         collected = Evidence(
-            task_id=evidence_pkg.task_id,
-            domain_object=metadata.object,
-            domain_title=metadata.title,
+            task_id=task_id,
+            domain_object=domain_object,
+            domain_title=domain_title,
             command_outputs=command_outputs,
             logs=logs,
             state_snapshots=state_snapshots,
             file_changes=file_changes,
-            tests_passed=evidence_pkg.tests_passed,
-            pr_url=evidence_pkg.pr_url,
+            tests_passed=tests_passed,
+            pr_url=pr_url,
             summary="; ".join(parts),
             status=status,
         )
@@ -176,11 +239,11 @@ class EvidenceCollector:
             "service.evidence_collection.collected",
             trace_id=None,
             span_id="evidence_collection",
-            domain_object=metadata.object,
-            domain_title=metadata.title,
-            task_id=evidence_pkg.task_id,
+            domain_object=domain_object,
+            domain_title=domain_title,
+            task_id=task_id,
             status=status.value,
-            message=f"Evidence collected for {metadata.object}={metadata.title!r}",
+            message=f"Evidence collected for {domain_object}={domain_title!r}",
         )
 
         return collected
@@ -214,8 +277,9 @@ class EvidenceCollector:
         try:
             return self.collect(result)
         except Exception as exc:
-            # Safely extract task_id/domain from result, handling cases where
-            # accessing result.evidence or result.metadata itself raises.
+            # Safely extract fields for error evidence — getattr with default
+            # catches AttributeError, but a property raising another exception
+            # would propagate. Wrap each access defensively.
             try:
                 task_id = getattr(result.evidence, "task_id", "")
             except Exception:
@@ -229,9 +293,9 @@ class EvidenceCollector:
             except Exception:
                 domain_title = "unknown"
             return Evidence(
-                task_id=task_id,
-                domain_object=domain_object,
-                domain_title=domain_title,
+                task_id=_safe_str(task_id),
+                domain_object=_safe_str(domain_object, "unknown"),
+                domain_title=_safe_str(domain_title, "unknown"),
                 status=EvidenceStatus.ERROR,
                 errors=[str(exc)],
                 summary=f"Evidence collection failed: {exc}",
