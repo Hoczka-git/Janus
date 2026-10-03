@@ -674,6 +674,12 @@ def _build_evidence(
     if not changed_files:
         changed_files = _workspace_changed_files(task)
 
+    # Resolve the target branch for the evidence package (for audit trail).
+    ws = getattr(task, "workspace_path", None)
+    target_branch = None
+    if ws:
+        target_branch = _detect_target_branch(Path(ws).expanduser(), "git")
+
     return EvidencePackage(
         task_id=task_id,
         summary=summary or "",
@@ -684,6 +690,7 @@ def _build_evidence(
         body=body,
         janus_body=janus_body,
         metric_updates=metric_updates,
+        target_branch=target_branch,
     )
 
 
@@ -713,6 +720,8 @@ def _workspace_changed_files(task: Any) -> list[str]:
         # to the first commit.
         base = _run_git(ws_path, [git, "merge-base", "origin/" + target, "HEAD"])
         if not base:
+            # Target branch detected but no remote tracking branch exists
+            # (e.g. local-only repo). Fall back to first commit.
             base = _first_commit(ws_path, git)
     if not base:
         # No base to diff against (e.g. empty repo) — list nothing.

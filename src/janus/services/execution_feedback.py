@@ -60,6 +60,7 @@ class EvidencePackage:
     body: str | None = None                 # full task body (for research/decision ingestion)
     janus_body: str | None = None           # clean artifact/ADR body (design §7.3 Option A)
     metric_updates: list[dict] | None = None  # declarative metric advancement (design §6.2)
+    target_branch: str | None = None        # resolved target branch (for audit trail)
 
     def to_dict(self) -> dict:
         """Serialize to a plain dict for storage in ``Goal.recent_activity``.
@@ -77,6 +78,7 @@ class EvidencePackage:
             "body": self.body,
             "janus_body": self.janus_body,
             "metric_updates": self.metric_updates,
+            "target_branch": self.target_branch,
         }
 
     @classmethod
@@ -97,6 +99,7 @@ class EvidencePackage:
             body=data.get("body"),
             janus_body=data.get("janus_body"),
             metric_updates=data.get("metric_updates"),
+            target_branch=data.get("target_branch"),
         )
 
 
