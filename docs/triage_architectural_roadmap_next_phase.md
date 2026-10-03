@@ -180,13 +180,19 @@ Review ──result───> Decision
 5. ~~The ADR-005 "service migration incomplete" and "two overlapping layers" caveats are stale against this repo.~~ — **RESOLVED.** ADR-005 §Remaining Uncertainty items 1&2 carry RESOLVED annotations; consolidated ADR executive summary updated.
 6. ~~The ADR-004 "Phase 1 dormant because plugin not loaded" caveat is accurate as a runtime item and should stay, but it is not a code gap in this repo.~~ — **RESOLVED.** This caveat remains accurate as an operational item; no code gap exists in this repo.
 
-**Probably not as a formal enum.** The current model already captures this:
+**Phase D is already implemented and merged.** The `execution_mode` / `support_mode` taxonomy was implemented as part of Phase D (Agency-Aware Planning) and merged to `master` via PRs #274, #280, and #283. The implementation includes:
 
-- **USER:** CLI commands, manual edits to markdown files. User acts directly.
-- **JANUS:** Service functions called by CLI or by Hermes via `janus_sync` plugin. Janus executes on user's behalf within gates.
-- **COLLABORATIVE:** The review topology (ADR-003) + planning + execution feedback (ADR-007) already create a collaborative loop. The user sets direction, Janus proposes/executes, user reviews.
+- `ExecutionMode` enum (`USER` / `JANUS` / `COLLABORATIVE`) — `src/janus/models/execution_mode.py`
+- `SupportMode` enum (`EXPLAIN` / `COACH` / `SCAFFOLD` / `REVIEW` / `EXECUTE`) — `src/janus/models/support_mode.py`
+- `TaskAgency` dataclass — `src/janus/models/task_agency.py`
+- `classify_task()` + `classify_next_action()` — `src/janus/services/agency_planning.py`
+- `EXECUTION_MODE_ORDER` + `SUPPORT_MODE_ORDER` tuples used in selection functions
+- `classify_task()` wired into `derive_next_action()` via `_agency_for_task()` in `src/janus/domain/planning.py`
+- 62 agency tests passing on master
 
-**Recommendation:** Don't add `execution_mode` as a domain concept yet. The distinction is already implicit in *who invokes the service* (CLI vs Hermes dispatch) and *what gates apply*. Add it only if there's a concrete need (e.g., different permissions, different audit trails, different UI paths).
+The Phase D design/status documentation takes precedence over the earlier recommendation below.
+
+**Earlier recommendation (superseded by Phase D implementation):** Don't add `execution_mode` as a domain concept yet. The distinction is already implicit in *who invokes the service* (CLI vs Hermes dispatch) and *what gates apply*. Add it only if there's a concrete need (e.g., different permissions, different audit trails, different UI paths).
 
 **This is simpler than a formal `execution_mode`/`support_mode` taxonomy and covers the actual agency needs.**
 
@@ -447,7 +453,7 @@ The remaining P0 items below do not depend on P0-1 being open — they are still
 - Extract when there's a clear need that existing models (goals, tasks, metrics, workouts) can't express.
 
 **P3-2: Execution mode / support mode taxonomy**
-- Add only if there's a concrete need for mode-specific behavior (permissions, UI, audit).
+- **Status: Implemented and merged.** Phase D (Agency-Aware Planning) delivered the `execution_mode` / `support_mode` taxonomy via PRs #274, #280, and #283. The implementation includes `ExecutionMode` enum (USER/JANUS/COLLABORATIVE), `SupportMode` enum (EXPLAIN/COACH/SCAFFOLD/REVIEW/EXECUTE), `TaskAgency` dataclass, `classify_task()` / `classify_next_action()` in `agency_planning.py`, and wiring into `derive_next_action()` via `_agency_for_task()`. 62 agency tests pass on master. See `docs/janus-agency-first-development-phase.md` §Phase D and `docs/coordination/t_f1e900e7-phase-d-status.md` for design and status details.
 
 **P3-3: Full audit log / event sourcing**
 - Over-engineered for current needs. Review topology + verification contracts + evidence model provide sufficient audit trail.
@@ -638,7 +644,7 @@ This section proposes the minimal addition to `docs/roadmap.md` to reflect the A
 ### P3 — Later / experimental
 
 - [ ] PersonalState as explicit concept (extract when need is clear)
-- [ ] Execution mode / support mode taxonomy (add only if concrete need emerges)
+- [x] Execution mode / support mode taxonomy — implemented and merged via PRs #274, #280, #283 (Phase D)
 - [ ] Full audit log / event sourcing (over-engineered for current needs)
 
 ### Not planned (yet)
