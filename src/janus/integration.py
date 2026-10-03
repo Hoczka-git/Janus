@@ -31,6 +31,7 @@ from janus.git_sync import (
     _run_git,
     detect_target_branch,
     detect_task_branch,
+    get_target_branch_config,
 )
 from janus.integrations.atomic_io import atomic_write
 
@@ -209,7 +210,7 @@ def integrate_branch(
 
     # ── 1. Resolve branches ──────────────────────────────────────────
     if target_branch is None:
-        target_branch = detect_target_branch(cwd_str)
+        target_branch = get_target_branch_config(cwd_str) or detect_target_branch(cwd_str)
 
     if not target_branch:
         result.reason = INTEGRATION_SETUP_FAILED
