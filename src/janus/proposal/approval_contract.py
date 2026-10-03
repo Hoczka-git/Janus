@@ -293,7 +293,31 @@ def evaluate_gate(proposal: ActionProposal, decision: ApprovalDecision) -> GateR
         Concrete implementations live in the gate layer (e.g.,
         ``approval_gate.py``).
     """
-    ...
+    if decision.status != ApprovalStatus.APPROVED:
+        return GateResult(
+            passed=False,
+            reason=f"Status is {decision.status}, not APPROVED",
+        )
+
+    if not decision.approver or not decision.approver.strip():
+        return GateResult(
+            passed=False,
+            reason="Approver identity is missing or empty",
+        )
+
+    if decision.decided_at is None:
+        return GateResult(
+            passed=False,
+            reason="Timestamp is missing",
+        )
+
+    if decision.decided_at > datetime.now():
+        return GateResult(
+            passed=False,
+            reason="Timestamp is in the future",
+        )
+
+    return GateResult(passed=True)
 
 
 # ── Boundary definition ──────────────────────────────────────────────────────
