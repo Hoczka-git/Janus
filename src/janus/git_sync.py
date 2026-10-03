@@ -117,6 +117,39 @@ def _git_conflict_ok(cwd: str, args: list[str]) -> tuple[int, str, str]:
     return _run_git(cwd, args)
 
 
+# ── Target branch configuration ──────────────────────────────────────────────
+
+# Name of the repository-level config file (at the git repo root).
+_TARGET_BRANCH_CONFIG_FILENAME = "janus.toml"
+
+
+def get_target_branch_config(cwd: str) -> Optional[str]:
+    """Read the target branch override from the repository-level config file.
+
+    Looks for ``janus.toml`` at the root of the git repository containing
+    *cwd*.  The file uses TOML format with a ``[target_branch]`` section::
+
+        [target_branch]
+        branch = "main"
+
+    Returns the configured branch name, or ``None`` when no override is set
+    (file missing, section missing, or ``branch`` key empty).
+    """
+    import tomllib
+
+    config_path = Path(cwd) / _TARGET_BRANCH_CONFIG_FILENAME
+    if not config_path.exists():
+        return None
+    try:
+        with config_path.open("rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return None
+    section = data.get("target_branch", {})
+    branch = section.get("branch", "")
+    return branch if branch else None
+
+
 # ── Target branch detection ──────────────────────────────────────────────────
 
 
