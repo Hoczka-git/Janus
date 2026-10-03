@@ -33,6 +33,3 @@ markers = [
     "no_parallel: marks a test as unsafe for parallel execution",
     "slow: marks a test as slow (excluded from quick runs)",
 ]
-
-[obsidian]
-vault_path = "/mnt/c/Users/dan11/Documents/HermesVault/Obsidian"
