@@ -209,6 +209,47 @@ class PolicyCheck(Protocol):
         ...
 
 
+class ApprovalPolicyCheck:
+    """Concrete implementation of the PolicyCheck protocol.
+
+    Evaluates an ActionProposal against basic policy rules:
+    - The proposal must have a non-empty action type.
+    - The proposal must have a non-empty target.
+
+    This is a pure, deterministic function of the proposal content.
+    No I/O, no side effects.
+    """
+
+    def check(self, proposal: ActionProposal) -> PolicyCheckResult:
+        """Check if the proposal content passes policy.
+
+        Args:
+            proposal: The proposal to check.
+
+        Returns:
+            A PolicyCheckResult indicating whether the proposal is allowed.
+        """
+        if proposal.action_type is None or not str(proposal.action_type).strip():
+            return PolicyCheckResult(
+                allowed=False,
+                reason="Action type is empty or invalid",
+                rule_id="action_type_required",
+            )
+
+        if proposal.target_id is None or not proposal.target_id.strip():
+            return PolicyCheckResult(
+                allowed=False,
+                reason="Target is empty or missing",
+                rule_id="target_required",
+            )
+
+        return PolicyCheckResult(
+            allowed=True,
+            reason="Proposal passes basic policy check",
+            rule_id="basic_policy",
+        )
+
+
 # ── Approval + Policy contract ───────────────────────────────────────────────
 
 
