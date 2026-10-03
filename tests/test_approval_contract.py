@@ -5,6 +5,7 @@ Covers:
 - ApprovalDecision dataclass
 - ApprovalGate protocol (runtime_checkable, cannot instantiate)
 - PolicyCheck protocol (runtime_checkable, cannot instantiate)
+- PolicyCheckResult dataclass
 - ApprovalContext dataclass and its properties
 - Boundary between approval and policy check
 - Integration with ActionProposal model
@@ -17,7 +18,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from janus.models.policy import RiskLevel
-from janus.models.policy_p1 import PolicyVerdict
 from janus.proposal import ActionProposal, ActionType, ProposalStatus
 from janus.proposal.approval_contract import (
     ApprovalContext,
@@ -26,6 +26,7 @@ from janus.proposal.approval_contract import (
     ApprovalStatus,
     GateResult,
     PolicyCheck,
+    PolicyCheckResult,
     evaluate_gate,
 )
 
@@ -114,6 +115,31 @@ class TestApprovalDecision:
             assert decision.status == status
 
 
+# ── PolicyCheckResult dataclass ─────────────────────────────────────────────
+
+
+class TestPolicyCheckResult:
+    def test_passed_construct(self) -> None:
+        result = PolicyCheckResult(passed=True)
+        assert result.passed is True
+        assert result.reason is None
+
+    def test_failed_construct(self) -> None:
+        result = PolicyCheckResult(passed=False, reason="Too risky")
+        assert result.passed is False
+        assert result.reason == "Too risky"
+
+    def test_failed_without_reason(self) -> None:
+        result = PolicyCheckResult(passed=False)
+        assert result.passed is False
+        assert result.reason is None
+
+    def test_reason_optional(self) -> None:
+        result = PolicyCheckResult(passed=True, reason="All good")
+        assert result.passed is True
+        assert result.reason == "All good"
+
+
 # ── ApprovalGate protocol ───────────────────────────────────────────────────
 
 
@@ -171,12 +197,12 @@ class TestPolicyCheckProtocol:
         """A concrete class implementing the protocol can be instantiated."""
 
         class MockPolicyCheck:
-            def check(self, proposal: ActionProposal) -> PolicyVerdict:
-                return PolicyVerdict.ALLOW
+            def check(self, proposal: ActionProposal) -> PolicyCheckResult:
+                return PolicyCheckResult(passed=True)
 
         checker: PolicyCheck = MockPolicyCheck()  # type: ignore[assignment]
         proposal = ActionProposal(reason="test")
-        assert checker.check(proposal) == PolicyVerdict.ALLOW
+        assert checker.check(proposal).passed is True
 
     def test_has_required_methods(self) -> None:
         assert hasattr(PolicyCheck, "check")
@@ -204,10 +230,10 @@ class TestApprovalContext:
         proposal = self._make_proposal()
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=PolicyVerdict.ALLOW,
+            policy_result=PolicyCheckResult(passed=True),
         )
         assert ctx.proposal is proposal
-        assert ctx.policy_verdict == PolicyVerdict.ALLOW
+        assert ctx.policy_result.passed is True
         assert ctx.approval_status == ApprovalStatus.PENDING
         assert ctx.decision is None
 
@@ -220,107 +246,93 @@ class TestApprovalContext:
         )
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.APPROVED,
             decision=decision,
         )
         assert ctx.proposal is proposal
-        assert ctx.policy_verdict == PolicyVerdict.ASK
+        assert ctx.policy_result.passed is False
         assert ctx.approval_status == ApprovalStatus.APPROVED
         assert ctx.decision is decision
 
     # -- is_resolved --
 
-    def test_resolved_when_allow(self) -> None:
+    def test_resolved_when_passed(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ALLOW,
+            policy_result=PolicyCheckResult(passed=True),
         )
         assert ctx.is_resolved is True
 
-    def test_resolved_when_deny(self) -> None:
+    def test_not_resolved_when_failed_pending(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.DENY,
-        )
-        assert ctx.is_resolved is True
-
-    def test_not_resolved_when_ask_pending(self) -> None:
-        ctx = ApprovalContext(
-            proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.PENDING,
         )
         assert ctx.is_resolved is False
 
-    def test_resolved_when_ask_approved(self) -> None:
+    def test_resolved_when_failed_approved(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.APPROVED,
         )
         assert ctx.is_resolved is True
 
-    def test_resolved_when_ask_rejected(self) -> None:
+    def test_resolved_when_failed_rejected(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.REJECTED,
         )
         assert ctx.is_resolved is True
 
-    def test_resolved_when_ask_deferred(self) -> None:
+    def test_resolved_when_failed_deferred(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.DEFERRED,
         )
         assert ctx.is_resolved is True
 
     # -- is_approved --
 
-    def test_approved_when_allow(self) -> None:
+    def test_approved_when_passed(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ALLOW,
+            policy_result=PolicyCheckResult(passed=True),
         )
         assert ctx.is_approved is True
 
-    def test_not_approved_when_deny(self) -> None:
+    def test_not_approved_when_failed_pending(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.DENY,
-        )
-        assert ctx.is_approved is False
-
-    def test_not_approved_when_ask_pending(self) -> None:
-        ctx = ApprovalContext(
-            proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.PENDING,
         )
         assert ctx.is_approved is False
 
-    def test_approved_when_ask_approved(self) -> None:
+    def test_approved_when_failed_approved(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.APPROVED,
         )
         assert ctx.is_approved is True
 
-    def test_not_approved_when_ask_rejected(self) -> None:
+    def test_not_approved_when_failed_rejected(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.REJECTED,
         )
         assert ctx.is_approved is False
 
-    def test_not_approved_when_ask_deferred(self) -> None:
+    def test_not_approved_when_failed_deferred(self) -> None:
         ctx = ApprovalContext(
             proposal=self._make_proposal(),
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.DEFERRED,
         )
         assert ctx.is_approved is False
@@ -348,18 +360,19 @@ class TestBoundary:
         policy_methods = {"check"}
         assert gate_methods.isdisjoint(policy_methods)
 
-    def test_policy_check_returns_verdict_enum(self) -> None:
-        """PolicyCheck.check returns PolicyVerdict, not ApprovalStatus."""
-        # This is a type-level contract: the return type is PolicyVerdict
-        # which has ALLOW/ASK/DENY, while ApprovalStatus has
+    def test_policy_check_returns_result_type(self) -> None:
+        """PolicyCheck.check returns PolicyCheckResult, not ApprovalStatus."""
+        # This is a type-level contract: the return type is PolicyCheckResult
+        # which has passed/reason, while ApprovalStatus has
         # PENDING/APPROVED/REJECTED/DEFERRED
-        assert PolicyVerdict.ALLOW != ApprovalStatus.APPROVED
-        assert PolicyVerdict.DENY != ApprovalStatus.REJECTED
+        result = PolicyCheckResult(passed=True)
+        assert result.passed is True
+        assert not isinstance(result, ApprovalStatus)
 
     def test_approval_gate_returns_status_enum(self) -> None:
-        """ApprovalGate.check_approval returns ApprovalStatus, not PolicyVerdict."""
-        assert ApprovalStatus.PENDING != PolicyVerdict.ASK
-        assert ApprovalStatus.APPROVED != PolicyVerdict.ALLOW
+        """ApprovalGate.check_approval returns ApprovalStatus, not PolicyCheckResult."""
+        assert ApprovalStatus.PENDING != "passed"
+        assert ApprovalStatus.APPROVED != "failed"
 
 
 # ── Integration with ActionProposal ─────────────────────────────────────────
@@ -411,7 +424,7 @@ class TestActionProposalIntegration:
         )
         ctx = ApprovalContext(
             proposal=proposal,
-            policy_verdict=PolicyVerdict.ASK,
+            policy_result=PolicyCheckResult(passed=False),
             approval_status=ApprovalStatus.APPROVED,
             decision=ApprovalDecision(
                 proposal_id="AP-integration",

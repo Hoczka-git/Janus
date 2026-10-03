@@ -1,10 +1,9 @@
 """Tests for the ApprovalWorkflow — the wiring layer between approval gate and policy check.
 
 Covers:
-- ALLOW flow: gate not invoked, context returned
-- ASK flow with no decision: gate checked, PENDING status
-- ASK flow with decision: gate checked, decision included
-- DENY flow: gate not invoked, context returned
+- Pass flow: gate not invoked, context returned
+- Fail flow with no decision: gate checked, PENDING status
+- Fail flow with decision: gate checked, decision included
 - Integration with ActionProposal model
 - Package-level export of ApprovalWorkflow
 """
@@ -12,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 from janus.models.policy import RiskLevel
-from janus.models.policy_p1 import PolicyVerdict
 from janus.proposal import (
     ActionProposal,
     ActionType,
@@ -23,6 +21,7 @@ from janus.proposal import (
     ApprovalWorkflow,
     InMemoryApprovalGate,
     PolicyCheck,
+    PolicyCheckResult,
     ProposalPolicyCheck,
     ProposalStatus,
 )
@@ -65,12 +64,12 @@ class TestApprovalWorkflowExport:
         assert workflow.policy_check is checker
 
 
-# ── ALLOW flow ───────────────────────────────────────────────────────────────
+# ── Pass flow ───────────────────────────────────────────────────────────────
 
 
-class TestAllowFlow:
-    def test_allow_skips_gate(self) -> None:
-        """ALLOW verdict should not invoke the approval gate."""
+class TestPassFlow:
+    def test_pass_skips_gate(self) -> None:
+        """Passed policy check should not invoke the approval gate."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -78,14 +77,14 @@ class TestAllowFlow:
 
         context = workflow.evaluate(proposal)
 
-        assert context.policy_verdict == PolicyVerdict.ALLOW
+        assert context.policy_result.passed is True
         assert context.approval_status == ApprovalStatus.PENDING
         assert context.decision is None
         assert context.is_resolved is True
         assert context.is_approved is True
 
-    def test_allow_does_not_record_decision(self) -> None:
-        """ALLOW flow should not create any gate decisions."""
+    def test_pass_does_not_record_decision(self) -> None:
+        """Pass flow should not create any gate decisions."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -97,12 +96,12 @@ class TestAllowFlow:
         assert gate.get_decision(proposal.proposal_id) is None
 
 
-# ── ASK flow ─────────────────────────────────────────────────────────────────
+# ── Fail flow ───────────────────────────────────────────────────────────────
 
 
-class TestAskFlow:
-    def test_ask_with_no_decision(self) -> None:
-        """ASK verdict with no recorded decision should return PENDING."""
+class TestFailFlow:
+    def test_fail_with_no_decision(self) -> None:
+        """Failed policy check with no recorded decision should return PENDING."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -110,14 +109,14 @@ class TestAskFlow:
 
         context = workflow.evaluate(proposal)
 
-        assert context.policy_verdict == PolicyVerdict.ASK
+        assert context.policy_result.passed is False
         assert context.approval_status == ApprovalStatus.PENDING
         assert context.decision is None
         assert context.is_resolved is False
         assert context.is_approved is False
 
-    def test_ask_with_approved_decision(self) -> None:
-        """ASK verdict with approved decision should return APPROVED."""
+    def test_fail_with_approved_decision(self) -> None:
+        """Failed policy check with approved decision should return APPROVED."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -133,15 +132,15 @@ class TestAskFlow:
 
         context = workflow.evaluate(proposal)
 
-        assert context.policy_verdict == PolicyVerdict.ASK
+        assert context.policy_result.passed is False
         assert context.approval_status == ApprovalStatus.APPROVED
         assert context.decision is not None
         assert context.decision.approver == "user"
         assert context.is_resolved is True
         assert context.is_approved is True
 
-    def test_ask_with_rejected_decision(self) -> None:
-        """ASK verdict with rejected decision should return REJECTED."""
+    def test_fail_with_rejected_decision(self) -> None:
+        """Failed policy check with rejected decision should return REJECTED."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -157,14 +156,14 @@ class TestAskFlow:
 
         context = workflow.evaluate(proposal)
 
-        assert context.policy_verdict == PolicyVerdict.ASK
+        assert context.policy_result.passed is False
         assert context.approval_status == ApprovalStatus.REJECTED
         assert context.decision is not None
         assert context.is_resolved is True
         assert context.is_approved is False
 
-    def test_ask_with_deferred_decision(self) -> None:
-        """ASK verdict with deferred decision should return DEFERRED."""
+    def test_fail_with_deferred_decision(self) -> None:
+        """Failed policy check with deferred decision should return DEFERRED."""
         gate = InMemoryApprovalGate()
         checker = ProposalPolicyCheck()
         workflow = ApprovalWorkflow(gate, checker)
@@ -180,86 +179,11 @@ class TestAskFlow:
 
         context = workflow.evaluate(proposal)
 
-        assert context.policy_verdict == PolicyVerdict.ASK
+        assert context.policy_result.passed is False
         assert context.approval_status == ApprovalStatus.DEFERRED
         assert context.decision is not None
         assert context.is_resolved is True
         assert context.is_approved is False
-
-
-# ── DENY flow ────────────────────────────────────────────────────────────────
-
-
-class TestDenyFlow:
-    def test_deny_skips_gate(self) -> None:
-        """DENY verdict should not invoke the approval gate."""
-        gate = InMemoryApprovalGate()
-        # Use a custom policy that denies CREATE_TASK with HIGH risk
-        from janus.models.policy import (
-            ImpactLevel,
-            Policy,
-            PolicyAction,
-            PolicyDecision,
-            PolicyRule,
-        )
-        custom_policy = Policy(
-            rules=[
-                PolicyRule(
-                    action=PolicyAction.CREATE,
-                    risk=RiskLevel.HIGH,
-                    impact=None,
-                    decision=PolicyDecision.DENY,
-                    description="High-risk creates are denied",
-                    priority=10,
-                ),
-            ],
-            default_decision=PolicyDecision.ALLOW,
-            name="test_deny",
-        )
-        checker = ProposalPolicyCheck(policy=custom_policy)
-        workflow = ApprovalWorkflow(gate, checker)
-        proposal = _make_proposal(risk=RiskLevel.HIGH)
-
-        context = workflow.evaluate(proposal)
-
-        assert context.policy_verdict == PolicyVerdict.DENY
-        assert context.approval_status == ApprovalStatus.PENDING
-        assert context.decision is None
-        assert context.is_resolved is True
-        assert context.is_approved is False
-
-    def test_deny_does_not_record_decision(self) -> None:
-        """DENY flow should not create any gate decisions."""
-        gate = InMemoryApprovalGate()
-        from janus.models.policy import (
-            ImpactLevel,
-            Policy,
-            PolicyAction,
-            PolicyDecision,
-            PolicyRule,
-        )
-        custom_policy = Policy(
-            rules=[
-                PolicyRule(
-                    action=PolicyAction.CREATE,
-                    risk=RiskLevel.HIGH,
-                    impact=None,
-                    decision=PolicyDecision.DENY,
-                    description="High-risk creates are denied",
-                    priority=10,
-                ),
-            ],
-            default_decision=PolicyDecision.ALLOW,
-            name="test_deny",
-        )
-        checker = ProposalPolicyCheck(policy=custom_policy)
-        workflow = ApprovalWorkflow(gate, checker)
-        proposal = _make_proposal(risk=RiskLevel.HIGH)
-
-        workflow.evaluate(proposal)
-
-        assert gate.check_approval(proposal.proposal_id) == ApprovalStatus.PENDING
-        assert gate.get_decision(proposal.proposal_id) is None
 
 
 # ── Integration with ActionProposal ──────────────────────────────────────────
@@ -360,6 +284,6 @@ class TestBoundaryEnforcement:
         ctx1 = workflow.evaluate(proposal)
         ctx2 = workflow.evaluate(proposal)
 
-        assert ctx1.policy_verdict == ctx2.policy_verdict
+        assert ctx1.policy_result.passed == ctx2.policy_result.passed
         assert ctx1.approval_status == ctx2.approval_status
         assert ctx1.is_approved == ctx2.is_approved
