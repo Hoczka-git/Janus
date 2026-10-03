@@ -218,10 +218,16 @@ def _current_branch(root: Path) -> Optional[str]:
     return None
 
 
-def _target_branch(root: Path) -> Optional[str]:
-    """Resolve the target branch name: config override first, then auto-detect."""
-    from janus.git_sync import detect_target_branch, get_target_branch_config
+def _target_branch(root: Path, override: Optional[str] = None) -> Optional[str]:
+    """Resolve the target branch name: config override first, then auto-detect.
 
+    When *override* is provided (e.g. from a per-repository config), it takes
+    precedence over auto-detection.  When *override* is ``None``, the existing
+    ``detect_target_branch()`` resolution order is used unchanged.
+    """
+    if override:
+        return override
+    from janus.git_sync import detect_target_branch, get_target_branch_config
     override = get_target_branch_config(str(root))
     if override:
         return override
@@ -346,6 +352,7 @@ class IntegrationState:
     ci_status: str = "unknown"  # "green" | "red" | "unknown"
     ci_checks_passed: bool = False
     error: Optional[str] = None
+    target_branch: Optional[str] = None
 
 
 IntegrationStateProvider = Callable[[str], IntegrationState]
@@ -362,6 +369,7 @@ class IntegrationGateResult:
     pr_url: Optional[str] = None
     ci_status: Optional[str] = None
     error: Optional[str] = None
+    target_branch: Optional[str] = None
 
 
 @dataclass
@@ -390,6 +398,7 @@ def no_op_integration_state_provider(branch: str) -> IntegrationState:
         ci_status="unknown",
         ci_checks_passed=False,
         error="no_ci_provider_configured",
+        target_branch=None,
     )
 
 
@@ -878,11 +887,17 @@ def run_unified_completion_gates(
     provider = integration_state_provider or no_op_integration_state_provider
     integration_gate_result = IntegrationGateResult()
 
+    # Propagate target_branch from the ADR-004 result for audit consistency.
+    _resolved_target = None
+    if adr004_result.integration_result is not None:
+        _resolved_target = adr004_result.integration_result.target_branch
+
     if not integration_required:
         integration_gate_result = IntegrationGateResult(
             passed=True,
             skipped=True,
             skip_reason="explicit_false",
+            target_branch=_resolved_target,
         )
         emit(
             logger,
@@ -914,6 +929,7 @@ def run_unified_completion_gates(
                 skipped=True,
                 skip_reason="provider_error",
                 error=state.error,
+                target_branch=_resolved_target,
             )
             emit(
                 logger,
@@ -939,6 +955,7 @@ def run_unified_completion_gates(
                 failure_reason="pr_not_merged",
                 pr_url=state.pr_url,
                 ci_status=state.ci_status,
+                target_branch=_resolved_target,
             )
             emit(
                 logger,
@@ -980,6 +997,7 @@ def run_unified_completion_gates(
                 failure_reason="ci_not_green",
                 pr_url=state.pr_url,
                 ci_status=state.ci_status,
+                target_branch=_resolved_target,
             )
             emit(
                 logger,
@@ -1020,6 +1038,7 @@ def run_unified_completion_gates(
                 skipped=False,
                 pr_url=state.pr_url,
                 ci_status=state.ci_status,
+                target_branch=_resolved_target,
             )
             emit(
                 logger,
